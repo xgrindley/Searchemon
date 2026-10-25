@@ -203,7 +203,7 @@ class WebPage(Retailer):
                 third_party=self.third_party(info.get("seller")),
                 preorder=bool(info.get("preorder")),
             )
-            self.pause(1.5)
+            self.pause(self.link_delay())
         return out
 
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import os
 import queue
@@ -74,6 +75,7 @@ class Monitor:
         self.retailer_status: dict[str, str] = {}
         self.health: dict[str, dict] = {}
         self.human_checks: dict[str, dict] = {}
+        self._pacing_lock = threading.Lock()
         self.browser: BrowserPool | None = None
         self.tracker: BlockTracker | None = None
         self.queue_state: dict[str, dict] = {}
@@ -108,7 +110,7 @@ class Monitor:
                                        tracker=self.tracker)
             self.browser.on_reopen = self._browser_reopened
         else:
-            self.browser.bcfg = self.cfg.raw.get("browser") or {}
+            self.browser.raw = self.cfg.raw
         self.retailers: dict[str, Retailer] = {
             name: REGISTRY[name](self.cfg, self.log, self.browser) for name in self.cfg.enabled_retailers()
         }
@@ -201,9 +203,16 @@ class Monitor:
 
     # ---- human verification (called from the browser thread) ----------------------
     def _human_needed(self, domain: str, url: str, info: BlockInfo) -> None:
-        self.human_checks[domain] = {"domain": domain, "url": clean_url(url), "vendor": info.vendor, "since": time.time()}
+        profile = ""
+        try:
+            profile = next((w["profile"] for w in self.browser.waiting_domains() if w["domain"] == domain), "")
+        except Exception:
+            pass
+        self.human_checks[domain] = {"domain": domain, "url": clean_url(url), "vendor": info.vendor, "since": time.time(),
+                                     "profile": profile}
         site = domain.removeprefix("www.")
-        self.info(f"{site} wants a quick human check. Finish it in the browser window that just opened.")
+        where = f"the {profile} browser window" if profile else "the browser window that just opened"
+        self.info(f"{site} wants a quick human check. Finish it in {where}.")
         self.toaster.message(f"{site} needs a quick check",
                              "Finish the check in the browser window and restock checks continue.")
         if (self.cfg.raw.get("browser") or {}).get("notify_discord") and self.notifier.enabled:
@@ -332,8 +341,40 @@ class Monitor:
         self.check_now()
 
     def _health(self, name: str) -> dict:
-        return self.health.setdefault(name, {"recent": deque(maxlen=40), "slow": 1.0, "blocks": 0,
-                                             "last_block": "", "last_ok": 0.0, "mode": ""})
+        if name not in self.health:
+            self.health[name] = {"recent": deque(maxlen=40), "slow": self._saved_slow(name), "blocks": 0,
+                                 "last_block": "", "last_ok": 0.0, "mode": ""}
+        return self.health[name]
+
+    # A store that pushed back stays slowed after a restart, easing off with time, so
+    # closing and reopening the app does not start hammering it again at full speed.
+    PACING_HALF_LIFE_S = 1800
+
+    def _pacing_path(self) -> str:
+        return os.path.join(self.cfg.data_dir, "pacing.json")
+
+    def _saved_slow(self, name: str) -> float:
+        try:
+            with open(self._pacing_path(), encoding="utf-8") as fh:
+                row = json.load(fh).get(name) or {}
+            slow = float(row.get("slow", 1.0))
+            aged = max(0.0, time.time() - float(row.get("at", 0)))
+            return max(1.0, min(MAX_SLOWDOWN, slow * 0.5 ** (aged / self.PACING_HALF_LIFE_S)))
+        except (OSError, ValueError, TypeError):
+            return 1.0
+
+    def _save_pacing(self) -> None:
+        with self._pacing_lock:
+            rows = {n: {"slow": round(h["slow"], 3), "at": time.time()}
+                    for n, h in self.health.items() if h["slow"] > 1.05}
+            try:
+                os.makedirs(self.cfg.data_dir, exist_ok=True)
+                tmp = self._pacing_path() + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    json.dump(rows, fh)
+                os.replace(tmp, self._pacing_path())
+            except OSError:
+                pass
 
     def _next_delay(self, r: Retailer, h: dict, elapsed: float) -> tuple[float, str]:
         """Base interval, sped up in likely restock windows, slowed after pushback."""
@@ -390,6 +431,7 @@ class Monitor:
                 status = f"Error: {str(exc)[:60]}"
                 backoff = 60
             self.state.save()
+            self._save_pacing()
             delay, notes = self._next_delay(r, h, time.time() - started)
             if backoff:
                 delay = backoff

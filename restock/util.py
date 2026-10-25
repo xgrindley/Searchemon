@@ -31,7 +31,9 @@ def clean_url(url: str | None) -> str:
         for k, v in parse_qsl(parts.query, keep_blank_values=True)
         if k.lower() not in _TRACKING_KEYS and not k.lower().startswith(_TRACKING_PREFIXES)
     ]
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
+    local = (parts.hostname or "") in ("127.0.0.1", "localhost", "::1")
+    scheme = "https" if parts.scheme == "http" and not local else parts.scheme  # never send a product link in the clear
+    return urlunsplit((scheme, parts.netloc, parts.path, urlencode(query), ""))
 
 
 def normalize_text(text: str | None) -> str:
@@ -105,3 +107,29 @@ def read_json(path: str, default: Any) -> Any:
             return json.load(fh)
     except (OSError, ValueError):
         return default
+
+
+def app_version() -> str:
+    """The version in the VERSION file next to app.py (for example "0.5"), or "" if it is missing."""
+    import sys
+    roots = []
+    if getattr(sys, "frozen", False):
+        roots += [os.path.dirname(sys.executable), getattr(sys, "_MEIPASS", "")]
+    roots.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    for root in roots:
+        try:
+            with open(os.path.join(root, "VERSION"), encoding="utf-8") as fh:
+                return fh.read().strip()
+        except OSError:
+            continue
+    return ""
+
+
+def version_label(version: str | None = None) -> str:
+    """"v0.5 test build" or "v2.0 stable". Whole numbers from 1.0 up (x.0) are stable releases;
+    everything else (0.x, 1.1, 2.3 ...) is a test build."""
+    v = app_version() if version is None else version
+    if not v:
+        return ""
+    stable = v.endswith(".0") and not v.startswith("0.")
+    return f"v{v} {'stable' if stable else 'test build'}"

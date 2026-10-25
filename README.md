@@ -86,9 +86,10 @@ not your connection. The app runs more than one checking browser, each with its 
 (`browser.profiles` in config.yaml: Edge and Chrome by default), and rotates checks across
 them. When a store blocks one, that one rests for that store (as long as the block says, for
 example 12 hours for Dick's) while the others keep checking. Edge or Chrome matters less than
-having separate cookies. You can also point a profile at your own Chrome with
-`cdp_url: "http://127.0.0.1:9222"`; start that Chrome with
-`chrome.exe --remote-debugging-port=9222 --user-data-dir="C:\chrome-restock"`.
+having separate cookies. Your own Chrome helps most with CVS and
+Dick's: run `powershell -ExecutionPolicy Bypass -File .\start-my-chrome.ps1`, leave that Chrome
+open, then start the app. It is added as "my-chrome" automatically and checks those stores first
+(`browser.own_chrome_sites`).
 Sign in to a store once and it opens in every profile. Restart the app after changing profiles.
 
 **See what works.** More > Block tracker (or `app.py --stats`) shows, per store and method, how

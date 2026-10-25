@@ -91,7 +91,7 @@ class Walmart(Retailer):
             product = dig(data, "props", "pageProps", "initialData", "data", "product")
             if product:
                 out[item_id] = self._product_result(item_id, product, self.display)
-            self.pause(2.0)
+            self.pause(max(1.0, self.link_delay()))
         return out
 
     def _search_items(self, query: str) -> list[dict]:

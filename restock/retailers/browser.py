@@ -15,6 +15,8 @@ import importlib.util
 import logging
 import os
 import queue
+import random
+import socket
 import threading
 import time
 from concurrent.futures import Future
@@ -22,11 +24,11 @@ from dataclasses import dataclass
 from typing import Callable
 from urllib.parse import urlsplit
 
-from .blocks import BlockInfo, classify
+from .blocks import BlockInfo, classify, wants_person
 
 OFFSCREEN = -32000
 HUMAN_WAIT_REMIND_S = 1800
-SAME_SITE_GAP_S = 3.0
+SAME_SITE_GAP_S = 1.0   # never load two pages of one store closer together than this
 
 
 class BrowserUnavailable(Exception):
@@ -48,11 +50,60 @@ def playwright_installed() -> bool:
     return importlib.util.find_spec("playwright") is not None
 
 
+
+def _force_foreground(hint: str) -> None:
+    """Windows only. Bring the Chrome or Edge window whose title contains `hint` to the front.
+    Windows normally refuses to let a background program take focus, so a plain
+    bring_to_front only blinks the taskbar; a tapped Alt key lets the switch through."""
+    if os.name != "nt" or not hint:
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        found: list = []
+        enum_proc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+
+        def visit(hwnd, _lparam):
+            if user32.IsWindowVisible(hwnd):
+                cls = ctypes.create_unicode_buffer(64)
+                user32.GetClassNameW(hwnd, cls, 64)
+                size = user32.GetWindowTextLengthW(hwnd)
+                if cls.value == "Chrome_WidgetWin_1" and size:
+                    title = ctypes.create_unicode_buffer(size + 1)
+                    user32.GetWindowTextW(hwnd, title, size + 1)
+                    if hint.lower() in title.value.lower():
+                        found.append(hwnd)
+            return True
+
+        user32.EnumWindows(enum_proc(visit), 0)
+        if found:
+            hwnd = found[0]
+            user32.ShowWindow(hwnd, 9)                 # SW_RESTORE: undo minimized
+            user32.keybd_event(0x12, 0, 0, 0)          # Alt down
+            user32.SetForegroundWindow(hwnd)
+            user32.keybd_event(0x12, 0, 2, 0)          # Alt up
+    except Exception:
+        pass
+
+OWN_CHROME = "my-chrome"
+
+
+def _port_open(port: int) -> bool:
+    """True when something on this PC is listening on the port (your own Chrome, ready for DevTools)."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.4):
+            return True
+    except OSError:
+        return False
+
+
 class BrowserWorker:
     def __init__(self, raw_cfg: dict, data_dir: str, log: logging.Logger,
                  on_human: Callable[[str, str, BlockInfo], None] | None = None,
                  on_verified: Callable[[str], None] | None = None,
                  name: str = "edge", channel: str = "", cdp_url: str = "", profile_dir: str = ""):
+        self.raw = raw_cfg
         self.bcfg = raw_cfg.get("browser") or {}
         self.name = name
         self.channel = channel
@@ -65,7 +116,9 @@ class BrowserWorker:
         self.thread: threading.Thread | None = None
         self.start_lock = threading.Lock()
         self.failed = ""                 # set if the browser could not start
-        self.pages: dict = {}            # domain -> Page used for checks
+        self.pages: dict = {}            # domain -> the tab used most recently for that store
+        self.tabs: dict[str, list] = {}  # domain -> the tabs its pages rotate through
+        self.tab_turn: dict[str, int] = {}
         self.pending: dict[str, dict] = {}  # domain -> {"page", "since", "url", "reminded"}
         self.last_load: dict[str, float] = {}
         self.closed = False              # the window or browser was closed by hand
@@ -82,10 +135,12 @@ class BrowserWorker:
 
     @property
     def keep_hidden(self) -> bool:
-        return not self.bcfg.get("show_window", False)
+        # An attached Chrome is your own window: never slide it off screen.
+        return not self.cdp_url and not self.bcfg.get("show_window", False)
 
     def waiting_domains(self) -> list[dict]:
-        return [{"domain": d, "url": p["url"], "since": p["since"]} for d, p in list(self.pending.items())]
+        return [{"domain": d, "url": p["url"], "since": p["since"], "profile": self.name}
+                for d, p in list(self.pending.items())]
 
     # ---- public API (any thread) ---------------------------------------------------
     def fetch(self, url: str, timeout: float = 120, ask: bool = True) -> FetchResult:
@@ -182,6 +237,7 @@ class BrowserWorker:
         except Exception:
             pass
         self.pages.clear()
+        self.tabs.clear()
         self.pending.clear()
         try:
             ctx = self._launch(pw)
@@ -228,11 +284,46 @@ class BrowserWorker:
             except Exception:
                 return ""
 
+    def tab_count(self) -> int:
+        try:
+            n = int(self.bcfg.get("tabs_per_site", 3))
+        except (TypeError, ValueError):
+            n = 3
+        return max(1, min(6, n))
+
+    def link_gap(self) -> float:
+        """Seconds to leave between two page loads on the same store (the delay-between-links
+        setting, plus up to half again at random)."""
+        try:
+            base = float((self.raw.get("settings") or {}).get("link_delay_seconds", 4) or 0)
+        except (TypeError, ValueError):
+            base = 4.0
+        base = max(0.0, min(base, 120.0))
+        return random.uniform(base, base * 1.5) if base else 0.0
+
     def _page_for(self, domain: str):
-        page = self.pages.get(domain)
-        if page is None or page.is_closed():
+        """The next tab in this store's rotation. Tabs are opened as needed, up to the
+        tabs-per-site setting, so a store's pages are not all loaded in one tab."""
+        want = self.tab_count()
+        tabs = [t for t in self.tabs.get(domain, []) if not t.is_closed()]
+        while len(tabs) > want:
+            extra = tabs.pop()
+            try:
+                extra.close()
+            except Exception:
+                pass
+        if len(tabs) < want:
             page = self.ctx.new_page()
-            self.pages[domain] = page
+            if self.keep_hidden:
+                self._bounds(page, {"left": OFFSCREEN, "top": OFFSCREEN, "width": 1280, "height": 900})
+            tabs.append(page)
+            turn = len(tabs) - 1
+        else:
+            turn = self.tab_turn.get(domain, 0) % len(tabs)
+        self.tab_turn[domain] = turn + 1
+        self.tabs[domain] = tabs
+        page = tabs[turn]
+        self.pages[domain] = page
         return page
 
     def _fetch(self, url: str, ask: bool = True) -> FetchResult:
@@ -260,7 +351,7 @@ class BrowserWorker:
             self.log.info("%s verified, browser checks resuming", domain)
             self.on_verified(domain)
 
-        gap = SAME_SITE_GAP_S - (now - self.last_load.get(domain, 0))
+        gap = max(SAME_SITE_GAP_S, self.link_gap()) - (now - self.last_load.get(domain, 0))
         if gap > 0:
             time.sleep(gap)
 
@@ -288,9 +379,10 @@ class BrowserWorker:
                     info, status = None, 200
                     break
 
-        if info and info.kind != "rate_limit" and ask and self.bcfg.get("ask_me_to_verify", True):
+        if wants_person(info) and ask and self.bcfg.get("ask_me_to_verify", True):
             self.pending[domain] = {"page": page, "since": time.time(), "url": url, "reminded": time.time()}
             self.pages.pop(domain, None)  # keep this tab for the person; checks use a fresh one later
+            self.tabs[domain] = [t for t in self.tabs.get(domain, []) if t is not page]
             self._show(page)
             self.on_human(domain, url, info)
             return FetchResult(status, html, page.url, info, waiting_for_human=True, via=self.name)
@@ -309,9 +401,14 @@ class BrowserWorker:
             self.log.debug("window move failed: %s", exc)
 
     def _show(self, page) -> None:
-        self._bounds(page, {"left": 80, "top": 60, "width": 1280, "height": 900})
+        if not self.cdp_url:
+            self._bounds(page, {"left": 80, "top": 60, "width": 1280, "height": 900})
         try:
             page.bring_to_front()
+        except Exception:
+            pass
+        try:
+            _force_foreground(page.title())
         except Exception:
             pass
 
@@ -362,13 +459,18 @@ class BrowserPool:
 
     def __init__(self, raw_cfg: dict, data_dir: str, log: logging.Logger,
                  on_human=None, on_verified=None, tracker=None):
-        self.bcfg = raw_cfg.get("browser") or {}
+        self._raw = raw_cfg
+        self._bcfg = raw_cfg.get("browser") or {}
         self.log = log
         self.tracker = tracker
         self.rest: dict[tuple[str, str], float] = {}
         self.cursor: dict[str, int] = {}
         self.workers: list[BrowserWorker] = []
-        profiles = self.bcfg.get("profiles") or [{"name": "edge", "channel": self.bcfg.get("channel") or "msedge"}]
+        profiles = list(self.bcfg.get("profiles") or [{"name": "edge", "channel": self.bcfg.get("channel") or "msedge"}])
+        port = int(self.bcfg.get("own_chrome_port") or 0)
+        if port and not any(isinstance(p, dict) and p.get("cdp_url") for p in profiles) and _port_open(port):
+            profiles.append({"name": OWN_CHROME, "cdp_url": f"http://127.0.0.1:{port}"})
+            log.info("Your own Chrome is running on port %d, so it joins the checking browsers", port)
         seen = set()
         for i, prof in enumerate(profiles):
             if not isinstance(prof, dict):
@@ -382,6 +484,28 @@ class BrowserPool:
                 raw_cfg, data_dir, log, on_human, on_verified, name=name,
                 channel=str(prof.get("channel") or ""), cdp_url=str(prof.get("cdp_url") or ""),
                 profile_dir=folder))
+
+    # ---- settings reload ---------------------------------------------------------------
+    @property
+    def bcfg(self) -> dict:
+        return self._bcfg
+
+    @bcfg.setter
+    def bcfg(self, value: dict) -> None:
+        self._bcfg = value
+        for w in self.workers:
+            w.bcfg = value
+
+    @property
+    def raw(self) -> dict:
+        return self._raw
+
+    @raw.setter
+    def raw(self, value: dict) -> None:
+        self._raw = value
+        self._bcfg = value.get("browser") or {}
+        for w in self.workers:
+            w.raw, w.bcfg = value, self._bcfg
 
     # ---- state the rest of the app reads --------------------------------------------
     @property
@@ -431,6 +555,10 @@ class BrowserPool:
             raise BrowserUnavailable(self.failed or "Browser checking is off or Playwright is not installed")
         start = self.cursor.get(domain, 0) % len(live)
         order = live[start:] + live[:start]
+        mine = [w for w in live if getattr(w, "cdp_url", "")]
+        sites = [str(x).lower() for x in (self.bcfg.get("own_chrome_sites") or [])]
+        if mine and any(site == x or site.endswith("." + x) for x in sites):
+            order = mine + [w for w in order if w not in mine]
         ready = [w for w in order if self.rest.get((w.name, domain), 0) <= now
                  and not any(p["domain"] == domain for p in w.waiting_domains())]
         waiting = [w for w in order if any(p["domain"] == domain for p in w.waiting_domains())]
@@ -461,7 +589,9 @@ class BrowserPool:
                            via="pool")
 
     def show_window(self) -> None:
-        for w in self.workers:
+        """Bring forward the browser that is waiting for you. With nothing waiting, all of them."""
+        waiting = [w for w in self.workers if w.waiting_domains()]
+        for w in (waiting or self.workers):
             w.show_window()
 
     def open_url(self, url: str) -> None:

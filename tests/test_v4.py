@@ -214,3 +214,142 @@ class TargetSearchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeniedPageTests(unittest.TestCase):
+    def test_akamai_access_denied_is_not_a_human_check(self):
+        from restock.retailers.blocks import classify, wants_person
+        html = ("<h1>Access Denied</h1><p>You don't have permission to access this server.</p>"
+                "<p>Reference #18.17a7cb17</p><p>https://errors.edgesuite.net/18.17a7cb17</p>")
+        info = classify(403, html)
+        self.assertEqual((info.vendor, info.kind, info.needs_human), ("Akamai", "denied", False))
+        self.assertFalse(wants_person(info))
+
+    def test_real_challenge_still_asks_a_person(self):
+        from restock.retailers.blocks import classify, wants_person
+        info = classify(200, "<div id='px-captcha'>Press &amp; Hold</div>")
+        self.assertTrue(wants_person(info))
+        self.assertFalse(wants_person(None))
+
+    def test_http_links_become_https(self):
+        from restock.util import clean_url
+        self.assertEqual(clean_url("http://www.cvs.com/shop/x-prodid-1?utm_source=a"),
+                         "https://www.cvs.com/shop/x-prodid-1")
+
+
+class OwnChromeAndPacingTests(unittest.TestCase):
+    def test_own_chrome_goes_first_for_its_stores_only(self):
+        a, mine = FakeWorker("a"), FakeWorker("my-chrome")
+        mine.cdp_url = "http://127.0.0.1:9222"
+        with tempfile.TemporaryDirectory() as d:
+            p = BrowserPool({"browser": {"profiles": [{"name": "a"}], "own_chrome_port": 0,
+                                         "own_chrome_sites": ["cvs.com"]}}, d, LOG, tracker=BlockTracker(d))
+        p.workers = [a, mine]
+        for _ in range(3):
+            p.fetch("https://www.cvs.com/x")
+        self.assertEqual((a.calls, mine.calls), (0, 3))
+        p.fetch("https://www.target.com/x")
+        self.assertEqual(a.calls + mine.calls, 4)
+
+    def test_own_chrome_blocked_falls_back_to_the_others(self):
+        a, mine = FakeWorker("a"), FakeWorker("my-chrome", blocked=True, retry=3600)
+        mine.cdp_url = "http://127.0.0.1:9222"
+        with tempfile.TemporaryDirectory() as d:
+            p = BrowserPool({"browser": {"profiles": [{"name": "a"}], "own_chrome_port": 0,
+                                         "own_chrome_sites": ["cvs.com"]}}, d, LOG, tracker=BlockTracker(d))
+        p.workers = [a, mine]
+        res = p.fetch("https://www.cvs.com/x")
+        self.assertEqual(res.profile, "a")
+
+    def test_slowdown_survives_a_restart_and_eases_off(self):
+        import json
+        import time
+        from threading import Lock
+        from types import SimpleNamespace
+        from restock.engine import Monitor as Engine
+        with tempfile.TemporaryDirectory() as d:
+            e = object.__new__(Engine)
+            e.cfg = SimpleNamespace(data_dir=d)
+            e._pacing_lock = Lock()
+            e.health = {"cvs": {"slow": 4.0}, "target": {"slow": 1.0}}
+            e._save_pacing()
+            self.assertAlmostEqual(e._saved_slow("cvs"), 4.0, delta=0.05)
+            self.assertEqual(e._saved_slow("target"), 1.0)
+            rows = json.load(open(os.path.join(d, "pacing.json")))
+            rows["cvs"]["at"] = time.time() - 3600       # two half-lives ago
+            json.dump(rows, open(os.path.join(d, "pacing.json"), "w"))
+            self.assertAlmostEqual(e._saved_slow("cvs"), 1.0, delta=0.05)
+
+
+class FakePage:
+    def __init__(self, n):
+        self.n, self.closed = n, False
+
+    def is_closed(self):
+        return self.closed
+
+    def close(self):
+        self.closed = True
+
+
+class FakeContext:
+    def __init__(self):
+        self.made = []
+
+    def new_page(self):
+        page = FakePage(len(self.made))
+        self.made.append(page)
+        return page
+
+
+class TabsDelayVersionTests(unittest.TestCase):
+    def worker(self, tabs, delay=4):
+        from restock.retailers.browser import BrowserWorker
+        raw = {"browser": {"tabs_per_site": tabs}, "settings": {"link_delay_seconds": delay}}
+        w = BrowserWorker(raw, tempfile.mkdtemp(), LOG)
+        w.ctx = FakeContext()
+        return w
+
+    def test_pages_rotate_through_the_chosen_number_of_tabs(self):
+        w = self.worker(3)
+        seen = [w._page_for("cvs.com").n for _ in range(7)]
+        self.assertEqual(seen, [0, 1, 2, 0, 1, 2, 0])
+        self.assertEqual(len(w.ctx.made), 3)
+
+    def test_one_tab_keeps_using_the_same_tab(self):
+        w = self.worker(1)
+        self.assertEqual({w._page_for("cvs.com").n for _ in range(4)}, {0})
+
+    def test_tabs_are_kept_per_store_and_extras_close_when_lowered(self):
+        w = self.worker(3)
+        for _ in range(3):
+            w._page_for("cvs.com")
+        w._page_for("target.com")
+        self.assertEqual(len(w.ctx.made), 4)
+        w.bcfg["tabs_per_site"] = 2
+        w._page_for("cvs.com")
+        self.assertEqual(sum(p.closed for p in w.ctx.made), 1)
+
+    def test_tab_count_is_clamped(self):
+        self.assertEqual(self.worker(99).tab_count(), 6)
+        self.assertEqual(self.worker(0).tab_count(), 1)
+
+    def test_link_gap_and_delay_use_the_setting(self):
+        from types import SimpleNamespace
+        from restock.retailers.base import Retailer
+        w = self.worker(3, delay=4)
+        for _ in range(20):
+            self.assertTrue(4 <= w.link_gap() <= 6)
+        self.assertEqual(self.worker(3, delay=0).link_gap(), 0)
+        fake = SimpleNamespace(cfg=SimpleNamespace(settings={"link_delay_seconds": 10}))
+        self.assertTrue(10 <= Retailer.link_delay(fake) <= 15)
+        fake.cfg.settings["link_delay_seconds"] = 0
+        self.assertEqual(Retailer.link_delay(fake), 0)
+
+    def test_version_label(self):
+        from restock.util import version_label
+        self.assertEqual(version_label("0.5"), "v0.5 test build")
+        self.assertEqual(version_label("1.0"), "v1.0 stable")
+        self.assertEqual(version_label("1.1"), "v1.1 test build")
+        self.assertEqual(version_label("2.0"), "v2.0 stable")
+        self.assertEqual(version_label(""), "")

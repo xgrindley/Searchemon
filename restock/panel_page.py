@@ -294,7 +294,7 @@ table.matrix td.none { color: var(--faint); }
 <body>
 <div class="frame">
   <nav class="rail" aria-label="Sections">
-    <div class="brand"><span>Searchemon<small id="hostline">Running on this PC</small></span></div>
+    <div class="brand"><span>Searchemon<small id="hostline">Running on this PC</small><small id="verline"></small></span></div>
     <div class="navlabel">Monitor</div>
     <button data-tab="dash" aria-current="page">Dashboard</button>
     <button data-tab="found">Found products <span class="count" id="c-found"></span></button>
@@ -799,7 +799,8 @@ const views = {
         setting("Speed-up factor", "0.5 checks twice as often during busy hours.", num(sc, "fast_factor")),
         setting("Slow-down factor", "3 checks a third as often during quiet hours.", num(sc, "slow_factor")),
         setting("Fastest allowed (seconds)", "No store is ever checked more often than this.", num(sc, "min_interval_seconds")),
-        setting("Random extra delay (seconds)", "Added to each check so stores are not hit on a fixed beat.", num(cfg, "jitter_seconds"))),
+        setting("Random extra delay (seconds)", "Added to each check so stores are not hit on a fixed beat.", num(cfg, "jitter_seconds")),
+        setting("Delay between links (seconds)", "Wait this long, plus up to half again at random, before loading the next page on the same store. 0 turns it off.", num(cfg.settings, "link_delay_seconds"))),
       windowEditor(sc, "fast_windows", "Busy hours (check faster)", "For example weekday mornings when trucks arrive."),
       windowEditor(sc, "slow_windows", "Slow hours (check slower)", "For example overnight, when stores are closed."),
     ];
@@ -871,7 +872,8 @@ const views = {
           [["msedge", "Microsoft Edge"], ["chrome", "Google Chrome"]].map(([v, t]) => h("option", { value: v, text: t, selected: (br.channel || "msedge") === v })))),
         setting("Keep the window out of the way", "It moves on screen only when a store needs you.", sw(br, "show_window", "", true)),
         setting("Ask me to verify", "Bring the window forward when a store wants a person to finish a check.", sw(br, "ask_me_to_verify", "")),
-        setting("Slowest pace for browser checks (seconds)", "Browser checks load whole pages, so go easy.", num(br, "min_interval_seconds"))),
+        setting("Slowest pace for browser checks (seconds)", "Browser checks load whole pages, so go easy.", num(br, "min_interval_seconds")),
+        setting("Tabs per store", "Pages of one store rotate through this many tabs (1 to 6) instead of reloading a single tab.", num(br, "tabs_per_site", { min: "1", max: "6" }))),
       h("p", { class: "hint", text: "Browser changes take effect after restarting the app." }),
       h("h2", { text: "Phone access" }),
       h("div", { class: "settings-list" },
@@ -1173,12 +1175,13 @@ function drawStrip() {
   st.querySelector("span").textContent = status.paused ? "Alerts paused" : status.running ? "Checking" : "Stopped";
   $("b-run").textContent = status.running ? "Stop" : "Start";
   $("b-pause").textContent = status.paused ? "Resume alerts" : "Pause alerts";
+  $("verline").textContent = status.version_label || "";
   if (status.lan_url) $("hostline").textContent = "Also at " + status.lan_url;
   const hc = status.human_checks || [];
   $("banner").classList.toggle("show", hc.length > 0);
   if (hc.length) {
     const sites = hc.map((c) => c.domain.replace(/^www\./, "")).join(", ");
-    $("banner-t").textContent = sites + (hc.length > 1 ? " want" : " wants") + " a quick human check before checking can continue. Finish it in the browser window on your PC; checks pick up again by themselves.";
+    $("banner-t").textContent = sites + (hc.length > 1 ? " want" : " wants") + " a quick human check before checking can continue. Finish it in the " + (hc[0].profile ? hc[0].profile + " browser window" : "browser window") + " on your PC; checks pick up again by themselves.";
   }
 }
 

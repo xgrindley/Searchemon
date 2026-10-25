@@ -8,11 +8,11 @@ services, no proxy rotation, no bought accounts.
 | Resource | What it is | Decision | Why |
 |---|---|---|---|
 | PortSwigger/bypass-bot-detection (Apache-2.0) | Burp Suite extension that changes TLS cipher suites to mimic Firefox, Chrome or Safari and forces HTTP/1 | Not used | It is a security-testing aid that disguises the client's TLS fingerprint. That is spoofing. Our approach is to use a real browser instead, which already has a genuine fingerprint |
-| seleniumbase/SeleniumBase (MIT) | Selenium/Playwright framework; its UC Mode and CDP Mode are built to avoid detection | Ideas only | Its stealth modes are fingerprint hiding. The legitimate ideas it shares with us (a real Chrome, DevTools Protocol, human-paced actions) are already in the app |
+| seleniumbase/SeleniumBase (MIT) | Selenium/Playwright framework; its UC Mode and CDP Mode are built to avoid detection | Ideas only (v0.5 adds start-my-chrome.ps1) | Its stealth modes are fingerprint hiding. The legitimate ideas it shares with us (a real Chrome, DevTools Protocol, human-paced actions) are already in the app |
 | CloakHQ/CloakBrowser (MIT, separate binary license) | Chromium rebuilt with 87 patches that fake canvas, WebGL, audio, fonts, GPU and screen values | Not used | Fingerprint spoofing by design, and a third-party browser binary would run with your sign-ins |
 | ultrafunkamsterdam/undetected-chromedriver (GPL-3.0) | Patched chromedriver that hides automation markers | Not used | Hides that the browser is automated. GPL license also complicates reuse. Maintenance status unclear |
 | HarimxChoi/anti_bot_scraper | Playwright scraper for a Korean real-estate site with random zoom, drags and mouse movement | Not used | Built around imitating human behavior to dodge detection; different target and purpose |
-| crowdsecurity/crowdsec | Server-side tool that reads logs and blocks abusive IPs, with a shared blocklist | Does not apply | It is what site operators run, not a client tool. Useful only as a reminder of why steady, low-volume traffic from one real IP gets blocked less |
+| crowdsecurity/crowdsec | Server-side tool that reads logs and blocks abusive IPs, with a shared blocklist | Lesson only (v0.5 remembers slow-downs across restarts) | It is what site operators run, not a client tool. Useful only as a reminder of why steady, low-volume traffic from one real IP gets blocked less |
 
 ## What we took from them (the honest part)
 

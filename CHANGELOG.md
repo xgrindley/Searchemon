@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0 (2026-10-25, first stable release)
+- Declared stable by the owner. It is exactly test build v0.6 (saved as build/v0.6), with the version number
+  changed to 1.0. Everything listed under v0.1 to v0.6 below is in it.
+- Install it with `.\update.ps1` (no channel name). Test builds continue from v1.1.
+
 ## v0.6 (2026-10-25, test build)
 - The version now shows in the control panel (under "Running on this PC", for example "v0.6 test build")
   and in the app window's title bar.

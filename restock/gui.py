@@ -24,7 +24,7 @@ from .geo import clean_zip, zip_place
 from .models import StockResult
 from .notify import DiscordNotifier
 from .panel import PanelServer
-from .util import clean_url
+from .util import clean_url, version_label
 
 STORE_NAMES = {
     "target": "Target", "bestbuy": "Best Buy", "kroger": "Kroger family", "walmart": "Walmart",
@@ -98,7 +98,7 @@ class App:
         self.config_path = config_path
         self.events: queue.Queue = queue.Queue()
         self.root = tk.Tk()
-        self.root.title("Pokemon Restock Monitor")
+        self.root.title(("Pokemon Restock Monitor  " + version_label()).strip())
         self.root.geometry("1120x720")
         self.root.minsize(860, 520)
         self.rows: dict[str, str] = {}

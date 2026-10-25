@@ -22,7 +22,7 @@ from .tcg import TYPES, classify, type_settings
 from .models import StockResult
 from .panel_page import PAGE
 from .retailers.browser import playwright_installed
-from .util import clean_url
+from .util import app_version, clean_url, version_label
 
 MAX_BODY = 1_000_000
 
@@ -118,6 +118,8 @@ class PanelServer:
             "running": m.running,
             "paused": bool(m.cfg.settings.get("alerts_paused")),
             "now": time.time(),
+            "version": app_version(),
+            "version_label": version_label(),
             "retailers": [
                 {"name": n, "display": r.display, "status": rstatus.get(n, "Waiting for first check"),
                  "fetch_mode": r.fetch_mode, "using_browser": r.using_browser(), **health(n)}

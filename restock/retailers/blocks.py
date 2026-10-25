@@ -61,6 +61,13 @@ class BlockInfo:
         return msg
 
 
+def wants_person(info: BlockInfo | None) -> bool:
+    """True when opening the browser window for the user could help. A flat refusal such as
+    Akamai's "Access Denied" page has nothing to click or solve, so asking someone to verify
+    there only leaves the store stuck waiting."""
+    return bool(info) and info.kind == "challenge"
+
+
 _WAIT_RX = re.compile(r"try again (?:in|after)\s+(\d+)\s*(hour|minute|min)", re.I)
 
 

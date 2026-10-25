@@ -14,6 +14,13 @@ Repository: https://github.com/xgrindley/Searchemon
 
 `main` is never edited directly and never receives untested work.
 
+## When work goes to GitHub
+
+GitHub is not touched on every change. Work is built and checked here and copied to your PC folder first.
+Nothing is pushed to `test`, `build/vX.Y` or `main` until you have tested the build and say it is approved.
+After you approve, one push saves that build (and the frozen `build/vX.Y` copy) to GitHub. Stable
+promotion to `main` is a separate step that only happens when you say a build is stable.
+
 ## Version numbers
 
 - **Stable releases count up whole numbers:** v1.0, v2.0, v3.0. Each is a tag on `main`.

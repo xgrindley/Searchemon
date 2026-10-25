@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
 import time
 from typing import Any
@@ -205,6 +206,15 @@ class Retailer:
     @staticmethod
     def pause(seconds: float) -> None:
         time.sleep(seconds)
+
+    def link_delay(self) -> float:
+        """Seconds to wait before moving on to the next page on a store (the "delay between links"
+        setting, plus up to half again at random so it never runs on a fixed beat)."""
+        try:
+            base = float(self.cfg.settings.get("link_delay_seconds", 4) or 0)
+        except (TypeError, ValueError):
+            base = 4.0
+        return random.uniform(base, base * 1.5) if base > 0 else 0.0
 
 
 def _retry_after(resp: requests.Response) -> float:

@@ -42,10 +42,18 @@ if (-not $ok) {
 }
 Expand-Archive -Path $zip -DestinationPath $tmp -Force
 $src = Get-ChildItem $tmp -Directory | Select-Object -First 1
+if (-not (Test-Path (Join-Path $src.FullName "app.py"))) {
+    Write-Host "'$Channel' has no program files yet, so nothing was changed." -ForegroundColor Red
+    if ($Channel -eq "main") {
+        Write-Host "No stable release has been published yet. Use  -Channel test  until one is." -ForegroundColor Red
+    }
+    Remove-Item $tmp -Recurse -Force
+    exit 1
+}
 
 $items = @("app.py", "restock", "tests", "requirements.txt", "config.example.yaml", "README.md",
            "VERSION", "CHANGELOG.md", "NOTES.md", "RESOURCES.md", "RELEASING.md",
-           "setup.ps1", "run.ps1", "versions.ps1", "update.ps1", "add-to-startup.ps1", "build-exe.ps1")
+           "setup.ps1", "run.ps1", "versions.ps1", "update.ps1", "add-to-startup.ps1", "build-exe.ps1", "start-my-chrome.ps1")
 foreach ($i in $items) {
     $from = Join-Path $src.FullName $i
     if (-not (Test-Path $from)) { continue }

@@ -38,6 +38,8 @@ DEFAULTS: dict[str, Any] = {
         "excluded_stores": [],
         "confirm_restocks": True,
         "min_store_qty": 1,
+        # Wait this long (plus up to 50% random) before the next page on the same store.
+        "link_delay_seconds": 4,
         "allow_non_english": False,
     },
     "control_panel": {"enabled": True, "port": 8765, "allow_lan": False, "pin": ""},
@@ -47,8 +49,14 @@ DEFAULTS: dict[str, Any] = {
         # Each profile is its own browser with its own cookies. Checks rotate across them.
         "profiles": [{"name": "edge", "channel": "msedge"}, {"name": "chrome", "channel": "chrome"}],
         "show_window": False,
+        # How many tabs a store's pages rotate through, so one tab is not reloaded over and over.
+        "tabs_per_site": 3,
         "headless": False,
         "ask_me_to_verify": True,
+        # Your own Chrome, started with start-my-chrome.ps1. When it is running at launch it joins
+        # the profiles and gets these stores first, since a real Chrome is refused least.
+        "own_chrome_port": 9222,
+        "own_chrome_sites": ["cvs.com", "dickssportinggoods.com"],
         "notify_discord": False,
         "min_interval_seconds": 120,
     },

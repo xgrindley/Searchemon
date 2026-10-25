@@ -8,6 +8,8 @@ Repository: https://github.com/xgrindley/Searchemon
 |---|---|---|
 | `main` | The stable release. Only changes when you say a build is stable | Promoted from `test` on your word |
 | `test` | The current test build. Day-to-day work lands here | Every change |
+| `build/vX.Y` | Frozen copy of one test build, for going back to it | Created once, never changed |
+| `release/vN.0` | Frozen copy of one stable release | Created once, never changed |
 | `test/<name>` | A risky or big piece of work kept apart (for example `test/ui-redesign`) | Merged into `test` when it works |
 
 `main` is never edited directly and never receives untested work.
@@ -17,12 +19,16 @@ Repository: https://github.com/xgrindley/Searchemon
 - **Stable releases count up whole numbers:** v1.0, v2.0, v3.0. Each is a tag on `main`.
 - **Test builds count up from the release they follow:** after v1.0 come v1.1, v1.2, v1.3. After v2.0 come v2.1, v2.2.
 - Before the first stable release, test builds are v0.1, v0.2, v0.3.
-- The `VERSION` file holds the number. Each tagged test build is marked as a pre-release on GitHub.
+- The `VERSION` file holds the number.
+- Every numbered build is kept as its own branch so it can be installed later: test builds as `build/v1.1`,
+  stable releases as `release/v2.0` (plus a `v2.0` tag and GitHub Release when one can be created;
+  Claude's session cannot create tags or Releases, so for stable releases you click **Releases > Draft a
+  new release** on GitHub, pick the `release/vN.0` branch, and mark it Latest).
 
 ## Promoting a build to stable
 
 1. You tell Claude "v1.4 is stable".
-2. `test` is merged into `main`, the version becomes the next whole number (v2.0), and `main` is tagged `v2.0`.
+2. `test` is merged into `main`, the version becomes the next whole number (v2.0), and `release/v2.0` is saved.
 3. `test` continues from v2.1.
 
 ## Installing on your PC

@@ -20,13 +20,22 @@ if (Test-Path ".\versions.ps1") {
 $tmp = Join-Path $env:TEMP ("searchemon-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 $zip = Join-Path $tmp "src.zip"
-# Branch names use heads, version tags use tags.
-$kind = if ($Channel -match '^v\d+(\.\d+)*$') { "tags" } else { "heads" }
-$url = "https://github.com/$repo/archive/refs/$kind/$Channel.zip"
+# A version like v1.2 is looked up as a tag, then as a saved-build branch (build/v1.2 or release/v1.0).
+if ($Channel -match '^v\d+(\.\d+)*$') {
+    $candidates = @("refs/tags/$Channel", "refs/heads/build/$Channel", "refs/heads/release/$Channel")
+} else {
+    $candidates = @("refs/heads/$Channel")
+}
 Write-Host "Downloading $Channel ..."
-try {
-    Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
-} catch {
+$ok = $false
+foreach ($ref in $candidates) {
+    try {
+        Invoke-WebRequest -Uri "https://github.com/$repo/archive/$ref.zip" -OutFile $zip -UseBasicParsing
+        $ok = $true
+        break
+    } catch { }
+}
+if (-not $ok) {
     Write-Host "Could not download '$Channel'. Check the name (try .\update.ps1 -Channel test) and your connection." -ForegroundColor Red
     Remove-Item $tmp -Recurse -Force
     exit 1

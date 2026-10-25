@@ -25,7 +25,7 @@ promotion to `main` is a separate step that only happens when you say a build is
 
 - **Stable releases count up whole numbers:** v1.0, v2.0, v3.0. Each is a tag on `main`.
 - **Test builds count up from the release they follow:** after v1.0 come v1.1, v1.2, v1.3. After v2.0 come v2.1, v2.2.
-- Before the first stable release, test builds are v0.1, v0.2, v0.3.
+- Before the first stable release, test builds were v0.1 to v0.6. v1.0 is v0.6 promoted (2026-10-25).
 - The `VERSION` file holds the number.
 - Every numbered build is kept as its own branch so it can be installed later: test builds as `build/v1.1`,
   stable releases as `release/v2.0` (plus a `v2.0` tag and GitHub Release when one can be created;

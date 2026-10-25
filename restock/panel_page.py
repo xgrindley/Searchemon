@@ -8,28 +8,19 @@ PAGE = r"""<!doctype html>
 <meta name="referrer" content="no-referrer">
 <title>Restock Control</title>
 <style>
-/* Grey-first, like a well-designed plant HMI: color only appears when it means something.
-   Green = in stock / alerting, amber = paused or blocked, red = error. */
+/* Glass Aurora: deep violet ground, frosted panels, cyan = in stock, violet = actions,
+   amber = blocked or waiting, rose = error. Fonts are system fonts only (no outside requests). */
 :root {
-  --bg: #e4e6e9; --panel: #f3f4f5; --raised: #ffffff; --line: #c9cdd3; --line-soft: #d9dce0;
-  --ink: #1d2126; --muted: #5d6570; --faint: #8a919b;
-  --act: #2457a6; --act-ink: #ffffff; --act-soft: #dbe4f3;
-  --ok: #1b7f3b; --ok-bg: #d6f0dd; --ok-strong: #2fa04f;
-  --warn: #9a5b00; --warn-bg: #fbe9c8; --bad: #b42318; --bad-bg: #f8dcd9;
-  --r-s: 4px; --r-m: 8px;
-  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
-  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
-}
-:root[data-theme="dark"] { color-scheme: dark; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #1b1e22; --panel: #23272c; --raised: #2b3036; --line: #3b4148; --line-soft: #31363c;
-    --ink: #e7e9ec; --muted: #a2a9b2; --faint: #747c86;
-    --act: #6c9be0; --act-ink: #0f1620; --act-soft: #26354b;
-    --ok: #7dd69a; --ok-bg: #1d3a27; --ok-strong: #3fbf65;
-    --warn: #f0b75a; --warn-bg: #3d2f17; --bad: #f2877d; --bad-bg: #42211e;
-    color-scheme: dark;
-  }
+  color-scheme: dark;
+  --bg: #0b0820; --panel: rgba(255,255,255,.07); --raised: rgba(255,255,255,.09); --line: rgba(255,255,255,.17); --line-soft: rgba(255,255,255,.09);
+  --ink: #ece8ff; --muted: #b9b0ec; --faint: #9a91d0;
+  --act: #a78bfa; --act-ink: #0b0820; --act-soft: rgba(167,139,250,.24);
+  --ok: #67e8f9; --ok-bg: rgba(103,232,249,.12); --ok-strong: #22d3ee;
+  --warn: #fcd34d; --warn-bg: rgba(251,191,36,.13); --bad: #fda4af; --bad-bg: rgba(251,113,133,.15);
+  --r-s: 12px; --r-m: 22px;
+  --grad: linear-gradient(90deg, #a78bfa, #22d3ee);
+  --font: "Sora", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --font-display: "Sora", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -239,18 +230,77 @@ dialog::backdrop { background: rgba(20, 24, 28, .45); }
   .savebar { left: 0; padding: 12px 16px; }
   table.stock .hide-s { display: none; }
 }
+/* ---- Glass Aurora surfaces ---- */
+body { background: radial-gradient(900px 600px at 12% -5%, #3b1d7a 0%, transparent 60%), radial-gradient(800px 600px at 100% 25%, #0f5b6b 0%, transparent 60%), #0b0820; background-attachment: fixed; }
+nav.rail { background: rgba(255,255,255,.05); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.brand::before { content: ""; width: 30px; height: 30px; border-radius: 10px; background: var(--grad); flex: none; }
+.brand small { display: block; }
+.brand > * { min-width: 0; }
+nav.rail button { border-radius: 999px; }
+nav.rail button[aria-current="page"] { background: var(--act-soft); box-shadow: inset 0 0 0 1px rgba(167,139,250,.5); color: #fff; }
+.panel, .card, .table-wrap, .group, .tile, .rules, .zipbar, .best li, .verdict, .lamp { backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.lamp { border-radius: 26px; min-height: 76px; padding: 12px 22px; }
+.lamp .big { font-weight: 300; font-size: 40px; }
+.lamp.lit { background: linear-gradient(135deg, rgba(167,139,250,.2), rgba(34,211,238,.2)); border-color: rgba(103,232,249,.6); }
+.strip { background: transparent; backdrop-filter: none; }
+.btn { border-radius: 999px; padding: 8px 18px; min-height: 40px; background: rgba(255,255,255,.07); }
+.btn.primary { background: var(--grad); border: 0; color: var(--act-ink); }
+.btn.quiet { background: none; }
+.state { background: rgba(255,255,255,.07); }
+h1 { font-weight: 300; font-size: 32px; }
+h1 b, .grad { font-weight: 700; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.switch input:checked { background: var(--grad); }
+.card-head, .group-head { border-bottom-color: var(--line-soft); }
+.table-wrap, .group, .card, .rules, .panel { box-shadow: 0 8px 30px rgba(5,3,20,.25); }
+.savebar { background: rgba(20,16,46,.92); backdrop-filter: blur(16px); border-top: 1px solid rgba(167,139,250,.6); }
+dialog { background: #17123a; }
+select option { background: #17123a; color: var(--ink); }
+input[type=text], input[type=number], input[type=password], input[type=search], textarea, select, input[type=time] { background: rgba(255,255,255,.07); border-radius: 12px; }
+.toast { background: #ece8ff; color: #0b0820; }
+.toast.err { background: #fda4af; color: #3b0a14; }
+table.stock th { background: rgba(255,255,255,.05); }
+.setting, .speed-row, .place-row, .win-row, .listing { background: rgba(255,255,255,.04); }
+.settings-list { border-radius: var(--r-m); overflow: hidden; border: 1px solid var(--line); }
+.setting:first-child, .setting:last-child { border-radius: 0; }
+/* Methods lab */
+.hero { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 8px; }
+.hero .big { flex: 2 1 340px; padding: 24px 28px; border-radius: 26px; background: linear-gradient(135deg, rgba(167,139,250,.18), rgba(34,211,238,.14)); border: 1px solid var(--line); }
+.hero .big .k { color: var(--muted); font-size: 13px; }
+.hero .big .v { font-size: 30px; font-weight: 300; margin: 6px 0 4px; line-height: 1.2; }
+.hero .stat { flex: 1 1 120px; padding: 18px 20px; border-radius: 22px; background: var(--panel); border: 1px solid var(--line); }
+.hero .stat .n { font-size: 30px; font-weight: 600; }
+.hero .stat .k { color: var(--muted); font-size: 12px; }
+.hero .stat.warn { background: var(--warn-bg); border-color: rgba(251,191,36,.4); }
+.hero .stat.warn .n { color: var(--warn); }
+.mrow { padding: 14px 18px; border-bottom: 1px solid var(--line-soft); }
+.mrow:last-child { border-bottom: 0; }
+.mrow .top { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.mrow .top b { font-weight: 600; }
+.mrow .top span { color: var(--muted); font-size: 13px; }
+.bar { height: 12px; border-radius: 6px; background: rgba(255,255,255,.1); margin-top: 8px; overflow: hidden; }
+.bar i { display: block; height: 12px; border-radius: 6px; background: var(--grad); }
+.bar i.warn { background: var(--warn); }
+.mrow .sub2 { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
+table.matrix { width: 100%; border-collapse: collapse; }
+table.matrix th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+table.matrix td { padding: 10px 14px; border-bottom: 1px solid var(--line-soft); }
+table.matrix td.best { background: var(--ok-bg); color: var(--ok); font-weight: 600; }
+table.matrix td.bad { background: var(--warn-bg); color: var(--warn); }
+table.matrix td.none { color: var(--faint); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
 <div class="frame">
   <nav class="rail" aria-label="Sections">
-    <div class="brand">Restock control<small id="hostline">Running on this PC</small></div>
+    <div class="brand"><span>Searchemon<small id="hostline">Running on this PC</small></span></div>
     <div class="navlabel">Monitor</div>
     <button data-tab="dash" aria-current="page">Dashboard</button>
     <button data-tab="found">Found products <span class="count" id="c-found"></span></button>
     <button data-tab="places">Stores near you <span class="count" id="c-places"></span></button>
     <button data-tab="times">Restock times</button>
+    <button data-tab="methods">Methods lab</button>
     <div class="navlabel">Set up</div>
     <button data-tab="notify">Notifications</button>
     <button data-tab="areas">Areas &amp; radius</button>
@@ -596,7 +646,7 @@ const views = {
     const capVal = h("span", { class: "radius-val", text: n.max_miles ? n.max_miles + " mi" : "Off" });
     return [
       h("h1", { text: "Areas & radius" }),
-      h("p", { class: "lede", text: "Where you shop. Stores inside any of these circles are checked and can alert; stores outside them are ignored. Add more than one for home, work or a relative's town." }),
+      h("p", { class: "lede", text: "Where you shop. Stores inside any of these circles are checked and can alert; stores outside them are ignored. Give an area its own Discord channel to send it only the stores inside that area." }),
       areasEditor(),
       h("p", {}, h("button", { class: "btn", type: "button", text: "Add area", onclick: () => { cfg.areas.push({ name: cfg.areas.length ? "Work" : "Home", zip: "", radius_miles: 15 }); touch(); render(); } })),
       h("h2", { text: "Alert distance" }),
@@ -606,6 +656,63 @@ const views = {
             oninput: (e) => { const v = Number(e.target.value); n.max_miles = v || null; capVal.textContent = v ? v + " mi" : "Off"; touch(); } }), capVal)),
         setting("Check store shelves", "Shelf stock at Target, Best Buy and Kroger stores in your areas.", sw(cfg.settings, "in_store", ""))),
       h("p", { class: "hint" }, "Skip single stores you never visit on ", h("a", { href: "#", onclick: (e) => { e.preventDefault(); go("places"); }, text: "Stores near you" }), "."),
+    ];
+  },
+
+  methods() {
+    const ses = (status && status.sessions) || { rows: [], profiles: [], resting: [] };
+    const rows = ses.rows || [];
+    const by = {};
+    rows.forEach((r) => { const m = by[r.method] = by[r.method] || { method: r.method, checks: 0, blocks: 0, streak: 0, best: 0 };
+      m.checks += r.checks; m.blocks += r.blocks; m.streak += r.streak; m.best = Math.max(m.best, r.best); });
+    const methods = Object.values(by).map((m) => Object.assign(m, { per: m.blocks ? m.checks / m.blocks : null }))
+      .sort((a, b) => (b.per === null ? 1e9 + b.checks : b.per) - (a.per === null ? 1e9 + a.checks : a.per));
+    const label = (m) => m === "direct" ? "Plain requests" : m === "pool" ? "Browser pool" : "Browser: " + m;
+    const totalChecks = methods.reduce((t, m) => t + m.checks, 0), totalBlocks = methods.reduce((t, m) => t + m.blocks, 0);
+    const top = methods.find((m) => m.checks >= 5) || methods[0];
+    const maxPer = Math.max(1, ...methods.map((m) => m.per === null ? m.checks : m.per));
+    const sites = [...new Set(rows.map((r) => r.site))].sort();
+    const score = (r) => r ? (r.blocks === 0 ? 1e9 + r.checks : (r.avg_before_block === null ? 0 : r.avg_before_block)) : -1;
+    const cell = (site, method, bestMethod) => {
+      const r = rows.find((x) => x.site === site && x.method === method);
+      if (!r) return h("td", { class: "none", text: "no data" });
+      const txt = r.blocks === 0 ? "never blocked (" + r.checks + ")" : Math.round(r.avg_before_block || 0) + " avg, " + r.blocks + " blocks";
+      return h("td", { class: method === bestMethod ? "best" : (r.blocks > 2 && (r.avg_before_block || 0) < 10 ? "bad" : ""), text: txt });
+    };
+    const matrix = sites.map((site) => {
+      const best = methods.map((m) => m.method).reduce((a, m) => score(rows.find((x) => x.site === site && x.method === m)) > score(rows.find((x) => x.site === site && x.method === a)) ? m : a, methods[0].method);
+      return h("tr", {}, h("td", { text: site }), methods.map((m) => cell(site, m.method, best)));
+    });
+    return [
+      h("h1", {}, "Methods ", h("b", { text: "lab" })),
+      h("p", { class: "lede", text: "Which way of loading pages lasts longest before a store blocks it. Counts are saved between runs, so the picture gets sharper over time." }),
+      methods.length ? [
+        h("div", { class: "hero" },
+          h("div", { class: "big" }, h("div", { class: "k", text: "Lasting longest so far" }), h("div", { class: "v grad", text: label(top.method) }),
+            h("div", { class: "k", text: top.per === null ? "Never blocked in " + top.checks + " checks" : "About " + Math.round(top.per) + " checks per block" })),
+          h("div", { class: "stat" }, h("div", { class: "n", text: totalChecks }), h("div", { class: "k", text: "checks recorded" })),
+          h("div", { class: totalBlocks ? "stat warn" : "stat" }, h("div", { class: "n", text: totalBlocks }), h("div", { class: "k", text: "blocks" })),
+          h("div", { class: "stat" }, h("div", { class: "n", text: (ses.profiles || []).length }), h("div", { class: "k", text: "browser profiles" }))),
+        h("h2", { text: "Checks per block, by method" }),
+        h("div", { class: "panel", style: "overflow:hidden" }, methods.map((m) => {
+          const w = Math.max(3, Math.round(100 * (m.per === null ? m.checks : m.per) / maxPer));
+          return h("div", { class: "mrow" },
+            h("div", { class: "top" }, h("b", { text: label(m.method) }), h("span", { text: m.per === null ? "never blocked" : "1 block per " + Math.round(m.per) + " checks" })),
+            h("div", { class: "bar" }, h("i", { class: m.blocks > m.checks / 10 ? "warn" : "", style: "width:" + w + "%" })),
+            h("div", { class: "sub2", text: m.checks + " checks, " + m.blocks + " blocks, longest clean run " + m.best }));
+        })),
+        h("h2", { text: "Best method for each store" }),
+        h("div", { class: "table-wrap" }, h("table", { class: "matrix" },
+          h("tr", {}, h("th", { text: "Store" }), methods.map((m) => h("th", { text: label(m.method) }))), matrix)),
+        h("p", { class: "hint", text: "Highlighted = lasts longest at that store. Amber = blocked often." }),
+      ] : h("div", { class: "panel empty", text: "No checks recorded yet. Numbers appear once the monitor has run for a few minutes." }),
+      (ses.resting || []).length ? [h("h2", { text: "Resting right now" }), h("div", { class: "panel" }, h("ul", { class: "feed" },
+        ses.resting.map((r) => h("li", {}, h("b", { text: r.profile }), " on " + r.site + ": back in about " + (r.minutes >= 90 ? Math.round(r.minutes / 60) + " h" : r.minutes + " min")))))] : null,
+      h("h2", { text: "Profiles and tests" }),
+      h("div", { class: "card" }, h("div", { class: "card-body" }, h("div", { class: "wide" },
+        h("p", { style: "margin:0 0 8px", text: "Active browser profiles: " + ((ses.profiles || []).join(", ") || "none") + ". Add or change them in config.yaml under browser: profiles, then restart the app." }),
+        h("p", { style: "margin:0 0 6px", class: "hint", text: "For a side-by-side test of every method on the same pages, run this in PowerShell from the app folder:" }),
+        h("code", { text: ".\\.venv\\Scripts\\python.exe app.py --abtest" })))),
     ];
   },
 
@@ -628,6 +735,8 @@ const views = {
       h("h2", { text: "Discord" }),
       h("div", { class: "card" }, h("div", { class: "card-body" },
         field("Restock channel webhook", secret(wh, "default", "https://discord.com/api/webhooks/..."), "In Discord: Server Settings, Integrations, Webhooks, New Webhook, pick your channel, Copy Webhook URL. Keep it private.", true),
+        field("Online restocks channel (optional)", secret(wh, "online", "Webhook URL"), "Things you can order online. Blank uses the restock channel."),
+        field("In-store channel (optional)", secret(wh, "in_store", "Webhook URL"), "Shelf stock near you. Each area can also have its own channel on Areas & radius."),
         field("Ping a role", text(d, "mention_role_id", { placeholder: "Role ID, optional" }), "Developer Mode on, then right-click the role, Copy Role ID"),
         field("Ping me", text(d, "mention_user_id", { placeholder: "Your user ID, optional" })),
         field("Bot name", text(d, "username")),
@@ -810,6 +919,7 @@ function areasEditor() {
       h("span", { text: "radius" }),
       h("input", { type: "range", min: "1", max: "100", value: String(a.radius_miles || 15), "aria-label": "Radius in miles",
         oninput: (e) => { a.radius_miles = Number(e.target.value); radVal.textContent = a.radius_miles + " mi"; touch(); } }), radVal,
+      secret(a, "webhook", "Own Discord channel (optional)"),
       h("button", { class: "btn quiet danger", type: "button", text: "Remove", onclick: () => { cfg.areas.splice(i, 1); touch(); render(); } }));
   })) : h("div", { class: "panel empty", text: "No area yet. Add your home ZIP so nearby store shelves can be checked." });
 }
@@ -1076,6 +1186,7 @@ async function poll() {
   try {
     status = await api("/api/status"); drawStrip();
     if (tab === "dash") drawDash();
+    if (tab === "methods") render();
     if (tab === "times" && status.history_total !== lastHistoryTotal) { lastHistoryTotal = status.history_total; loadPatterns(); }
     if (tab === "places" && placesData && status.places_total !== placesData.places.length) loadPlaces();
     counts();

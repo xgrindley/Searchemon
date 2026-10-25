@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2 (2026-10-25, test build)
+- Control panel re-skinned to the Glass Aurora look (dark violet, frosted panels, cyan = in stock).
+  No outside fonts or requests; it uses system fonts.
+- New Methods lab page: checks per block by method, best method per store, resting profiles.
+- Notifications page: Online and In-store channel fields. Areas page: a webhook per area.
+- The desktop window stays the lightweight version; bigger visuals go in the control panel.
+
 ## v0.1 (2026-10-25, test build, first tagged build)
 - Browser profiles: several checking browsers (Edge or Chrome), each with its own cookies. Checks
   rotate across them; a blocked profile rests for that store and the others carry on.

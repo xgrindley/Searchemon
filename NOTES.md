@@ -2,7 +2,7 @@
 
 Read this first when picking the project back up. Newest entries at the top of each section.
 
-## State (v0.1 test build)
+## State (v0.2 test build)
 - Repo: github.com/xgrindley/Searchemon (public). main = stable (empty until the user declares one), test = current work. See RELEASING.md.
 - Version scheme: stable v1.0, v2.0...; tests v1.1, v1.2... (v0.x before the first stable).
 - Windows app, Python 3.13 venv, tkinter window + local control panel at 127.0.0.1:8765.
@@ -12,6 +12,7 @@ Read this first when picking the project back up. Newest entries at the top of e
 - Project folder on the PC: Documents\poke-restock. Back up with `.\versions.ps1 save`.
 
 ## Decisions
+- UI direction chosen: B, Glass Aurora (2026-10-25). Control panel (panel_page.py) carries the rich visuals; the tkinter window stays lightweight and only gets what is needed. No external fonts (privacy).
 - No stealth, fingerprint spoofing, CAPTCHA solving or proxy rotation (see RESOURCES.md).
 - Per-store MSRP allowance (`msrp_tolerance_pct` per retailer) instead of changing the MSRP.
 - Blocks are per browser session, not per IP, so rotate profiles and rest the blocked one.

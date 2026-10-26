@@ -118,6 +118,7 @@ class PanelServer:
                 "stores": [s.label() for s in r.stores], "muted": r.key in muted,
                 "store_points": [{"id": s.store_id, "name": s.name, "label": s.label(), "area": s.area,
                                   "distance": s.distance, "pickup": bool(s.pickup), "low": s.low,
+                                  "qty": s.qty, "address": s.address, "chain": s.chain, "stock": s.stock_text(),
                                   "point": _point(s)} for s in r.stores],
                 "type": r.type_label, "preorder": r.preorder, "confirmed": r.confirmed,
                 "pickup": len(r.pickup_stores),

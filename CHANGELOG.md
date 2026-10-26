@@ -13,6 +13,12 @@
   windows and becomes a tab bar for small ones, rows and settings wrap, and the top strip no longer overflows or shows text through it.
   Methods lab and Accounts no longer rebuild every 5 seconds: they refresh only when their numbers change, and never while you are
   selecting text or typing, so the page stays still and responds faster.
+- **Stores near you now shows stock, not just stores.** The page opens on the stores that have something in stock right now, nearest
+  first, with a map that draws only those stores (the number on each dot is how many products it has) at the radius you choose.
+  Filters: **Area** (one area or all), a **radius** slider that can go past the area's own radius, store/chain, a product or store
+  search, Pickup available, online listings, and a switch to also list every store with nothing in stock. Click a dot on the map or a
+  store in the list to open it and see each product with its price, count and a link (over-MSRP prices are flagged). It updates by
+  itself as checks finish, without losing your place.
 - **Find stock near a ZIP: pick your stores.** The store ticks are always shown on the scan page now (All and None buttons, stores that
   are off in Stores & keys are labelled), and the scan asks exactly the stores you tick, with or without "Search every product".
   **Walgreens** was added. It publishes no shelf stock, so for Walgreens the scan reports the online listing only, and says so.

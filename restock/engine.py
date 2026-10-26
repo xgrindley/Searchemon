@@ -29,6 +29,7 @@ from .features import FeatureTrial
 from .retailers.base import set_tracker, set_trials
 from .retailers.browser import BrowserPool
 from .sessions import BlockTracker
+from .scan import ZipScan
 from .trials import TrialPlan
 from .rules import allow_kind, decide
 from .state import StateStore
@@ -87,6 +88,7 @@ class Monitor:
         self.queue_state: dict[str, dict] = {}
         self._confirms_left = MAX_CONFIRMS_PER_CYCLE
         self._from_upc: set[str] = set()
+        self.scan = ZipScan(self)      # the by-hand ZIP stock scan
         self.load()
 
     # ---- setup ----------------------------------------------------------------

@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.8 (2026-10-26, test build, includes v2.7)
+- New tab in the control panel: **Find stock near a ZIP**. Type a ZIP, drag the radius (1 to 100 miles), pick which stores to
+  ask, and press **Scan now**. The app asks Target, Best Buy, Kroger, GameStop and CVS which of their stores in that circle
+  have your products (My products plus what discovery found, up to 30 per store) and lists them nearest first with
+  quantity, pickup, price, an "over MSRP" mark and a link. A switch adds online stock to the list.
+- Manual only: it never runs on a timer, sends no Discord alerts, and does not touch your areas or settings. A store that is
+  blocked, off or needs a key shows its reason and the others carry on. Stop cancels a scan in progress.
+- Nothing is saved to disk. Only the ZIP, radius and chosen stores are remembered in your browser for next time.
+- Walmart and the other sites do not publish shelf stock, so they are not part of this scan.
+- Tests: tests\test_scan.py (radius filtering, nearest-first order, blocked and off stores, cancel, nothing written to disk).
+
+To test v2.8 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+`VERSION` should print 2.8. Close the running app first. Press **Control panel**, open **Find stock near a ZIP**, type a ZIP and press Scan now.
+
 ## v2.7 (2026-10-26, test build, includes v2.6)
 - Stores & speed: the labels in "Free keys for more shelf checks" are wider, so "Walmart.io private key file" is no
   longer cut off, and the key file box is about twice as wide so a full path such as

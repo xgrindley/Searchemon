@@ -15,7 +15,7 @@ from logging.handlers import RotatingFileHandler
 
 from .catalog import Catalog
 from .config import Config, KeywordFilter, Watch, load_config, save_config, validate
-from .filters import annotate, passes
+from .filters import annotate, display_msrp, passes
 from .geo import nearest_area, place_point
 from .history import History, Schedule
 from .places import PlaceFinder
@@ -889,6 +889,7 @@ class Monitor:
 
         if res.in_stock:
             res = self._confirm(res, r)
+        res.ref_msrp = display_msrp(res, self.cfg)
         self.catalog.note_stock(res)
         if res.in_stock and self.catalog.boost_siblings(res):
             self.log.debug("%s restocked: its listings at other stores are checked every cycle for 2 hours", res.title[:50])

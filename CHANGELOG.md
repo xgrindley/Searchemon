@@ -1,6 +1,36 @@
 # Changelog
 
 ## v4.1 (test build, in progress)
+- **Stability pass.** A full review for the things a launched product must not do. Fixed:
+  - **Only one copy runs per folder.** Starting it again offers the running copy's control panel instead of a second copy that
+    would post every alert twice and fight over the browser profile and the panel's port. `run.ps1` says so too.
+  - **A dead webhook no longer retries forever.** Each check wiped the failure count, so the give-up after 6 tries never happened.
+  - **Saving settings no longer re-sends alerts** for stock already reported (a save used to start the app's memory over), and
+    no longer repeats status-channel messages.
+  - **A crash while posting to Discord no longer loses the alert**; it is retried on the next check. A Wi-Fi blip or a Discord
+    outage (5xx) is retried a few times right away, and an alert with an unusable link no longer gets refused as a whole.
+  - **Windows file locks no longer stop a store's checks.** Antivirus, the indexer or OneDrive (the Documents folder) briefly locking
+    a file made a save fail, which ended that store's checking loop for the rest of the session. Saves now retry, never leave temp
+    files behind, and a save that still fails is logged and skipped. Two saves that could fail with "dictionary changed size during
+    iteration" while other stores were checking (store history, UPC lookups, side-by-side results) are now safe.
+  - **Two store threads no longer share per-cycle values** (the confirm budget and the UPC-match list), so one store's cycle can no
+    longer reset another's mid-check.
+  - **The desktop window can no longer freeze.** One update it could not show used to stop every later update.
+  - **A typo in config.yaml no longer breaks things.** A number setting with text in it falls back to its default and is listed at
+    startup; an empty section keeps its defaults; a Notepad byte-order mark is fine; a bad area radius is kept between 1 and 250 mi.
+    If the file cannot be read at all, the window offers the copy saved before your last change (the broken file is kept).
+  - **Quiet hours and schedule windows** accept 22:00 typed without quotes (YAML read it as the number 1320, which became midnight),
+    10pm and 10:30 PM, day ranges such as mon-fri, and lists such as sat,sun. A window the app cannot read no longer stops alerts.
+  - **The control panel** answers errors as a message instead of dropping the connection ("Failed to fetch"), and with phone access
+    on, an address that enters a wrong PIN 8 times in 10 minutes is refused for 10 minutes.
+  - **Browsers:** one that could not start (Edge mid-update, say) is tried again after 10 minutes instead of staying off until a
+    restart, and a busy browser now times out cleanly and drops the stale check instead of letting a line of old work build up.
+  - **Store data:** odd product data on a page (a name that is not text, a list of sellers), a distance like "1.2 mi", 0,0
+    coordinates and an unreadable Kroger sign-in answer no longer break a check.
+  - **data\debug** keeps at most 150 troubleshooting copies and deletes them after 14 days (they can hold store and location
+    details); saving one can no longer break a check.
+  - The log follows the settings folder if it changes, and a restock-time record that cannot be written never blocks an alert.
+  - 29 new regression tests (311 in all); 26 of them fail on v4.0, so they catch these bugs if they ever come back.
 - **The ZIP scan searches properly.** It now asks each store for your discovery words, your own keyword searches that include that
   store, and built-in product-type searches (Elite Trainer Box, Booster Bundle, Collection Box, Booster Box, Tin, Blister, Premium
   Collection), up to 8 per store (4 for stores read through a browser page). If a store's search still finds nothing it falls back to

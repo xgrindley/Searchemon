@@ -86,8 +86,11 @@ def parse_product_page(html: str, patterns: dict | None = None) -> dict:
             types = node.get("@type")
             types = types if isinstance(types, list) else [types]
             if "Product" in types:
-                info["title"] = info["title"] or node.get("name")
-                info["upc"] = info["upc"] or node.get("gtin12") or node.get("gtin13") or node.get("gtin")
+                name = node.get("name")
+                if not info["title"] and isinstance(name, str) and name.strip():
+                    info["title"] = htmllib.unescape(re.sub(r"\s+", " ", name)).strip()
+                gtin = node.get("gtin12") or node.get("gtin13") or node.get("gtin")
+                info["upc"] = info["upc"] or (str(gtin) if isinstance(gtin, (str, int)) else None)
                 img = node.get("image")
                 info["image"] = info["image"] or (img[0] if isinstance(img, list) and img else img if isinstance(img, str) else None)
             if "Offer" in types or "AggregateOffer" in types or "availability" in node:
@@ -102,7 +105,9 @@ def parse_product_page(html: str, patterns: dict | None = None) -> dict:
                 if price and not info["price"]:
                     info["price"] = price
                 seller = node.get("seller")
-                if isinstance(seller, dict) and seller.get("name") and not info["seller"]:
+                if isinstance(seller, list) and seller:
+                    seller = seller[0]
+                if isinstance(seller, dict) and isinstance(seller.get("name"), str) and not info["seller"]:
                     info["seller"] = str(seller["name"])
 
     if not info["title"]:

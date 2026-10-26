@@ -98,22 +98,34 @@ def build_areas(raw_cfg: dict) -> list[Area]:
         if not z:
             continue
         pt = zip_point(z)
-        out.append(Area(str(a.get("name") or f"Area {i + 1}"), z, float(a.get("radius_miles") or 15),
+        out.append(Area(str(a.get("name") or f"Area {i + 1}"), z, _radius(a.get("radius_miles"), 15),
                         pt[0] if pt else None, pt[1] if pt else None, str(a.get("webhook") or "").strip()))
     if not out:
         loc = raw_cfg.get("location") or {}
         z = clean_zip(loc.get("zip"))
         if z:
             pt = zip_point(z)
-            out.append(Area("Home", z, float(loc.get("radius_miles") or 25),
+            out.append(Area("Home", z, _radius(loc.get("radius_miles"), 25),
                             pt[0] if pt else None, pt[1] if pt else None))
     return out
+
+
+def _radius(value, default: float) -> float:
+    """A radius in miles from the settings, kept between 1 and 250; a typo falls back to the default."""
+    try:
+        r = float(value) if value not in (None, "") else default
+    except (TypeError, ValueError):
+        r = default
+    return max(1.0, min(250.0, r)) if math.isfinite(r) else default
 
 
 def place_point(lat=None, lon=None, zip_code: str = "") -> tuple[float, float] | None:
     try:
         if lat not in (None, "") and lon not in (None, ""):
-            return float(lat), float(lon)
+            pt = float(lat), float(lon)
+            # 0,0 (in the ocean off Africa) is what some store APIs send for "unknown".
+            if pt != (0.0, 0.0) and -90 <= pt[0] <= 90 and -180 <= pt[1] <= 180:
+                return pt
     except (TypeError, ValueError):
         pass
     return zip_point(zip_code) if zip_code else None

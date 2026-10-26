@@ -100,9 +100,10 @@ class App:
         try:
             self.monitor = Monitor(config_path, self.events)
         except Exception as exc:
-            messagebox.showerror("Config problem", f"Could not load {config_path}:\n\n{exc}")
-            self.root.destroy()
-            raise SystemExit(1)
+            self.monitor = self._recover_config(config_path, exc)
+            if self.monitor is None:
+                self.root.destroy()
+                raise SystemExit(1) from None
         self._style()
         self._build()
         self._paint()                   # now that every widget exists
@@ -115,12 +116,37 @@ class App:
         self._load_settings_into_tabs()
         self._update_setup_banner()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        # Windows is shutting down or signing out: save what the app learned right away (the full close
+        # may not get time to finish).
+        self.root.protocol("WM_SAVE_YOURSELF", self._save_now)
         from .shutdown import install as _install_exit
         _install_exit(self.monitor.close, self.monitor.log)
         self.root.after(250, self.pump)
         self.start()
         if not self._has_webhook():
             self.tabs.select(self.tab_discord)
+
+    def _recover_config(self, config_path: str, exc: Exception):
+        """config.yaml could not be read (often a typo after editing it by hand). Offer the copy saved before the
+        last change; the broken file is kept as config.broken.yaml so nothing is lost. Returns a Monitor or None."""
+        import shutil
+        backup = os.path.join(os.path.dirname(os.path.abspath(config_path)), "data", "config.backup.yaml")
+        detail = str(exc).strip()[:600]
+        if not os.path.exists(backup):
+            messagebox.showerror("Settings problem", f"config.yaml could not be read:\n\n{detail}\n\n"
+                                 "Fix that line in config.yaml (Notepad is fine), then start the app again.")
+            return None
+        if not messagebox.askyesno("Settings problem", f"config.yaml could not be read:\n\n{detail}\n\n"
+                                   "Use the copy saved before your last change instead? The broken file is kept "
+                                   "as config.broken.yaml."):
+            return None
+        try:
+            shutil.copy(config_path, os.path.join(os.path.dirname(os.path.abspath(config_path)), "config.broken.yaml"))
+            shutil.copy(backup, config_path)
+            return Monitor(config_path, self.events)
+        except Exception as exc2:
+            messagebox.showerror("Settings problem", f"The saved copy could not be used either:\n\n{str(exc2)[:600]}")
+            return None
 
     # ---- helpers ----------------------------------------------------------------
     @property
@@ -936,6 +962,14 @@ class App:
         if sel and self.urls.get(sel[0]):
             webbrowser.open(clean_url(self.urls[sel[0]]))
 
+    def _save_now(self) -> None:
+        m = self.monitor
+        for save in (m.state.save, m.catalog.save, m.store_history.save):
+            try:
+                save()
+            except Exception as exc:
+                m.log.debug("save at sign-out: %s", exc)
+
     def on_close(self) -> None:
         if self.dirty and messagebox.askyesno("Unsaved changes", "Save your changes before closing?"):
             raw = self._collect()
@@ -990,54 +1024,69 @@ class App:
         self.urls[iid] = res.url
 
     def pump(self) -> None:
+        """Show what the monitor reported. One bad event is logged and skipped, and the next round is always
+        scheduled, so the window can never freeze; at most 300 events are handled per round so it stays responsive."""
         try:
-            while True:
-                event = self.events.get_nowait()
-                kind = event[0]
-                if kind == "log":
-                    self.write(event[1])
-                elif kind == "result":
-                    self.show_result(event[1])
-                elif kind == "status":
-                    r = self.monitor.retailers.get(event[1])
-                    if self.retail_list.exists(event[1]):
-                        self.retail_list.item(event[1], values=(r.display if r else event[1], event[2]))
-                    if event[1] in self.store_status:
-                        self.store_status[event[1]].set(str(event[2])[:80])
-                elif kind == "alert":
-                    res, reason, sent = event[1], event[2], event[3]
-                    self.write(f"IN STOCK  {res.retailer_name}: {res.title} | {reason}"
-                               f"{'' if sent else ' (Discord not sent)'}", "alert")
-                    self.root.bell()
-                elif kind == "human_check":
-                    self.write(f"{event[1]} wants a quick human check. Finish it in the browser window "
-                               "that opened, then checks continue on their own.", "alert")
-                    self.root.bell()
-                elif kind == "reloaded":
-                    self.table.delete(*self.table.get_children())
-                    self.rows.clear()
-                    self.urls.clear()
-                    self._fill_retailers()
-                    self._update_setup_banner()
-                    self._update_pause_btn()
-                elif kind in ("saved", "save_failed"):
-                    for b in self.save_buttons:
-                        b.state(["!disabled"])
-                if kind == "saved":
-                    self.dirty = False
-                    self.save_state.set(f"Saved at {time.strftime('%I:%M %p').lstrip('0')}. Checks restarted with the new settings.")
-                elif kind == "save_failed":
-                    self.save_state.set("Not saved.")
-                    messagebox.showerror("Not saved", event[1])
-                elif kind == "test_result":
-                    self.test_result.set(event[1])
-        except queue.Empty:
-            pass
-        running = self.monitor.running
-        paused = bool((self.raw.get("settings") or {}).get("alerts_paused"))
-        self.state_var.set(("Running" + (", alerts paused" if paused else "")) if running else "Stopped")
-        self.run_btn.configure(text="Stop" if running else "Start")
-        self.root.after(300, self.pump)
+            for _ in range(300):
+                try:
+                    event = self.events.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    self._on_event(event)
+                except Exception as exc:
+                    self.monitor.log.warning("Window could not show an update (%s): %s", event[0] if event else "?", exc)
+            running = self.monitor.running
+            paused = bool((self.raw.get("settings") or {}).get("alerts_paused"))
+            self.state_var.set(("Running" + (", alerts paused" if paused else "")) if running else "Stopped")
+            self.run_btn.configure(text="Stop" if running else "Start")
+        except Exception as exc:
+            self.monitor.log.warning("Window update failed: %s", exc)
+        finally:
+            try:
+                self.root.after(300, self.pump)
+            except tk.TclError:
+                pass          # the window is closing
+
+    def _on_event(self, event) -> None:
+        kind = event[0]
+        if kind == "log":
+            self.write(event[1])
+        elif kind == "result":
+            self.show_result(event[1])
+        elif kind == "status":
+            r = self.monitor.retailers.get(event[1])
+            if self.retail_list.exists(event[1]):
+                self.retail_list.item(event[1], values=(r.display if r else event[1], event[2]))
+            if event[1] in self.store_status:
+                self.store_status[event[1]].set(str(event[2])[:80])
+        elif kind == "alert":
+            res, reason, sent = event[1], event[2], event[3]
+            self.write(f"IN STOCK  {res.retailer_name}: {res.title} | {reason}"
+                       f"{'' if sent else ' (Discord not sent)'}", "alert")
+            self.root.bell()
+        elif kind == "human_check":
+            self.write(f"{event[1]} wants a quick human check. Finish it in the browser window "
+                       "that opened, then checks continue on their own.", "alert")
+            self.root.bell()
+        elif kind == "reloaded":
+            self.table.delete(*self.table.get_children())
+            self.rows.clear()
+            self.urls.clear()
+            self._fill_retailers()
+            self._update_setup_banner()
+            self._update_pause_btn()
+        elif kind in ("saved", "save_failed"):
+            for b in self.save_buttons:
+                b.state(["!disabled"])
+        if kind == "saved":
+            self.dirty = False
+            self.save_state.set(f"Saved at {time.strftime('%I:%M %p').lstrip('0')}. Checks restarted with the new settings.")
+        elif kind == "save_failed":
+            self.save_state.set("Not saved.")
+            messagebox.showerror("Not saved", event[1])
+        elif kind == "test_result":
+            self.test_result.set(event[1])
 
     def run(self) -> None:
         self.root.mainloop()

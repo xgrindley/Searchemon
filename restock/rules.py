@@ -63,7 +63,11 @@ def decide(res: StockResult, new_online: bool, new_store_ids: tuple[str, ...], r
                 continue
             if r.get("pickup_only") and not st.pickup:
                 continue
-            if cap not in (None, "", 0) and st.distance is not None and st.distance > float(cap):
+            try:
+                cap_mi = float(cap) if cap not in (None, "", 0) else None
+            except (TypeError, ValueError):
+                cap_mi = None
+            if cap_mi and st.distance is not None and st.distance > cap_mi:
                 continue
             stores.append(sid)
     if not online and not stores:

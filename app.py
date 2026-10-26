@@ -53,6 +53,34 @@ def log_crash() -> None:
         pass
 
 
+def already_running(config_path: str, windowed: bool) -> None:
+    """A second copy was started from the same folder. Say so (and offer the control panel) instead of
+    running twice, which would send every Discord alert twice and fight over the browser profile."""
+    port = 8765
+    try:
+        import yaml
+        with open(config_path, encoding="utf-8-sig") as fh:
+            port = int(((yaml.safe_load(fh) or {}).get("control_panel") or {}).get("port") or 8765)
+    except Exception:
+        pass
+    msg = ("Searchemon is already running from this folder (check the taskbar).\n\n"
+           "Running it twice would send every alert twice.")
+    if not windowed:
+        print(msg.replace("\n\n", " "))
+        return
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        if messagebox.askyesno("Searchemon", msg + "\n\nOpen its control panel?"):
+            import webbrowser
+            webbrowser.open(f"http://127.0.0.1:{port}/")
+        root.destroy()
+    except Exception:
+        print(msg)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pokemon TCG restock monitor")
     parser.add_argument("--version", action="store_true", help="print the version and exit")
@@ -71,7 +99,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.version:
         try:
-            print(open(os.path.join(base_dir(), "VERSION")).read().strip())
+            with open(os.path.join(base_dir(), "VERSION"), encoding="utf-8") as fh:
+                print(fh.read().strip())
         except OSError:
             print("unknown")
         return
@@ -79,11 +108,16 @@ def main() -> None:
         from restock.selftest import run as selftest
         sys.exit(0 if selftest(resource_dir(), base_dir()) else 1)
     ensure_config(args.config)
+    windowed = not (args.headless or args.once or args.resolve or args.test_discord or args.abtest or args.stats)
+    if windowed or args.headless:
+        from restock import single
+        if not single.acquire(os.path.dirname(os.path.abspath(args.config))):
+            already_running(args.config, windowed)
+            return
     from restock import power
     power.apply(power.read_settings(args.config))
 
-    if not (args.headless or args.once or args.resolve or args.test_discord
-            or args.abtest or args.stats):
+    if windowed:
         from restock.gui import run_gui
         run_gui(args.config)
         return

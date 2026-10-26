@@ -120,6 +120,29 @@ class PanelServer:
         self.token = secrets.token_urlsafe(24)
         self.listening_lan = False
         self.httpd: ThreadingHTTPServer | None = None
+        self._fails: dict[str, list[float]] = {}     # wrong PINs per address, for the lockout
+        self._fails_lock = threading.Lock()
+
+    # A 4 digit PIN has only 10,000 values, so an address that guesses wrong 8 times in 10 minutes is
+    # refused for 10 minutes. This PC itself never needs the PIN (it gets the session token).
+    PIN_TRIES, PIN_WINDOW_S = 8, 600
+
+    def locked_out(self, who: str) -> bool:
+        with self._fails_lock:
+            now = time.time()
+            recent = [t for t in self._fails.get(who, []) if now - t < self.PIN_WINDOW_S]
+            self._fails[who] = recent
+            return len(recent) >= self.PIN_TRIES
+
+    def pin_failed(self, who: str) -> None:
+        with self._fails_lock:
+            self._fails.setdefault(who, []).append(time.time())
+            if len(self._fails[who]) == self.PIN_TRIES:
+                self.monitor.info(f"Control panel: {self.PIN_TRIES} wrong PINs from {who}, refusing it for 10 minutes")
+
+    def pin_ok(self, who: str) -> None:
+        with self._fails_lock:
+            self._fails.pop(who, None)
 
     @property
     def url(self) -> str:
@@ -244,7 +267,7 @@ class PanelServer:
                            for n, r in m.retailers.items()],
                 "methods": m.store_history.method_days(14),
             },
-            "human_checks": list(m.human_checks.values()),
+            "human_checks": list(m.human_checks.copy().values()),
             "browser": {
                 "installed": playwright_installed(),
                 "running": bool(browser and browser.thread and browser.thread.is_alive()),
@@ -366,9 +389,19 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _authed(self) -> bool:
         given = self.headers.get("X-Token") or ""
-        if hmac.compare_digest(given, self.panel.token):
+        if hmac.compare_digest(given.encode(), self.panel.token.encode()):
             return True
-        return bool(self.panel.pin) and hmac.compare_digest(given, self.panel.pin)
+        if not self.panel.pin:
+            return False
+        who = self.client_address[0]
+        if self.panel.locked_out(who):
+            return False
+        if hmac.compare_digest(given.encode(), self.panel.pin.encode()):
+            self.panel.pin_ok(who)
+            return True
+        if given:
+            self.panel.pin_failed(who)
+        return False
 
     def _body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -408,6 +441,13 @@ class _Handler(BaseHTTPRequestHandler):
             return self.wfile.write(body)
         if not self._authed():
             return self._json(401, {"error": "PIN required"})
+        try:
+            return self._get_api(path)
+        except Exception as exc:
+            self.panel.monitor.log.exception("panel error")
+            return self._json(500, {"error": f"{exc.__class__.__name__}: {exc}"})
+
+    def _get_api(self, path: str):
         if path == "/api/scan":
             return self._json(200, self.panel.monitor.scan.snapshot())
         if path == "/api/status":

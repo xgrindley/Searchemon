@@ -81,7 +81,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertTrue(all(f["value"] for f in e["fields"]))
 
     def test_failed_send_is_retried_then_given_up(self):
-        from restock.state import Change, StateStore
+        from restock.state import StateStore
         with tempfile.TemporaryDirectory() as d:
             st = StateStore(d)
             res = result(online=True)

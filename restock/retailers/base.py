@@ -400,11 +400,15 @@ class Retailer:
         if not (force or self.cfg.settings.get("debug_dump")):
             return
         folder = os.path.join(self.cfg.data_dir, "debug")
-        os.makedirs(folder, exist_ok=True)
         safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"{self.name}_{label}")[:80]
         path = os.path.join(folder, f"{safe}.json" if not isinstance(data, str) else f"{safe}.html")
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(data if isinstance(data, str) else json.dumps(data, indent=2))
+        try:   # troubleshooting copies must never break a check (a locked or full disk)
+            os.makedirs(folder, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(data if isinstance(data, str) else json.dumps(data, indent=2, default=str))
+            _trim_debug(folder)
+        except (OSError, TypeError, ValueError) as exc:
+            self.log.debug("Could not save a debug copy: %s", exc)
 
     @staticmethod
     def pause(seconds: float) -> None:
@@ -418,6 +422,32 @@ class Retailer:
         except (TypeError, ValueError):
             base = 4.0
         return random.uniform(base, base * 1.5) if base > 0 else 0.0
+
+
+DEBUG_KEEP = 150          # newest troubleshooting copies kept in data\debug; older ones are deleted
+DEBUG_MAX_AGE_S = 14 * 86400
+_last_trim = 0.0
+
+
+def _trim_debug(folder: str) -> None:
+    """Keep data\\debug small and free of old page copies (they can hold store and location details).
+    Runs at most every 10 minutes."""
+    global _last_trim
+    now = time.time()
+    if now - _last_trim < 600:
+        return
+    _last_trim = now
+    try:
+        files = [os.path.join(folder, f) for f in os.listdir(folder)]
+        files = sorted((f for f in files if os.path.isfile(f)), key=os.path.getmtime, reverse=True)
+    except OSError:
+        return
+    for i, f in enumerate(files):
+        try:
+            if i >= DEBUG_KEEP or now - os.path.getmtime(f) > DEBUG_MAX_AGE_S:
+                os.remove(f)
+        except OSError:
+            pass
 
 
 def _retry_after(resp: requests.Response) -> float:

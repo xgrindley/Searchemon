@@ -83,7 +83,6 @@ if __name__ == "__main__":
 
 class BoostTests(unittest.TestCase):
     def test_restock_boosts_same_product_at_other_stores(self):
-        import time
         with tempfile.TemporaryDirectory() as d:
             cat = Catalog(d)
             raw = {"settings": {}}

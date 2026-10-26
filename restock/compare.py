@@ -118,7 +118,10 @@ class SideBySide:
                 runs = self.data.setdefault(store, {}).setdefault(name, [])
                 runs.append(r)
                 del runs[:-KEEP]
-        atomic_write_json(self.path, self.data)
+            try:
+                atomic_write_json(self.path, self.data)
+            except OSError as exc:
+                self.log.debug("side-by-side results not saved: %s", exc)
         self.log.info("Side-by-side test at %s: %s", store,
                       ", ".join(f"{n} {'ok' if r['ok'] else (r['kind'] or 'blocked')}" for n, r in out.items()))
         return out

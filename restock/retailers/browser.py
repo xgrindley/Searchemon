@@ -23,6 +23,7 @@ import socket
 import threading
 import time
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from typing import Callable
 from urllib.parse import urlsplit
@@ -156,9 +157,15 @@ class BrowserWorker:
     def enabled(self) -> bool:
         return bool(self.bcfg.get("enabled", True))
 
+    RETRY_START_S = 600     # a browser that failed to start (Edge mid-update, say) is tried again after this long
+
     @property
     def usable(self) -> bool:
         lib = patchright_installed() if self.stealth else playwright_installed()
+        if (self.failed and time.time() - getattr(self, "failed_at", 0) > self.RETRY_START_S
+                and not (self.thread and self.thread.is_alive())):
+            self.log.info("Trying the '%s' browser again (it could not start earlier)", self.name)
+            self.failed = ""
         return self.enabled and lib and not self.failed
 
     @property
@@ -283,7 +290,13 @@ class BrowserWorker:
                 self.thread.start()
         fut: Future = Future()
         self.jobs.put((fn, fut))
-        return fut.result(timeout=timeout)
+        try:
+            return fut.result(timeout=timeout)
+        except FutureTimeout:
+            # The browser is busy (a slow page or a long line of checks). Drop this job if it has not started,
+            # so the line does not fill with stale work, and report it as a short network-style problem.
+            fut.cancel()
+            raise ConnectionError(f"the '{self.name}' browser was busy for {int(timeout)} s; trying again later") from None
 
     # ---- browser thread ---------------------------------------------------------------
     def _run(self) -> None:
@@ -299,7 +312,9 @@ class BrowserWorker:
             self.log.info("Browser '%s' started (%s)", self.name,
                           "attached over DevTools" if self.cdp_url else (self.channel or "msedge"))
         except Exception as exc:
-            self.failed = f"Browser could not start: {exc.__class__.__name__}: {str(exc).splitlines()[0][:160]}"
+            first = (str(exc).splitlines() or [""])[0][:160]
+            self.failed = f"Browser could not start: {exc.__class__.__name__}: {first}"
+            self.failed_at = time.time()
             self.log.warning(self.failed)
             while True:  # fail any queued jobs so callers do not hang
                 try:

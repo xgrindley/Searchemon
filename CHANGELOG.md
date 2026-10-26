@@ -14,6 +14,10 @@
   URLs) after every check and when the app closes. "Based on" now also shows the last 24 hours or 7 days. The method counts in
   block-stats.json and the trial state were already saved.
 - Tests: tests\test_history.py.
+- **Target block now shows up as a block.** Target answered the search with a PerimeterX bot-check page that looked like normal
+  JSON, so the app logged "search came back empty" and tracked nothing, and the trust table said "not enough data". It is now
+  recognised as a block: the log and trust table say Blocked, and the app tries the same call from inside Target's page in your
+  browser (page fetch). Tests: tests\test_jsonblock.py.
 
 To test v2.10 (PowerShell):
 ```

@@ -144,7 +144,10 @@ class Retailer:
             raise ConnectionError(f"{self.display}: network error {exc.__class__.__name__}") from exc
         if resp.status_code >= 500 and resp.status_code != 503:
             raise ConnectionError(f"{self.display}: server error {resp.status_code}")
-        info = classify(resp.status_code, "" if expect_json and resp.status_code < 400 else resp.text, resp.headers)
+        body = "" if expect_json and resp.status_code < 400 else resp.text
+        if not body and '"blockScript"' in resp.text[:1500]:
+            body = resp.text         # a bot-check page sent as JSON with a normal status (Target does this)
+        info = classify(resp.status_code, body, resp.headers)
         if TRACKER:
             TRACKER.record("direct", self.name, info is None or info.kind == "queue", info.kind if info else "")
         if info:

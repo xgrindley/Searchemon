@@ -2,9 +2,9 @@
 
 Read this first when picking the project back up. Newest entries at the top of each section.
 
-## State (v1.0 stable; working on test build v1.2)
-- Repo: github.com/xgrindley/Searchemon (public). main = the latest stable release only (v1.0, declared 2026-10-25), test = current work (next test build is v1.2). See RELEASING.md.
-- Version scheme: stable v1.0, v2.0...; tests v1.1, v1.2... Before v1.0 the tests were v0.1 to v0.6.
+## State (v2.0 stable; next test build is v2.1)
+- Repo: github.com/xgrindley/Searchemon (public). main = the latest stable release only (v2.0, declared 2026-10-25), test = current work (next test build is v2.1). See RELEASING.md.
+- Version scheme: stable v1.0, v2.0, v3.0...; tests count up from the release (v2.1, v2.2...). v1.0 was v0.6 promoted, v2.0 is v1.2 promoted.
 - Windows app, Python 3.13 venv, tkinter window + local control panel at 127.0.0.1:8765.
 - Retailers: Target, Best Buy, Walmart, Kroger family, Pokemon Center, GameStop, Costco, Sam's,
   B&N, BAM, Amazon, Dick's, Safeway, Raley's, Walgreens, CVS.

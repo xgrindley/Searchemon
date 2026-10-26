@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.0 (2026-10-25, stable release)
+- Declared stable by the owner. It is exactly test build v1.2 (saved as build/v1.2), with the version number
+  changed to 2.0. Everything listed under v1.2 below is in it.
+- Install it with `.\update.ps1` (no channel name). Test builds continue from v2.1.
+
 ## v1.2 (2026-10-25, test build)
 - Fixed a false "wants a quick human check" on GameStop. Cloudflare adds a harmless script
   (`/cdn-cgi/challenge-platform/.../jsd/main.js`) to ordinary pages it protects, and the app took it for a

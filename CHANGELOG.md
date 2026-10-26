@@ -1,6 +1,19 @@
 # Changelog
 
 ## v4.1 (test build, in progress)
+- **In-store alerts stopped after 8:25 PM on Oct 25: fixed.** "Only when pickup works" was on, and CVS sells its Pokemon "in store
+  only", so no CVS store ever qualified: 32 shelf finds (up to 20 stores each) were logged as "Not sent". The setting now only
+  chooses between stores when some of them offer pickup for that item; items no store offers for pickup still alert. A skipped
+  alert now names the setting that held it back.
+- **CVS was refusing every browser since about 1 PM.** The extra traffic came from the app: side-by-side tests kept loading CVS
+  pages while it was already refusing, and each check carried many newly found products. Side-by-side tests now run at most hourly
+  and never while a store is refusing; stores read through pages check 2 found products per round (was 4), and stores searched in
+  the browser get at most 3 cross-store lookups per refresh.
+- A CVS link that redirects to the home page is named from the link ("Pokemon TCG 30th Anniversary Mini Tin...") instead of
+  "Shop Beauty, Vitamins, Medicine...".
+- **Ignoring a found product is remembered** by the product itself (barcode and name), not one store's link: it is ignored at
+  every store, stays ignored after restarts, and stays ignored when a store's link for it changes. Track undoes it everywhere.
+  Found for you also remembers its type, store and Show ignored choices, and says how many ignored products are hidden.
 - **Target's "Press & hold" check is now a block, not a request for you.** PerimeterX (Target, also Walmart and Sam's Club)
   recognizes the app's browsers and answers "Please try again" however long you hold, so asking you only left Target stuck on
   "Waiting for you". Now that browser rests at the store for an hour and the next one (your own Chrome first) is tried. If Target's

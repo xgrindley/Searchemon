@@ -260,9 +260,12 @@ class Monitor:
         save_config(self.config_path, self.cfg.raw, backup_dir=self.cfg.data_dir)
         self.info(f"{'Skipping' if excluded else 'Checking'} store {key}")
 
-    def set_product_status(self, key: str, status: str) -> None:
-        self.catalog.set_status(key, status)
-        self.info(f"{'Ignoring' if status == 'ignored' else 'Tracking'} {key}")
+    def set_product_status(self, key: str, status: str) -> int:
+        n = self.catalog.set_status(key, status)
+        title = (self.catalog.items.get(key) or {}).get("title") or key
+        self.info(f"{'Ignoring' if status == 'ignored' else 'Tracking'} {title[:70]}"
+                  + (f" at {n} listing{'s' if n != 1 else ''}" if n > 1 else ""))
+        return n
 
     def info(self, msg: str) -> None:
         self.log.info(msg)
@@ -711,7 +714,9 @@ class Monitor:
                     self._from_upc.add(found)
         if self._discovery_on(r):
             d = self.cfg.raw.get("discovery") or {}
-            n = int((d.get("items_per_cycle") or {}).get(r.name, 4 if getattr(r, "search_url", "") else 6))
+            # Stores read through pages get few found products per check: each costs a page load (and at CVS a
+            # shelf lookup per area), and a long list per check is what makes those stores start refusing.
+            n = int((d.get("items_per_cycle") or {}).get(r.name, 2 if getattr(r, "search_url", "") else 6))
             types = type_settings(self.cfg.raw)
             for item in self.catalog.rotation(r.name, n, types):
                 if item["id"] not in out:
@@ -754,9 +759,11 @@ class Monitor:
             self.localize(res)
         if results and getattr(self, "compare", None):
             sample = next((x.url for x in results.values() if x.url and x.url.startswith("http")), "")
-            if sample and r.name not in ("target", "bestbuy", "kroger") and self._troubled(r.name):
+            h = self.health.get(r.name) or {}
+            if sample and r.name not in ("target", "bestbuy", "kroger") and self._troubled(r.name) and not h.get("block_streak"):
                 # Side-by-side tests load the page through every method at once. That extra traffic only pays off
-                # at a store that has pushed back lately, so a store that loads fine is left alone.
+                # at a store that has pushed back lately (a store that loads fine is left alone), and never while the
+                # store is still refusing, when it would only prolong the block.
                 self.compare.maybe_run(r.name, sample)
         return results
 
@@ -793,7 +800,10 @@ class Monitor:
             raise ConnectionError(f"{r.display}: every product search failed")
         if getattr(r, "search_url", ""):
             # Stores without a product API: also look for what the other stores already list, by UPC or name.
-            for q in self.catalog.cross_queries(r.name, int(d.get("cross_per_refresh", 8))):
+            per = int(d.get("cross_per_refresh", 8))
+            if getattr(r, "search_in_browser", False) or getattr(r, "_listing_needs_browser", False):
+                per = min(per, 3)               # each of these is a full page load in the browser
+            for q in self.catalog.cross_queries(r.name, per):
                 try:
                     found.extend(r.search(q, 6))
                 except Blocked:

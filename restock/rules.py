@@ -55,13 +55,19 @@ def decide(res: StockResult, new_online: bool, new_store_ids: tuple[str, ...], r
     online = new_online and bool(r.get("online", True))
     by_id = {s.store_id: s for s in res.stores}
     stores = []
+    skipped_pickup = 0
+    # "Only when pickup works" is about choosing the stores where you can reserve it. When the item cannot be
+    # picked up anywhere (CVS sells its Pokemon "in store only"), the setting would hide every shelf find, so such
+    # items still alert.
+    pickup_somewhere = any(s.pickup for s in res.stores)
     if r.get("in_store", True):
         cap = r.get("max_miles")
         for sid in new_store_ids:
             st = by_id.get(sid)
             if st is None:
                 continue
-            if r.get("pickup_only") and not st.pickup:
+            if r.get("pickup_only") and pickup_somewhere and not st.pickup:
+                skipped_pickup += 1
                 continue
             try:
                 cap_mi = float(cap) if cap not in (None, "", 0) else None
@@ -71,7 +77,14 @@ def decide(res: StockResult, new_online: bool, new_store_ids: tuple[str, ...], r
                 continue
             stores.append(sid)
     if not online and not stores:
-        why = "online alerts are off" if new_online and not new_store_ids else "no store matched your alert rules"
+        if new_online and not new_store_ids:
+            why = "online alerts are off"
+        elif not r.get("in_store", True):
+            why = "in-store alerts are off (Discord alerts)"
+        elif skipped_pickup:
+            why = f"only stores with pickup alert, and {skipped_pickup} new store(s) are in store only (Discord alerts > Only when pickup works)"
+        else:
+            why = "no new store is within your alert distance (Discord alerts)"
         return Decision(False, False, False, (), why)
     ping = "restock" in (r.get("ping_on") or [])
     if quiet_now(r, now):

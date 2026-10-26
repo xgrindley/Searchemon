@@ -24,6 +24,9 @@ from .util import atomic_write_json, read_json
 KEEP = 40          # recent runs kept per store and method
 
 
+MIN_EVERY_MIN = 60
+
+
 class SideBySide:
     def __init__(self, data_dir: str, log, browser=None):
         self.path = os.path.join(data_dir, "compare.json")
@@ -38,7 +41,10 @@ class SideBySide:
     def every_s(self) -> float:
         raw = getattr(self.browser, "raw", None) or {}
         try:
-            return float((raw.get("browser") or {}).get("compare_every_minutes", 15) or 0) * 60
+            minutes = float((raw.get("browser") or {}).get("compare_every_minutes", 60) or 0)
+            # Each test loads the page through every browser at once. More often than hourly, that extra traffic is
+            # itself enough to make a store like CVS start refusing, so the setting cannot go below an hour.
+            return max(minutes, MIN_EVERY_MIN) * 60 if minutes else 0.0
         except (TypeError, ValueError):
             return 0.0
 

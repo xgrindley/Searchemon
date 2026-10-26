@@ -389,7 +389,7 @@ class App:
         box = self._section(p, "What gets posted")
         for key, label in (("online", "Online restocks"),
                            ("in_store", "In-store restocks at stores in your area"),
-                           ("pickup_only", "In-store only when order pickup is available (fewer wasted trips)"),
+                           ("pickup_only", "Skip stores without pickup when other stores offer it (in-store-only items like CVS still alert)"),
                            ("new_listings", "New listings (a store lists a product for the first time)"),
                            ("queue", "Pokemon Center queue opening (a drop is starting)"),
                            ("sold_out", "Sold out notices"),

@@ -27,9 +27,42 @@ class Catalog:
         saved = read_json(self.path, {})
         self.items: dict[str, dict] = saved.get("items", {})
         self.runs: dict[str, float] = saved.get("runs", {})
+        # Products you ignored, remembered by the product itself (barcode and name), not by one store's link, so the
+        # choice holds at every store, survives restarts, and still applies when a store's link for it changes.
+        self.rejected: dict[str, dict] = saved.get("rejected", {})
         self.cursor: dict[str, int] = {}
-        if self.purge_non_tcg():
+        changed = self.purge_non_tcg()
+        with self.lock:
+            # Ignores made before this was remembered per product: carry them over.
+            for v in self.items.values():
+                if v.get("status") == "ignored" and not self._is_rejected(v):
+                    self._reject(v)
+                    changed = True
+        if changed:
             self.save()
+
+    # ---- products you ignored -------------------------------------------------------------------
+    @staticmethod
+    def identities(v: dict) -> set[str]:
+        """What makes a listing the same product at any store: its barcode, and its name."""
+        out = set()
+        if v.get("upc"):
+            out.add("upc:" + str(v["upc"]))
+        name = normalize_text(str(v.get("title") or "")).replace("pokemon trading card game", "pokemon tcg")
+        if name:
+            out.add("name:" + name)
+        return out
+
+    def _is_rejected(self, v: dict) -> bool:
+        return any(i in self.rejected for i in self.identities(v))
+
+    def _reject(self, v: dict) -> None:
+        for i in self.identities(v):
+            self.rejected[i] = {"title": str(v.get("title") or "")[:120], "at": time.time()}
+
+    def is_rejected(self, v: dict) -> bool:
+        with self.lock:
+            return self._is_rejected(v)
 
     def purge_non_tcg(self) -> int:
         """Drop saved listings the classifier no longer accepts (for example a sticker book that an
@@ -43,7 +76,7 @@ class Catalog:
 
     def save(self) -> None:
         with self.lock:
-            atomic_write_json(self.path, {"items": self.items, "runs": self.runs})
+            atomic_write_json(self.path, {"items": self.items, "runs": self.runs, "rejected": self.rejected})
 
     def due(self, retailer: str, hours: float) -> bool:
         return time.time() - self.runs.get(retailer, 0) >= hours * 3600
@@ -72,12 +105,16 @@ class Catalog:
                             "msrp": c.msrp, "priority": c.priority, "upc": normalize_upc(r.upc) or "",
                             "first_seen": now, "status": "tracking", "last_in_stock": 0}
                     self.items[key] = item
-                    if not first_run:
+                    if self._is_rejected(item):
+                        item["status"] = "ignored"        # you ignored this product before (here or at another store)
+                    elif not first_run:
                         new.append(item)
                 item.update({"title": r.title, "last_seen": now, "price": r.price,
                              "type": c.type_key, "type_label": c.type_label, "msrp": c.msrp})
                 if r.upc:
                     item["upc"] = normalize_upc(r.upc)
+                if item.get("status") != "ignored" and self._is_rejected(item):
+                    item["status"] = "ignored"
             for key in [k for k, v in self.items.items() if v["retailer"] == retailer
                         and v.get("status") != "ignored" and now - v.get("last_seen", now) > FORGET_AFTER_S]:
                 del self.items[key]
@@ -110,11 +147,28 @@ class Catalog:
                     n += 1
         return n
 
-    def set_status(self, key: str, status: str) -> None:
+    def set_status(self, key: str, status: str) -> int:
+        """Ignore or track a product. The choice covers the same product at every store and is remembered
+        (catalog.json), so it holds after restarts and when the product is found again. Returns how many
+        listings it changed."""
+        changed = 0
         with self.lock:
-            if key in self.items and status in ("tracking", "ignored"):
-                self.items[key]["status"] = status
+            item = self.items.get(key)
+            if item is None or status not in ("tracking", "ignored"):
+                return 0
+            mine = self.identities(item)
+            if status == "ignored":
+                self._reject(item)
+            else:
+                for i in mine:
+                    self.rejected.pop(i, None)
+            for v in self.items.values():
+                if v is item or (mine & self.identities(v)):
+                    if v.get("status") != status:
+                        v["status"] = status
+                        changed += 1
         self.save()
+        return changed
 
     def tracked(self, retailer: str, types: dict) -> list[dict]:
         out = []

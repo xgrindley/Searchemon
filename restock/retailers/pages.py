@@ -385,11 +385,17 @@ class WebPage(Retailer):
                 continue
             info = self.parse(resp.text, url)
             status = info["status"]
+            title = info["title"] or ""
+            from_link = slug_title(urlsplit(url).path)
+            if from_link and "pokemon" in normalize_text(from_link) and "pokemon" not in normalize_text(title):
+                # The page answered with something other than the product (CVS sends its home page, "Shop Beauty,
+                # Vitamins, Medicine...", for a link it moved): name it from the link instead.
+                title = from_link
             out[ident] = StockResult(
                 retailer=self.name,
                 retailer_name=site_name(url) if self.name == "web" else self.display,
                 product_id=ident,
-                title=info["title"] or url,
+                title=title or url,
                 url=url,
                 price=info["price"],
                 upc=normalize_upc(info["upc"]) or None,

@@ -68,7 +68,7 @@ DEFAULTS: dict[str, Any] = {
         # When a store refuses a plain data request, repeat it from inside the store's own page in a real browser.
         "page_fetch": True,
         # Every N minutes, per store, load one page through every method at once and record the outcome (0 = off).
-        "compare_every_minutes": 15,
+        "compare_every_minutes": 60,
         # Use what the side-by-side tests found: methods that load a store reliably get its checks first.
         "learn_from_compare": True,
         # Run about half of the checks without each new feature and count the blocks, so Methods lab can show whether it helps.

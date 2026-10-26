@@ -460,7 +460,8 @@ let TYPES_LIST = [];
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
 const nearState = Object.assign({ zip: "", radius: 15, online: true, point: null, place: "" }, store.get("restock-near", {}));
-const foundState = { q: "", type: "", retailer: "", showIgnored: false };
+const foundState = Object.assign({ q: "", type: "", retailer: "", showIgnored: false }, store.get("restock-found", {}));
+function saveFound() { store.set("restock-found", { type: foundState.type, retailer: foundState.retailer, showIgnored: foundState.showIgnored }); }
 let placesData = null, catalogData = null;
 function milesBetween(a, b) {
   const r = (x) => x * Math.PI / 180, R = 3958.8;
@@ -849,10 +850,10 @@ const views = {
 
   found() {
     const q = h("input", { type: "search", placeholder: "Filter by name", value: foundState.q, "aria-label": "Filter products", oninput: (e) => { foundState.q = e.target.value; drawFound(); } });
-    const typeSel = h("select", { id: "found-type", "aria-label": "Product type", onchange: (e) => { foundState.type = e.target.value; drawFound(); } }, h("option", { value: "", text: "All product types" }));
-    const rSel = h("select", { "aria-label": "Store", onchange: (e) => { foundState.retailer = e.target.value; drawFound(); } },
+    const typeSel = h("select", { id: "found-type", "aria-label": "Product type", onchange: (e) => { foundState.type = e.target.value; saveFound(); drawFound(); } }, h("option", { value: "", text: "All product types" }));
+    const rSel = h("select", { "aria-label": "Store", onchange: (e) => { foundState.retailer = e.target.value; saveFound(); drawFound(); } },
       h("option", { value: "", text: "All stores" }), SEARCHABLE.map((k) => h("option", { value: k, text: RETAILERS[k], selected: foundState.retailer === k })));
-    const ign = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: foundState.showIgnored, onchange: (e) => { foundState.showIgnored = e.target.checked; drawFound(); } }), "Show ignored");
+    const ign = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: foundState.showIgnored, onchange: (e) => { foundState.showIgnored = e.target.checked; saveFound(); drawFound(); } }), "Show ignored");
     setTimeout(loadFound);
     return [
       h("h1", { text: "Found for you" }),
@@ -1237,7 +1238,7 @@ const views = {
       h("div", { class: "settings-list" },
         setting("Online restocks", "An item can be bought online again.", sw(n, "online", "")),
         setting("In-store restocks", "Shelf stock appeared at a store in your areas.", sw(n, "in_store", "")),
-        setting("Only when pickup works", "Skip in-store stock you can't order for pickup. Pickup stock is the most reliable.", sw(n, "pickup_only", "")),
+        setting("Only when pickup works", "Skip stores where an item can't be ordered for pickup, when other stores offer pickup for it. Items no store offers for pickup (CVS sells its Pokemon in store only) still alert.", sw(n, "pickup_only", "")),
         setting("New listings", "A store listed a Pokemon product for the first time.", sw(n, "new_listings", "")),
         setting("Pokemon Center queue", "The waiting room opened, which usually means a drop within minutes.", sw(n, "queue", "")),
         setting("Sold-out notices", "Post when an item sells out online.", sw(st, "notify_sold_out", "")),
@@ -1389,7 +1390,7 @@ const views = {
         setting("Tabs per store", "Pages of one store rotate through this many tabs (1 to 6) instead of reloading a single tab.", num(br, "tabs_per_site", { min: "1", max: "6" })),
         setting("Close my Chrome and Edge with the app", "When the app closes, the Chrome and Edge started by start-my-chrome and start-my-edge close too. Your sign-ins are kept for next time.", sw(br, "close_own_on_exit", "")),
         setting("Feature trial", "Run about half of the checks without learned routing and tab rotation so Connection methods can show whether they help.", sw(br, "feature_trial", "")),
-        setting("Side-by-side test (minutes, 0 = off)", "Every this many minutes, per store, one page loads through every method at once so Connection methods can compare them fairly.", num(br, "compare_every_minutes", { min: "0", max: "240" }))),
+        setting("Side-by-side test (minutes, 0 = off)", "At stores that pushed back in the last day, one page loads through every method at once so Connection methods can compare them. Never more often than hourly, and not while a store is refusing.", num(br, "compare_every_minutes", { min: "0", max: "240" }))),
       h("p", { class: "hint", text: "Browser changes take effect after restarting the app." }),
       h("h2", { text: "Phone access" }),
       h("div", { class: "settings-list" },
@@ -1889,7 +1890,9 @@ function drawFound() {
     body.replaceChildren(h("div", { class: "panel empty", text: ran ? "Nothing matches these filters." : "No searches have run yet. They start a few seconds after monitoring starts, or press Search stores now." }));
     return;
   }
-  body.replaceChildren(h("p", { class: "hint", text: groups.length + " products across " + new Set(groups.flatMap((g) => g.listings.map((l) => l.retailer))).size + " stores" }),
+  const ignoredN = catalogData.groups.filter((g) => g.listings.length && g.listings.every((l) => l.status === "ignored")).length;
+  body.replaceChildren(h("p", { class: "hint", text: groups.length + " products across " + new Set(groups.flatMap((g) => g.listings.map((l) => l.retailer))).size + " stores"
+    + (ignoredN && !foundState.showIgnored ? ". " + ignoredN + " you ignored are hidden (Show ignored to see them); they stay ignored at every store" : "") }),
     ...groups.slice(0, 200).map((g) => h("div", { class: "group" },
       h("div", { class: "group-head" }, h("b", { text: g.title }), h("span", { class: "hint", text: (g.type_label || "") + (g.msrp ? ", MSRP " + money(g.msrp) : "") })),
       g.listings.map((l) => {
@@ -1899,7 +1902,7 @@ function drawFound() {
           h("span", {}, extLink(l.url, l.status_text || "Not checked yet"), l.type_alert ? null : h("span", { class: "hint", text: "  (alerts off for this type)" })),
           h("span", { class: "hint hide-s", text: money(l.price) }),
           h("button", { class: "btn quiet", type: "button", text: l.status === "ignored" ? "Track" : "Ignore", onclick: async () => {
-            try { await api("/api/action", { action: "product_status", key: l.key, status: l.status === "ignored" ? "tracking" : "ignored" }); loadFound(); } catch (e) { toast(e.message, true); } } }));
+            try { const r = await api("/api/action", { action: "product_status", key: l.key, status: l.status === "ignored" ? "tracking" : "ignored" }); toast(r.message || "Saved"); loadFound(); } catch (e) { toast(e.message, true); } } }));
       }))));
 }
 

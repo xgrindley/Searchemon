@@ -23,7 +23,12 @@ import threading
 import time
 from dataclasses import dataclass
 
+from .util import atomic_write_json, read_json
+
 TRACE_FILE = "trial-log.jsonl"
+STATE_FILE = "trial-state.json"
+KEEP_EVENTS = 30
+MIN_FOR_BEST = 10          # checks a method needs before it can be called one of the best
 TRACE_KEEP_LINES = 500
 TRACE_MAX_BYTES = 400_000
 
@@ -85,6 +90,11 @@ DEFAULTS = {
     "rest_minutes": 90,       # how long a blocked arm sits out of the rotation for that store
     "active": DEFAULT_ACTIVE,
     "stores": [],             # empty = every store; otherwise only these store keys
+    # A trial method is stopped by itself once it has had MORE than stop_after attempts since it was
+    # switched on and stop_fail_pct percent or more of them failed or were blocked.
+    "auto_stop": True,
+    "stop_after": 25,
+    "stop_fail_pct": 50,
 }
 
 
@@ -92,13 +102,36 @@ class TrialPlan:
     """Decides which arm each store uses for its next check, one at a time."""
 
     def __init__(self, raw_cfg: dict, data_dir: str, log=None, tracker=None):
-        self.raw = raw_cfg
         self.dir = data_dir
         self.log = log
         self.tracker = tracker
         self.lock = threading.Lock()
         self.state: dict[str, dict] = {}   # store -> {"idx", "used", "rest": {arm: until}, "current"}
         self.unavailable: dict[str, str] = {}  # arm key -> why it cannot run on this PC
+        # Saved between runs (data/trial-state.json): which methods are on, the attempts counted since each
+        # was switched on, which ones were stopped by themselves, and a short history.
+        self.saved: dict = read_json(os.path.join(data_dir, STATE_FILE), {}) or {}
+        self.saved.setdefault("window", {})
+        self.saved.setdefault("stopped", {})
+        self.saved.setdefault("events", [])
+        self.attach(raw_cfg)
+
+    def attach(self, raw_cfg: dict) -> None:
+        """Use these settings, but keep the saved on/off choices: after the first change made with the
+        buttons, the saved list wins over config.yaml, so a restart brings back what you had."""
+        self.raw = raw_cfg
+        if "active" in self.saved:
+            raw_cfg.setdefault("trials", {})["active"] = list(self.saved["active"])
+
+    def _save(self) -> None:
+        try:
+            atomic_write_json(os.path.join(self.dir, STATE_FILE), self.saved)
+        except OSError:
+            pass
+
+    def _event(self, kind: str, key: str, detail: str = "") -> None:
+        self.saved["events"] = (self.saved["events"] + [{"t": round(time.time()), "kind": kind, "arm": key,
+                                                          "detail": detail}])[-KEEP_EVENTS:]
 
     # ---- settings ----------------------------------------------------------------
     @property
@@ -159,8 +192,108 @@ class TrialPlan:
                 st["idx"] += 1
                 st["used"] = 0
                 self._trace(store, arm.key, "blocked", kind)
+            if not arm.control:
+                self._count(arm, ok, kind)
         if self.tracker and not arm.control:
             self.tracker.record(arm.key, store, ok, kind)
+
+    def fail(self, store: str, arm: Arm, why: str = "error") -> None:
+        """The method itself failed to load a page (not a block, and not 'cannot run here'). Counts
+        against it for the auto-stop rule, and it takes a short rest at this store."""
+        if arm.control:
+            return
+        with self.lock:
+            st = self.state.setdefault(store, {"idx": 0, "used": 0, "rest": {}, "current": ""})
+            st["rest"][arm.key] = time.time() + 60
+            st["idx"] += 1
+            st["used"] = 0
+            self._trace(store, arm.key, "failed", why)
+            self._count(arm, False, why)
+
+    def _count(self, arm: Arm, ok: bool, kind: str) -> None:
+        """Add one attempt to the arm's count since it was switched on, and stop it if it is failing
+        too often. Call with the lock held."""
+        w = self.saved["window"].setdefault(arm.key, {"attempts": 0, "fails": 0, "since": round(time.time())})
+        w["attempts"] += 1
+        if not ok:
+            w["fails"] += 1
+            w["last_kind"] = kind
+        c = self.cfg
+        if (c.get("auto_stop", True) and arm.key in self.active_keys() and w["attempts"] > int(c.get("stop_after") or 25)
+                and 100.0 * w["fails"] / w["attempts"] >= float(c.get("stop_fail_pct") or 50)):
+            pct = round(100.0 * w["fails"] / w["attempts"])
+            self._turn_off(arm.key)
+            self.saved["stopped"][arm.key] = {"at": round(time.time()), "attempts": w["attempts"], "fails": w["fails"],
+                                               "pct": pct, "last_kind": w.get("last_kind", "")}
+            self._event("auto_stop", arm.key, f"{w['fails']} of {w['attempts']} failed or were blocked ({pct}%)")
+            self._trace("-", arm.key, "auto_stopped", f"{w['fails']}/{w['attempts']}")
+            if self.log:
+                self.log.info("Trial method '%s' was stopped automatically: %d of %d attempts failed or were blocked (%d%%). "
+                              "Switch it back on in the Methods lab if you want to try it again.",
+                              arm.key, w["fails"], w["attempts"], pct)
+        else:
+            self._save_soon()
+
+    def _save_soon(self) -> None:
+        """Counters change on every check, so write them out every 10 attempts, not every time."""
+        self._pending = getattr(self, "_pending", 0) + 1
+        if self._pending >= 10:
+            self._pending = 0
+            self._save()
+
+    # ---- switching methods on and off (the buttons) ----------------------------------------
+    def _turn_off(self, key: str) -> None:
+        active = [k for k in self.active_keys() if k != key]
+        self.saved["active"] = active
+        self.raw.setdefault("trials", {})["active"] = list(active)
+        self._save()
+
+    def set_active(self, key: str, on: bool) -> tuple[bool, str]:
+        arm = BY_KEY.get(key)
+        if arm is None or arm.control:
+            return False, "That method is always on."
+        with self.lock:
+            active = [k for k in self.active_keys() if k != key]
+            if on:
+                active.append(key)
+                self.saved["window"][key] = {"attempts": 0, "fails": 0, "since": round(time.time())}   # a fresh count
+                self.saved["stopped"].pop(key, None)
+                self.unavailable.pop(key, None)
+                for st in self.state.values():
+                    st["rest"].pop(key, None)
+            self.saved["active"] = active
+            self.raw.setdefault("trials", {})["active"] = list(active)
+            self._event("on" if on else "off", key, "by you")
+            self._trace("-", key, "switched_on" if on else "switched_off", "by you")
+            self._save()
+        return True, f"{arm.label} is {'on' if on else 'off'}."
+
+    def best_keys(self, n: int = 3) -> list[str]:
+        """Trial methods with the lowest failure rate so far (at least MIN_FOR_BEST checks), best first."""
+        agg: dict[str, list[int]] = {}
+        if self.tracker:
+            for r in self.tracker.rows():
+                a = agg.setdefault(r["method"], [0, 0])
+                a[0] += r["checks"]
+                a[1] += r["blocks"]
+        ranked = [(agg[a.key][1] / agg[a.key][0], -agg[a.key][0], a.key) for a in CATALOG
+                  if not a.control and a.key in agg and agg[a.key][0] >= MIN_FOR_BEST]
+        return [k for _, _, k in sorted(ranked)[:n]]
+
+    def keep_best(self, n: int = 3) -> tuple[bool, str]:
+        best = self.best_keys(n)
+        if not best:
+            return False, f"Not enough data yet. A method needs {MIN_FOR_BEST} checks before it can be ranked."
+        for a in CATALOG:
+            if not a.control:
+                self.set_active(a.key, a.key in best)
+        return True, "Kept on: " + ", ".join(BY_KEY[k].label for k in best) + "."
+
+    def all_off(self) -> tuple[bool, str]:
+        for a in CATALOG:
+            if not a.control:
+                self.set_active(a.key, False)
+        return True, "All trial methods are off. The normal methods carry on."
 
     def skip(self, store: str, arm: Arm, why: str, minutes: float = 5) -> None:
         """The arm could not run just now (for example your own Chrome is not open). Move on
@@ -213,13 +346,24 @@ class TrialPlan:
             current = {s: st["current"] for s, st in self.state.items() if st["current"]}
             resting = [{"store": s, "arm": k, "minutes": int((t - now) / 60) + 1}
                        for s, st in self.state.items() for k, t in st["rest"].items() if t > now]
-        active = set(self.active_keys())
+            active = set(self.active_keys())
+            win = {k: dict(v) for k, v in self.saved["window"].items()}
+            stopped = {k: dict(v) for k, v in self.saved["stopped"].items()}
+            events = list(self.saved["events"])
+            best = self.best_keys(3)
+        c = self.cfg
         return {
             "enabled": self.enabled,
             "slice_checks": int(self.cfg.get("slice_checks") or 20),
+            "auto_stop": bool(c.get("auto_stop", True)),
+            "stop_after": int(c.get("stop_after") or 25),
+            "stop_fail_pct": int(c.get("stop_fail_pct") or 50),
             "arms": [{"key": a.key, "label": a.label, "family": a.family, "idea": a.idea, "source": a.source,
                       "control": a.control, "on": a.control or a.key in active,
-                      "unavailable": self.unavailable.get(a.key, "")} for a in CATALOG],
+                      "unavailable": self.unavailable.get(a.key, ""),
+                      "attempts": win.get(a.key, {}).get("attempts", 0), "fails": win.get(a.key, {}).get("fails", 0),
+                      "stopped": stopped.get(a.key), "best": a.key in best} for a in CATALOG],
+            "events": events[-12:],
             "current": current,
             "resting": resting,
         }

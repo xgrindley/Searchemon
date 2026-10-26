@@ -350,6 +350,12 @@ class _Handler(BaseHTTPRequestHandler):
                     ok, msg = m.scan.start(body.get("zip"), body.get("radius"), body.get("stores"),
                                            bool(body.get("online")))
                     return self._json(200, {"ok": ok, "message": msg})
+                elif action == "trial_toggle":
+                    ok, msg = m.trials.set_active(str(body.get("key")), bool(body.get("on")))
+                    return self._json(200, {"ok": ok, "message": msg})
+                elif action == "trial_bulk":
+                    ok, msg = m.trials.keep_best(3) if body.get("mode") == "best" else m.trials.all_off()
+                    return self._json(200, {"ok": ok, "message": msg})
                 elif action == "scan_cancel":
                     m.scan.cancel()
                 elif action == "rediscover":

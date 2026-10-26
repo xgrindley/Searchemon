@@ -142,7 +142,20 @@ input:focus, textarea:focus, select:focus { border-color: var(--act); outline: n
 .setting:first-child { border-radius: var(--r-m) var(--r-m) 0 0; }
 .setting:last-child { border-radius: 0 0 var(--r-m) var(--r-m); }
 .setting .t b { display: block; font-weight: 600; }
-.setting .t span { font-size: 13px; color: var(--muted); }
+.setting .t span { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); }
+.mc-row { display: grid; grid-template-columns: minmax(0,1.6fr) repeat(3, minmax(70px,.5fr)) auto; gap: 12px; align-items: center; padding: 12px 16px; background: var(--raised); }
+.mc-row + .mc-row { margin-top: 2px; }
+.mc-row .n { font-weight: 600; font-variant-numeric: tabular-nums; }
+.mc-row .k { display: block; font-size: 12px; color: var(--muted); }
+.mc-row .nm b { display: block; }
+.mc-row .nm span { display: block; font-size: 13px; color: var(--muted); }
+.mc-row.off { opacity: .8; }
+.mc-bar { height: 6px; border-radius: 99px; background: var(--line-soft); overflow: hidden; margin-top: 4px; }
+.mc-bar i { display: block; height: 100%; background: var(--ok-strong); }
+.mc-bar i.warn { background: var(--warn); }
+.mc-bar i.bad { background: var(--bad); }
+.mc-tools { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+@media (max-width: 760px) { .mc-row { grid-template-columns: 1fr 1fr; } }
 .setting input[type=number] { width: 110px; }
 .rules td { padding: 6px 8px; border-bottom: 1px solid var(--line-soft); }
 .rules { width: 100%; border-collapse: collapse; background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-m); }
@@ -445,6 +458,60 @@ function setting(title, desc, control) { return h("div", { class: "setting" }, h
 function move(arr, i, d) { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; touch(); render(); }
 
 
+async function trialAct(body, okMsg) {
+  try {
+    const r = await api("/api/action", body);
+    toast(r.message || okMsg || "Done", r.ok === false);
+    await poll();
+  } catch (e) { toast(e.message, true); }
+}
+
+function methodControl(tri, rows) {
+  const arms = (tri.arms || []).filter((a) => !a.control);
+  const by = {};
+  rows.forEach((r) => { const m = by[r.method] = by[r.method] || { checks: 0, blocks: 0 }; m.checks += r.checks; m.blocks += r.blocks; });
+  const stopped = arms.filter((a) => a.stopped);
+  const onCount = arms.filter((a) => a.on).length;
+  const ruleText = "A method that is on is switched off by itself once it has had more than " + tri.stop_after + " attempts and " + tri.stop_fail_pct + "% or more of them failed or were blocked.";
+  const when = (t) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const kindText = { off: "switched off by you", on: "switched on by you", auto_stop: "stopped automatically" };
+  return [
+    h("h2", { text: "Method control" }),
+    h("p", { class: "lede", text: "Turn trial methods on or off here. Changes take effect at once and are remembered, so after a restart everything is as you left it. " + (tri.auto_stop ? ruleText : "Automatic stopping is off.") }),
+    stopped.length ? h("div", { class: "banner", style: "display:flex" }, h("span", { text:
+      "Stopped automatically: " + stopped.map((a) => a.label + " (" + a.stopped.fails + " of " + a.stopped.attempts + " failed or blocked)").join("; ") + ". Switch one back on to give it a fresh count." })) : null,
+    h("div", { class: "mc-tools" },
+      h("button", { class: "btn primary", type: "button", text: "Keep only the best 3", onclick: () => trialAct({ action: "trial_bulk", mode: "best" }) }),
+      h("button", { class: "btn", type: "button", text: "Turn off all trials", onclick: () => trialAct({ action: "trial_bulk", mode: "off" }) }),
+      h("span", { class: "hint", text: onCount + " of " + arms.length + " trial methods on. The best are ranked by how rarely they fail (at least 10 checks)." })),
+    h("div", { class: "panel", style: "overflow:hidden" }, arms.map((a) => {
+      const m = by[a.key] || { checks: 0, blocks: 0 };
+      const pct = m.checks ? Math.round(100 * m.blocks / m.checks) : null;
+      const prog = Math.min(100, Math.round(100 * a.attempts / Math.max(1, tri.stop_after + 1)));
+      const failPct = a.attempts ? Math.round(100 * a.fails / a.attempts) : 0;
+      const state = a.unavailable ? "Cannot run yet" : a.stopped ? "Stopped automatically" : a.on ? "On" : "Off";
+      return h("div", { class: "mc-row" + (a.on ? "" : " off") },
+        h("div", { class: "nm" },
+          h("b", {}, a.label, a.best ? h("span", { class: "badge live", style: "display:inline-block;margin-left:8px", text: "Best so far" }) : null),
+          h("span", { text: state + (a.on ? " | " + (a.family === "browser" ? "browser stores" : "plain-request stores") : "") }),
+          a.unavailable ? h("span", { style: "color:var(--warn)", text: a.unavailable }) : null,
+          a.stopped ? h("span", { style: "color:var(--warn)", text: "Stopped " + when(a.stopped.at) + ": " + a.stopped.fails + " of " + a.stopped.attempts + " failed or blocked (" + a.stopped.pct + "%)" }) : null),
+        h("div", {}, h("span", { class: "n", text: m.checks }), h("span", { class: "k", text: "checks in all" })),
+        h("div", {}, h("span", { class: "n", text: pct === null ? "n/a" : pct + "%" }), h("span", { class: "k", text: "blocked in all" })),
+        h("div", {}, h("span", { class: "n", text: a.attempts + " (" + failPct + "% failed)" }),
+          h("span", { class: "k", text: "since switched on" }),
+          h("div", { class: "mc-bar" }, h("i", { class: failPct >= tri.stop_fail_pct && a.attempts > 5 ? "bad" : failPct >= tri.stop_fail_pct / 2 ? "warn" : "", style: "width:" + prog + "%" }))),
+        h("button", { class: "btn" + (a.on ? "" : " primary"), type: "button", text: a.on ? "Turn off" : "Turn on",
+          "aria-label": (a.on ? "Turn off " : "Turn on ") + a.label, onclick: () => trialAct({ action: "trial_toggle", key: a.key, on: !a.on }) }));
+    })),
+    h("h3", { text: "What happened" }),
+    (tri.events || []).length ? h("div", { class: "panel" }, h("ul", { class: "feed" }, tri.events.slice().reverse().map((e) => {
+      const arm = arms.find((a) => a.key === e.arm);
+      return h("li", {}, h("b", { text: (arm ? arm.label : e.arm) }), " " + (kindText[e.kind] || e.kind) + " on " + when(e.t) + (e.kind === "auto_stop" && e.detail ? ": " + e.detail : ""));
+    }))) : h("div", { class: "panel empty", text: "Nothing has been switched off automatically, and no buttons have been used yet." }),
+  ];
+}
+
 function trialPanel(tri) {
   cfg.trials = cfg.trials || {};
   cfg.trials.active = cfg.trials.active || [];
@@ -461,17 +528,22 @@ function trialPanel(tri) {
       a.unavailable ? h("span", { style: "color:var(--warn)", text: "Cannot run yet: " + a.unavailable }) : null,
       where[a.key] ? h("span", { text: "In use now at: " + where[a.key].join(", ") }) : null,
       resting[a.key] ? h("span", { style: "color:var(--warn)", text: "Resting after a block at: " + resting[a.key].join(", ") }) : null),
-    a.control ? h("span", { class: "hint", text: a.family === "browser" ? "browser stores" : "plain-request stores" })
-      : h("label", { class: "switch" }, h("input", { type: "checkbox", checked: t.active.includes(a.key), "aria-label": "Try " + a.label,
-          onchange: (e) => { t.active = e.target.checked ? [...new Set([...t.active, a.key])] : t.active.filter((x) => x !== a.key); touch(); } }), "Try it")));
+    h("span", { class: "badge" + (a.on ? " live" : ""), text: a.control ? (a.family === "browser" ? "browser stores" : "plain-request stores") : (a.on ? "On" : "Off") })));
   return h("div", {},
     h("div", { class: "settings-list" },
       setting("Run trials", "Off keeps every store on its normal method only.", sw(t, "enabled", "")),
       setting("Checks per turn", "How many checks a method gets before the next one takes over.",
         h("input", { type: "number", min: "5", max: "200", value: String(t.slice_checks || 20), "aria-label": "Checks per turn",
-          oninput: (e) => { t.slice_checks = Math.max(5, Number(e.target.value) || 20); touch(); } }))),
+          oninput: (e) => { t.slice_checks = Math.max(5, Number(e.target.value) || 20); touch(); } })),
+      setting("Stop failing methods by themselves", "Switch a method off once it has failed or been blocked too often.", sw(t, "auto_stop", "")),
+      setting("Stop after more than (attempts)", "A method is only judged after this many attempts since it was switched on.",
+        h("input", { type: "number", min: "5", max: "500", value: String(t.stop_after || 25), "aria-label": "Attempts before judging",
+          oninput: (e) => { t.stop_after = Math.max(5, Number(e.target.value) || 25); touch(); } })),
+      setting("Stop at this failure rate (%)", "Failed or blocked attempts as a share of all attempts.",
+        h("input", { type: "number", min: "10", max: "100", value: String(t.stop_fail_pct || 50), "aria-label": "Failure percent",
+          oninput: (e) => { t.stop_fail_pct = Math.min(100, Math.max(10, Number(e.target.value) || 50)); touch(); } }))),
     h("div", { class: "settings-list", style: "margin-top:12px" }, rows),
-    h("p", { class: "hint", text: "Turn on only a few at a time so each result is easy to read. Changes apply after you save. A full trace of every switch and block is kept in data\\trial-log.jsonl." }));
+    h("p", { class: "hint", text: "These settings apply after you save. The on and off buttons are in Method control, under the trust table. A full trace of every switch, block and automatic stop is kept in data\\trial-log.jsonl." }));
 }
 
 
@@ -797,6 +869,7 @@ const views = {
       h("h1", {}, "Methods ", h("b", { text: "lab" })),
       h("p", { class: "lede", text: "Which way of loading pages lasts longest before a store blocks it. Counts are saved between runs, so the picture gets sharper over time." }),
       trustReport((status && status.trust) || { stores: [], feeds: [] }),
+      methodControl(tri, rows),
       methods.length ? [
         h("div", { class: "hero" },
           h("div", { class: "big" }, h("div", { class: "k", text: "Lasting longest so far" }), h("div", { class: "v grad", text: label(top.method) }),
@@ -840,7 +913,7 @@ const views = {
           h("div", { class: "top" }, h("b", { text: c.name }), h("span", { text: state })),
           h("div", { class: "sub2", text: c.text }), h("div", { class: "sub2", text: "Idea from: " + c.idea }));
       })),
-      h("h2", { text: "Trial methods" }),
+      h("h2", { text: "About the trial methods" }),
       h("p", { class: "lede", text: "Extra ways of loading pages, tried one at a time so each can be traced. For every store only one method runs at once: each gets a slice of " + tri.slice_checks + " checks, the normal method takes its turns too for a fair comparison, and a method a store blocks sits out for a while. Results land in the tables above." }),
       trialPanel(tri),
       h("h2", { text: "Profiles and tests" }),

@@ -30,6 +30,7 @@ from .retailers.base import set_tracker, set_trials
 from .retailers.browser import BrowserPool
 from .sessions import BlockTracker
 from .scan import ZipScan
+from .accounts import AccountTracker
 from .history_store import StoreHistory
 from .trials import TrialPlan
 from .rules import allow_kind, decide
@@ -97,6 +98,8 @@ class Monitor:
         self.cfg: Config = load_config(self.config_path)
         self.store_history = StoreHistory(self.cfg.data_dir)
         self._discovery_tried: set[str] = set()
+        self.accounts = AccountTracker(self.cfg.data_dir)
+        self._accounts_lock = threading.Lock()
         self.log = make_logger(self.cfg.data_dir, self.console)
         with self.snap_lock:
             self.retailer_status.clear()
@@ -266,6 +269,25 @@ class Monitor:
         if self.browser:
             threading.Thread(target=run, daemon=True).start()
 
+    def scan_accounts(self) -> None:
+        """Look at the cookies the checking browsers have saved and update which accounts are signed in."""
+        if not (self.browser and self.browser.usable) or not self._accounts_lock.acquire(blocking=False):
+            return
+        try:
+            for note in self.accounts.update(self.browser.cookie_report()):
+                self.info(note)
+        except Exception as exc:
+            self.log.debug("Account check failed: %s", exc)
+        finally:
+            self._accounts_lock.release()
+
+    def _accounts_loop(self, stop: threading.Event) -> None:
+        if stop.wait(60):
+            return
+        while not stop.is_set():
+            self.scan_accounts()
+            stop.wait(180)
+
     def open_in_browser(self, url: str) -> None:
         """Show a page in the checking browser (used for signing in to store accounts)."""
         def run():
@@ -273,6 +295,10 @@ class Monitor:
                 self.browser.open_url(url)
             except Exception as exc:
                 self.info(f"Browser: {exc}")
+            for wait in (20, 30, 45, 90):          # notice the sign-in soon after it happens
+                if self.stop_event.wait(wait):
+                    return
+                self.scan_accounts()
         if self.browser and self.browser.usable:
             threading.Thread(target=run, daemon=True).start()
         else:
@@ -318,6 +344,9 @@ class Monitor:
                 t.start()
                 self.threads.append(t)
             t = threading.Thread(target=self._places_loop, args=(stop,), daemon=True, name="places")
+            t.start()
+            self.threads.append(t)
+            t = threading.Thread(target=self._accounts_loop, args=(stop,), daemon=True, name="accounts")
             t.start()
             self.threads.append(t)
             self.info(f"Monitoring started: {', '.join(r.display for r in self.retailers.values()) or 'no retailers enabled'}")

@@ -31,6 +31,9 @@ Read this first when picking the project back up. Newest entries at the top of e
 ## Rolling history (v2.10)
 - history_store.py: data/store-history.json, per store recent (40 chars of 0/1), hourly [ok, fail] for 7 days, last problem. Engine preloads health["recent"] from it; trust.py falls back to the 7 day totals.
 
+## Accounts (v3.4)
+- accounts.py: classify() matches cookie NAMES only (STRONG vs IGNORE regexes), AccountTracker saves data/accounts.json (per site per profile: state, since, expires, confirmed, lost). Engine scans every 3 min and 20/50/95/185 s after Sign in; BrowserWorker.cookie_report runs on the browser thread and only if the browser is already running.
+
 ## Auto-balance (v3.3)
 - trials.py: saved["balance"][store][arm] = decayed [ok, fail] (x0.97 per check). Turn length = slice_checks * (min_share + (2 - min_share) * (score/best)^3); methods under 6 recent checks get 1.0.
 

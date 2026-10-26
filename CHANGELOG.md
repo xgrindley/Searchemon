@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.4 (2026-10-26, test build, includes v3.3)
+- **Accounts tab:** shows, for each store you can sign in to, whether a sign-in is saved and whether it is working fine.
+  Press **Sign in** (opens the store in the checking browser), log in, and the app notices by itself within a minute and marks
+  it **Signed in and saved**, with which browser holds it, since when, and about how many days the sign-in cookie lasts.
+  Under that it says **Working** (the store loaded 80% or more of recent checks, with the last good one in the past hour)
+  or **Not working well**, so a signed-in account that is still being blocked shows up. If a saved sign-in disappears (expired
+  or signed out) it says so and when.
+- **I signed in** button for stores whose login cookies the app cannot recognise by name: it records your word, keeps showing
+  it as signed in while the cookies last, and drops it when they are wiped. A count of signed-in stores shows next to the tab.
+- It saves in data\accounts.json, so it is still there after a restart. Only counts, dates and the expiry are saved. Cookie
+  values are never read or stored, and the check only looks at browsers that are already running.
+- Tests: tests\test_accounts.py.
+
+To test v3.4 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+`VERSION` should print 3.4. Close the running app first. Open the **Accounts** tab, press Sign in next to a store, log in, wait about a minute. Close the app, start it again, and it should still show as signed in.
+
 ## v3.3 (2026-10-26, test build, includes v3.2)
 - **Auto-balance:** the app now shifts checks toward what is working, store by store. Every method (the normal ones and the
   trial ones) keeps a running score at each store, weighted toward its most recent ~30 checks. A method that has been loading

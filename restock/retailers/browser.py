@@ -178,6 +178,18 @@ class BrowserWorker:
         if self.usable:
             self._submit(lambda: self._open(url), 90)
 
+    def cookie_report(self) -> dict:
+        """Per store, counts of the cookies this profile has saved (never their values). Only looks when the
+        browser is already running, so checking for sign-ins never starts a browser."""
+        if not (self.usable and self.thread and self.thread.is_alive() and getattr(self, "ctx", None) is not None):
+            return {}
+        return self._submit(self._cookies, 60)
+
+    def _cookies(self) -> dict:
+        from ..accounts import DOMAINS, classify
+        jar = self.ctx.cookies()
+        return {site: classify(jar, domain) for site, domain in DOMAINS.items()}
+
     def request_stop(self) -> None:
         if self.thread and self.thread.is_alive():
             while True:                       # checks still waiting in line are dropped, not waited for
@@ -798,6 +810,19 @@ class BrowserPool:
     def open_url(self, url: str) -> None:
         for w in self.workers:
             w.open_url(url)
+
+    def cookie_report(self) -> dict[str, dict]:
+        """{profile: {store: counts}} for every browser that is running."""
+        out = {}
+        for w in list(self.workers):
+            try:
+                rep = w.cookie_report()
+            except Exception as exc:
+                self.log.debug("Cookie check for '%s' skipped: %s", w.name, exc)
+                continue
+            if rep:
+                out[w.name] = rep
+        return out
 
     def stop(self) -> None:
         """Close every browser the app opened or joined. All of them are told at once, so closing the

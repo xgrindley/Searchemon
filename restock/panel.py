@@ -15,6 +15,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
+from .accounts import SIGN_IN
 from .config import KeywordFilter
 from .filters import passes, price_limit
 from .geo import clean_zip, geocoder_ready, zip_place, zip_point
@@ -24,6 +25,11 @@ from .panel_page import PAGE
 from .retailers.browser import playwright_installed
 from .trust import build as trust_build, missing_feeds
 from .util import app_version, clean_url, version_label
+
+SIGN_IN_NAMES = {"walmart": "Walmart", "pokemoncenter": "Pokemon Center", "amazon": "Amazon", "dicks": "Dick's Sporting Goods",
+                 "safeway": "Safeway", "costco": "Costco", "samsclub": "Sam's Club", "gamestop": "GameStop",
+                 "barnesandnoble": "Barnes & Noble", "booksamillion": "Books-A-Million", "raleys": "Raley's",
+                 "walgreens": "Walgreens", "cvs": "CVS"}
 
 MAX_BODY = 1_000_000
 
@@ -130,6 +136,7 @@ class PanelServer:
                 "next_in": max(0, int(h["next"] - now)) if h.get("next") else None,
                 "notes": h.get("notes") or "",
                 "last_block": h.get("last_block") or "",
+                "last_ok": h.get("last_ok") or 0,
             }
         browser = m.browser
         retailer_rows = [
@@ -151,6 +158,8 @@ class PanelServer:
             "version_label": version_label(),
             "retailers": retailer_rows,
             "trust": trust,
+            "accounts": m.accounts.view(lambda site: health(site) if site in m.retailers else None,
+                                        lambda site: SIGN_IN_NAMES.get(site, site)),
             "history": {
                 "stores": [{"name": n, "display": r.display, "days": m.store_history.days(n, 30),
                             "totals": m.store_history.totals(n),
@@ -362,6 +371,23 @@ class _Handler(BaseHTTPRequestHandler):
                     ok, msg = m.scan.start(body.get("zip"), body.get("radius"), body.get("stores"),
                                            bool(body.get("online")), bool(body.get("everything")))
                     return self._json(200, {"ok": ok, "message": msg})
+                elif action == "accounts_scan":
+                    threading.Thread(target=_safe(m, m.scan_accounts), daemon=True).start()
+                    return self._json(200, {"ok": True, "message": "Checking saved sign-ins"})
+                elif action == "account_open":
+                    site = str(body.get("store"))
+                    if site not in SIGN_IN:
+                        return self._json(200, {"ok": False, "message": "Unknown store."})
+                    m.open_in_browser(SIGN_IN[site])
+                    return self._json(200, {"ok": True, "message": "Opened in the checking browser. Sign in there; it is saved by itself."})
+                elif action == "account_confirm":
+                    site = str(body.get("store"))
+                    ok = m.accounts.confirm(site)
+                    return self._json(200, {"ok": ok, "message": "Saved: marked as signed in." if ok else
+                                            "No saved cookies for that store yet. Open its sign-in page first."})
+                elif action == "account_forget":
+                    m.accounts.forget(str(body.get("store")))
+                    return self._json(200, {"ok": True, "message": "Forgot the saved sign-in status (the browser's cookies are untouched)."})
                 elif action == "trial_toggle":
                     ok, msg = m.trials.set_active(str(body.get("key")), bool(body.get("on")))
                     return self._json(200, {"ok": ok, "message": msg})

@@ -18,6 +18,7 @@ import tkinter as tk
 import webbrowser
 from tkinter import messagebox, ttk
 
+from .accounts import SIGN_IN
 from .config import ALL_RETAILERS, DEFAULTS
 from .engine import Monitor
 from .geo import clean_zip, zip_place
@@ -35,14 +36,6 @@ STORE_NAMES = {
 }
 # Stores checked through web pages, where a signed-in browser helps. Target,
 # Best Buy and Kroger are checked through data feeds that ignore sign-in.
-SIGN_IN = {
-    "walmart": "https://www.walmart.com/", "pokemoncenter": "https://www.pokemoncenter.com/",
-    "amazon": "https://www.amazon.com/", "dicks": "https://www.dickssportinggoods.com/",
-    "safeway": "https://www.safeway.com/", "costco": "https://www.costco.com/",
-    "samsclub": "https://www.samsclub.com/", "gamestop": "https://www.gamestop.com/",
-    "barnesandnoble": "https://www.barnesandnoble.com/", "booksamillion": "https://www.booksamillion.com/",
-    "raleys": "https://www.raleys.com/", "walgreens": "https://www.walgreens.com/", "cvs": "https://www.cvs.com/",
-}
 SPEEDS = [("30 sec", 30), ("1 min", 60), ("90 sec", 90), ("2 min", 120), ("3 min", 180), ("4 min", 240),
           ("5 min", 300), ("10 min", 600), ("15 min", 900), ("30 min", 1800), ("1 hour", 3600)]
 TOLERANCES = ["Default", "0%", "5%", "10%", "15%", "20%", "25%", "30%", "40%", "50%", "75%", "100%"]

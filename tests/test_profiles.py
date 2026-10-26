@@ -122,7 +122,7 @@ class PanelRouteTests(unittest.TestCase):
         from restock.engine import Monitor
         with tempfile.TemporaryDirectory() as tmp:
             cfg = os.path.join(tmp, "config.yaml")
-            open(cfg, "w").write("discord: {webhooks: {}}\nlocation: {zip: '89434', radius_miles: 25}\n"
+            open(cfg, "w").write("discord: {webhooks: {}}\nlocation: {zip: '10001', radius_miles: 25}\n"
                                  "discovery: {enabled: false, places: false}\nretailers: {target: {enabled: false}}\nwatchlist: []\nsearches: []\n")
             from restock.panel import PanelServer
             mon = Monitor(cfg)

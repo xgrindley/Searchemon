@@ -13,6 +13,8 @@
   windows and becomes a tab bar for small ones, rows and settings wrap, and the top strip no longer overflows or shows text through it.
   Methods lab and Accounts no longer rebuild every 5 seconds: they refresh only when their numbers change, and never while you are
   selecting text or typing, so the page stays still and responds faster.
+- **New front page.** README.md is rewritten for v3.6 with a feature tour, screenshots (made-up stores and products, in docs\img), a
+  how-it-works diagram, store coverage, privacy notes and the branch rules. The ZIP code used in the tests was replaced with a neutral one.
 - **Stores near you now shows stock, not just stores.** The page opens on the stores that have something in stock right now, nearest
   first, with a map that draws only those stores (the number on each dot is how many products it has) at the radius you choose.
   Filters: **Area** (one area or all), a **radius** slider that can go past the area's own radius, store/chain, a product or store

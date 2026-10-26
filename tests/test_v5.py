@@ -115,7 +115,7 @@ class GameStopAreaTests(unittest.TestCase):
 CVS_ANSWER = {"response": {"header": {"statusCode": "0000"}}, "atgResponse": [
     {"City": "ANYTOWN", "State": "NV", "Zipcode": "89431", "storeAddress": "680 N. MCCARRAN BLVD.", "storeId": "8792",
      "dt": "1.22", "Qty": 0, "bohStatus": "Out of Stock", "bopus": {"Qty": 0}},
-    {"City": "ANYTOWN", "State": "NV", "Zipcode": "89434", "storeAddress": "2878 OAK AVE", "storeId": "3948",
+    {"City": "ANYTOWN", "State": "NV", "Zipcode": "10001", "storeAddress": "2878 OAK AVE", "storeId": "3948",
      "dt": "2.93", "Qty": 5, "bohStatus": "In Stock", "bopus": {"Qty": 0}},
     {"City": "TRUCKEE", "State": "CA", "Zipcode": "96161", "storeAddress": "11411 DEERFIELD DR", "storeId": "9174",
      "dt": "28.67", "Qty": 1, "bohStatus": "In Stock", "bopus": {"Qty": 1}},
@@ -137,7 +137,7 @@ class CVSTests(unittest.TestCase):
         rows = parse_cvs_stores(CVS_ANSWER, "Home", radius=30)
         self.assertEqual([(r.store_id, r.qty, r.pickup) for r in rows], [("3948", 5, False), ("9174", 1, True)])
         self.assertTrue(rows[1].low)
-        self.assertEqual(rows[0].zip, "89434")
+        self.assertEqual(rows[0].zip, "10001")
         self.assertEqual(len(parse_cvs_stores(CVS_ANSWER, "Home", radius=50)), 3)
 
     def test_each_area_zip_is_asked(self):

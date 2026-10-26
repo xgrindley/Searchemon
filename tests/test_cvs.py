@@ -32,7 +32,7 @@ class CvsTests(unittest.TestCase):
 
     def test_store_rows_keep_count_address_and_skip_empty_stores(self):
         data = {"atgResponse": [
-            {"storeId": "1", "City": "ANYTOWN", "storeAddress": "2878 OAK AVE", "Zipcode": "89434", "Qty": "0", "dt": "2.1"},
+            {"storeId": "1", "City": "ANYTOWN", "storeAddress": "2878 OAK AVE", "Zipcode": "10001", "Qty": "0", "dt": "2.1"},
             {"storeId": "2", "City": "RENO", "storeAddress": "1 MAIN ST", "Zipcode": "89501", "Qty": "7", "dt": "9.0",
              "bopus": {"Qty": "3"}},
         ]}

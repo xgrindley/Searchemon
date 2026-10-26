@@ -53,3 +53,6 @@ An update saves a snapshot first, so `.\versions.ps1 restore` undoes it. Setting
 ## Keep out of the repository
 
 `config.yaml` (your webhooks and keys), `data\`, `.venv\`, and `versions\` are in `.gitignore`. Never paste a webhook URL into a file that gets committed; the repository is public.
+
+## Every version report includes how to test it
+End each version message with the PowerShell to run that build (`cd "$HOME\Documents\poke-restock"`, `Get-Content .\VERSION`, `start-my-chrome.ps1`, `run.ps1`, plus any new script), and put the same "To test" block in the CHANGELOG entry. Test builds are not on GitHub, so never tell the user to run `update.ps1 -Channel` for them.

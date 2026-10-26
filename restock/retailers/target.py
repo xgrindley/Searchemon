@@ -33,6 +33,7 @@ class Target(Retailer):
     display = "Target"
     supports_search = True
     supports_in_store = True
+    page_home = "https://www.target.com/"
 
     def __init__(self, cfg, log, browser=None):
         super().__init__(cfg, log, browser)

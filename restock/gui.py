@@ -121,6 +121,8 @@ class App:
         self._load_settings_into_tabs()
         self._update_setup_banner()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        from .shutdown import install as _install_exit
+        _install_exit(self.monitor.close, self.monitor.log)
         self.root.after(250, self.pump)
         self.start()
         if not self._has_webhook():
@@ -160,10 +162,11 @@ class App:
         cb.pack(anchor="w", pady=1)
         return cb
 
-    def _entry(self, parent, label: str, var: tk.StringVar, width: int = 60, show: str = "") -> ttk.Entry:
+    def _entry(self, parent, label: str, var: tk.StringVar, width: int = 60, show: str = "",
+               label_width: int = 22) -> ttk.Entry:
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=3)
-        ttk.Label(row, text=label, width=22).pack(side="left")
+        ttk.Label(row, text=label, width=label_width).pack(side="left")
         ent = ttk.Entry(row, textvariable=var, width=width, show=show)
         ent.pack(side="left")
         var.trace_add("write", lambda *_: self.touch())
@@ -485,12 +488,24 @@ class App:
         self.v["bestbuy_key"] = tk.StringVar()
         self.v["kroger_id"] = tk.StringVar()
         self.v["kroger_secret"] = tk.StringVar()
-        self._entry(box, "Best Buy API key", self.v["bestbuy_key"], width=40, show="*")
-        ttk.Label(box, text="Free at developer.bestbuy.com. Turns on Best Buy store checks.", style="Sub.TLabel").pack(anchor="w", padx=(160, 0))
-        self._entry(box, "Kroger client ID", self.v["kroger_id"], width=40)
-        self._entry(box, "Kroger client secret", self.v["kroger_secret"], width=40, show="*")
+        self._entry(box, "Best Buy API key", self.v["bestbuy_key"], width=40, show="*", label_width=28)
+        ttk.Label(box, text="Free at developer.bestbuy.com. Turns on Best Buy store checks.", style="Sub.TLabel").pack(anchor="w", padx=(200, 0))
+        self._entry(box, "Kroger client ID", self.v["kroger_id"], width=40, label_width=28)
+        self._entry(box, "Kroger client secret", self.v["kroger_secret"], width=40, show="*", label_width=28)
         ttk.Label(box, text="Free at developer.kroger.com (Products scope). Covers Kroger, Smith's, Fred Meyer and more.",
-                  style="Sub.TLabel").pack(anchor="w", padx=(160, 0))
+                  style="Sub.TLabel").pack(anchor="w", padx=(200, 0))
+        for key in ("walgreens_key", "walmart_consumer", "walmart_keyfile", "walmart_keyver", "walmart_publisher"):
+            self.v[key] = tk.StringVar()
+        self._entry(box, "Walgreens API key", self.v["walgreens_key"], width=40, show="*", label_width=28)
+        ttk.Label(box, text="Optional, from developer.walgreens.com. Adds exact Walgreens stores to Stores near you (no stock data).",
+                  style="Sub.TLabel").pack(anchor="w", padx=(200, 0))
+        self._entry(box, "Walmart.io Consumer ID", self.v["walmart_consumer"], width=40, label_width=28)
+        self._entry(box, "Walmart.io private key file", self.v["walmart_keyfile"], width=80, label_width=28)
+        self._entry(box, "Walmart.io key version", self.v["walmart_keyver"], width=10, label_width=28)
+        self._entry(box, "Walmart.io publisher ID", self.v["walmart_publisher"], width=40, label_width=28)
+        ttk.Label(box, text="From walmart.io (your app's Consumer ID, the .pem private key you made, and the key version, "
+                            "usually 1). Publisher ID is optional. Walmart stock then comes from Walmart's own feed.",
+                  style="Sub.TLabel", wraplength=760).pack(anchor="w", padx=(200, 0))
 
     # ---- settings <-> tabs ----------------------------------------------------------
     def _load_settings_into_tabs(self) -> None:
@@ -552,6 +567,12 @@ class App:
         v["bestbuy_key"].set((rets.get("bestbuy") or {}).get("api_key") or "")
         v["kroger_id"].set((rets.get("kroger") or {}).get("client_id") or "")
         v["kroger_secret"].set((rets.get("kroger") or {}).get("client_secret") or "")
+        v["walgreens_key"].set((rets.get("walgreens") or {}).get("api_key") or "")
+        wm = rets.get("walmart") or {}
+        v["walmart_consumer"].set(wm.get("consumer_id") or "")
+        v["walmart_keyfile"].set(wm.get("private_key_file") or "")
+        v["walmart_keyver"].set(str(wm.get("key_version") or "1"))
+        v["walmart_publisher"].set(wm.get("publisher_id") or "")
         self._loading = False
         self.dirty = False
         self.save_state.set("")
@@ -619,6 +640,12 @@ class App:
         rets["bestbuy"]["api_key"] = v["bestbuy_key"].get().strip()
         rets["kroger"]["client_id"] = v["kroger_id"].get().strip()
         rets["kroger"]["client_secret"] = v["kroger_secret"].get().strip()
+        rets.setdefault("walgreens", {})["api_key"] = v["walgreens_key"].get().strip()
+        wm = rets.setdefault("walmart", {})
+        wm["consumer_id"] = v["walmart_consumer"].get().strip()
+        wm["private_key_file"] = v["walmart_keyfile"].get().strip().strip('"')
+        wm["key_version"] = v["walmart_keyver"].get().strip() or "1"
+        wm["publisher_id"] = v["walmart_publisher"].get().strip()
         return raw
 
     def save_all(self) -> None:

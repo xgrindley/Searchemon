@@ -150,6 +150,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--act); outline: n
 .mc-row .nm b { display: block; }
 .mc-row .nm span { display: block; font-size: 13px; color: var(--muted); }
 .mc-row.off { opacity: .8; }
+.spark { display: flex; align-items: flex-end; gap: 1px; height: 28px; min-width: 150px; }
+.spark i { display: block; flex: 1; min-width: 3px; background: var(--ok-strong); border-radius: 1px; opacity: .85; }
+.spark i.none { background: var(--line); height: 2px !important; opacity: .6; }
+.spark i.warn { background: var(--warn); }
+.spark i.bad { background: var(--bad); }
 .mc-bar { height: 6px; border-radius: 99px; background: var(--line-soft); overflow: hidden; margin-top: 4px; }
 .mc-bar i { display: block; height: 100%; background: var(--ok-strong); }
 .mc-bar i.warn { background: var(--warn); }
@@ -464,6 +469,47 @@ async function trialAct(body, okMsg) {
     toast(r.message || okMsg || "Done", r.ok === false);
     await poll();
   } catch (e) { toast(e.message, true); }
+}
+
+function sparkBars(days, ok, fail) {
+  const tot = days.map((d) => ok(d) + fail(d)), max = Math.max(1, ...tot);
+  return h("div", { class: "spark" }, days.map((d, i) => {
+    const n = tot[i], bad = n ? fail(d) / n : 0;
+    return h("i", { class: !n ? "none" : bad >= 0.5 ? "bad" : bad >= 0.1 ? "warn" : "", style: n ? "height:" + Math.max(12, Math.round(100 * n / max)) + "%" : "",
+      title: (d.day ? d.day.slice(4, 6) + "/" + d.day.slice(6) + ": " : "") + (n ? ok(d) + " loaded, " + fail(d) + " failed" : "no checks") });
+  }));
+}
+
+function historyPanel(hist, label) {
+  const stores = (hist && hist.stores) || [], methods = (hist && hist.methods) || [];
+  const sec = (ms) => ms === null || ms === undefined ? "n/a" : (ms / 1000).toFixed(1) + " s";
+  return [
+    h("h2", { text: "The whole picture" }),
+    h("p", { class: "lede", text: "Every store, every day, kept for 180 days in data\\store-history.json, so closing the app loses nothing. Bars show the last 30 days: taller means more checks, amber and red mean failures." }),
+    stores.length ? h("div", { class: "table-wrap" }, h("table", { class: "matrix" },
+      h("tr", {}, ["Store", "Checks", "Loaded", "Avg check time", "Products found", "Alerts sent", "Last 30 days"].map((x) => h("th", { text: x }))),
+      stores.map((s) => {
+        const t = s.totals;
+        return h("tr", {},
+          h("td", { text: s.display }),
+          h("td", { text: t.checks ? t.checks + (t.since ? " since " + t.since.slice(4, 6) + "/" + t.since.slice(6) : "") : "none yet" }),
+          h("td", { class: t.success === null ? "none" : t.success >= 90 ? "best" : t.success < 60 ? "bad" : "", text: t.success === null ? "n/a" : t.success + "%" }),
+          h("td", { text: sec(t.avg_ms) }),
+          h("td", { class: s.tracked ? "" : "none", text: s.tracked ? s.tracked + " in the catalog" : (s.search ? "none found yet" : "no store search, add links") }),
+          h("td", { text: t.alerts }),
+          h("td", {}, sparkBars(s.days, (d) => d.ok, (d) => d.fail)));
+      }))) : h("div", { class: "panel empty", text: "No stores are being checked yet." }),
+    methods.length ? [
+      h("h3", { text: "By method" }),
+      h("div", { class: "table-wrap" }, h("table", { class: "matrix" },
+        h("tr", {}, ["Method", "Checks (180 days)", "Failed or blocked", "Last 14 days"].map((x) => h("th", { text: x }))),
+        methods.map((m) => h("tr", {},
+          h("td", { text: label(m.method) }),
+          h("td", { text: m.checks }),
+          h("td", { class: m.checks && m.fail / m.checks >= 0.5 ? "bad" : "", text: m.checks ? Math.round(100 * m.fail / m.checks) + "%" : "n/a" }),
+          h("td", {}, sparkBars(m.days, (d) => d[0], (d) => d[1])))))),
+    ] : null,
+  ];
 }
 
 function methodControl(tri, rows) {
@@ -876,6 +922,7 @@ const views = {
       h("h1", {}, "Methods ", h("b", { text: "lab" })),
       h("p", { class: "lede", text: "Which way of loading pages lasts longest before a store blocks it. Counts are saved between runs, so the picture gets sharper over time." }),
       trustReport((status && status.trust) || { stores: [], feeds: [] }),
+      historyPanel(status && status.history, label),
       methodControl(tri, rows),
       methods.length ? [
         h("div", { class: "hero" },

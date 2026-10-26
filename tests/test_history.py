@@ -1,4 +1,5 @@
 """The rolling store history survives a restart and feeds the trust table."""
+import json
 import os
 import sys
 import tempfile
@@ -48,6 +49,52 @@ class HistoryTests(unittest.TestCase):
         with open(os.path.join(tmp, "store-history.json"), "w") as fh:
             fh.write("{oops")
         self.assertEqual(StoreHistory(tmp).recent("target"), [])
+
+
+class DailyHistoryTests(unittest.TestCase):
+    def test_daily_numbers_are_kept_and_survive_a_restart(self):
+        tmp = tempfile.mkdtemp()
+        h = StoreHistory(tmp)
+        now = time.time()
+        for i in range(10):
+            h.record("target", i != 3, "boom" if i == 3 else "", ms=2000, products=4)
+        h.record("target", True, t=now - 3 * 86400, ms=1000, products=2)
+        h.note_alert("target")
+        h.note_alert("target", t=now - 3 * 86400)
+        h.record_method("edge", True)
+        h.record_method("edge", False)
+        h.save()
+        h2 = StoreHistory(tmp)
+        t = h2.totals("target")
+        self.assertEqual((t["checks"], t["ok"], t["fail"], t["alerts"], t["products"]), (11, 10, 1, 2, 42))
+        self.assertEqual(t["success"], 91)
+        self.assertEqual(t["avg_ms"], 1909)
+        days = h2.days("target", 30)
+        self.assertEqual(len(days), 30)
+        self.assertEqual((days[-1]["ok"], days[-1]["fail"]), (9, 1))
+        self.assertEqual(days[-4]["ok"], 1)
+        self.assertEqual(days[0]["ok"] + days[0]["fail"], 0)          # empty days are included so charts line up
+        m = {r["method"]: r for r in h2.method_days(14)}["edge"]
+        self.assertEqual((m["checks"], m["fail"], len(m["days"])), (2, 1, 14))
+
+    def test_days_older_than_180_are_dropped_and_the_file_stays_small(self):
+        tmp = tempfile.mkdtemp()
+        h = StoreHistory(tmp)
+        for d in range(200):
+            for store in ("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n"):
+                h.record(store, True, t=time.time() - d * 86400, ms=1500, products=3)
+        h.save()
+        h2 = StoreHistory(tmp)
+        self.assertLessEqual(len(h2.stores["a"]["days"]), 181)
+        self.assertLess(os.path.getsize(os.path.join(tmp, "store-history.json")), 200_000)
+
+    def test_old_files_without_days_still_load(self):
+        tmp = tempfile.mkdtemp()
+        with open(os.path.join(tmp, "store-history.json"), "w") as fh:
+            fh.write('{"stores": {"target": {"recent": "1101", "hours": {}, "blocks": 0, "last_block": "", "last_block_t": 0, "last_ok": 0}}}')
+        h = StoreHistory(tmp)
+        self.assertEqual(h.recent("target"), [1, 1, 0, 1])
+        self.assertEqual(h.totals("target")["checks"], 0)
 
 
 class TrustUsesHistory(unittest.TestCase):
@@ -108,3 +155,47 @@ class InterruptedChecks(unittest.TestCase):
             stop.set()
             t.join(3)
         self.assertEqual(mon.store_history.recent("fake"), [])
+
+
+class PanelStatusHasHistory(unittest.TestCase):
+    def test_status_carries_the_whole_picture(self):
+        from restock.panel import PanelServer
+        tmp = tempfile.mkdtemp()
+        cfg = os.path.join(tmp, "config.yaml")
+        with open(cfg, "w") as fh:
+            fh.write("discord: {webhooks: {default: ''}}\nareas: []\nwatchlist: []\nretailers: {target: {enabled: true}}\n")
+        mon = Monitor(cfg)
+        mon.store_history.record("target", True, ms=1200, products=3)
+        mon.store_history.record_method("direct", True)
+        status = PanelServer(mon).status()
+        row = [s for s in status["history"]["stores"] if s["name"] == "target"][0]
+        self.assertEqual(len(row["days"]), 30)
+        self.assertEqual(row["totals"]["checks"], 1)
+        self.assertEqual(status["history"]["methods"][0]["method"], "direct")
+        json.dumps(status)                         # must be serialisable for the page
+
+
+class DiscoveryRetry(unittest.TestCase):
+    def test_empty_store_is_searched_once_per_run_even_if_tried_recently(self):
+        from unittest import mock
+        tmp = tempfile.mkdtemp()
+        cfg = os.path.join(tmp, "config.yaml")
+        with open(cfg, "w") as fh:
+            fh.write("discord: {webhooks: {default: ''}}\nareas: []\nwatchlist: []\n")
+        mon = Monitor(cfg)
+
+        from restock.retailers.base import Retailer
+
+        class Fake(Retailer):
+            name, display, supports_search = "fake", "Fake", True
+
+            def __init__(self):
+                pass
+
+        mon._discovery_on = lambda r: True
+        mon.targets_for = lambda r: {}
+        mon.catalog.runs["fake"] = time.time()           # tried a minute ago, found nothing
+        with mock.patch.object(mon, "_discover") as disc:
+            mon.run_cycle(Fake())
+            mon.run_cycle(Fake())
+        self.assertEqual(disc.call_count, 1)             # right after a restart, not again until it is due

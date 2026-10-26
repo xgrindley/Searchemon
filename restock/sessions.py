@@ -23,8 +23,14 @@ class BlockTracker:
         self.lock = threading.Lock()
         self.data: dict = read_json(self.path, {})
         self.dirty = 0
+        self.on_record = None          # optional callback(method, site, ok, kind), used for the daily history
 
     def record(self, method: str, site: str, ok: bool, kind: str = "") -> None:
+        if self.on_record:
+            try:
+                self.on_record(method, site, ok, kind)
+            except Exception:
+                pass
         with self.lock:
             e = self.data.setdefault(method, {}).setdefault(site, {
                 "checks": 0, "blocks": 0, "streak": 0, "streaks": [], "last_block": 0, "last_kind": ""})

@@ -96,6 +96,7 @@ class Monitor:
     def load(self) -> None:
         self.cfg: Config = load_config(self.config_path)
         self.store_history = StoreHistory(self.cfg.data_dir)
+        self._discovery_tried: set[str] = set()
         self.log = make_logger(self.cfg.data_dir, self.console)
         with self.snap_lock:
             self.retailer_status.clear()
@@ -111,6 +112,7 @@ class Monitor:
         self.schedule = Schedule(self.cfg.raw, self.history)
         if self.tracker is None:
             self.tracker = BlockTracker(self.cfg.data_dir)
+            self.tracker.on_record = lambda method, site, ok, kind: self.store_history.record_method(method, ok)
             set_tracker(self.tracker)
         if self.trials is None:
             self.trials = TrialPlan(self.cfg.raw, self.cfg.data_dir, self.log, self.tracker)
@@ -441,7 +443,7 @@ class Monitor:
                 count = self.run_cycle(r)
                 backoff = 0.0
                 h["recent"].append(1)
-                self.store_history.record(name, True)
+                self.store_history.record(name, True, ms=(time.time() - started) * 1000, products=count)
                 h["slow"] = max(1.0, h["slow"] * 0.8)   # ease back toward normal speed
                 h["last_ok"] = time.time()
                 h["mode"] = "browser" if r.last_via == "browser" else "direct"
@@ -452,7 +454,7 @@ class Monitor:
                     status = "Waiting for you to verify in the browser"
                 else:
                     h["recent"].append(0)
-                    self.store_history.record(name, False, str(exc))
+                    self.store_history.record(name, False, str(exc), ms=(time.time() - started) * 1000)
                     h["blocks"] += 1
                     h["last_block"] = str(exc)
                     h["slow"] = min(MAX_SLOWDOWN, h["slow"] * 2)  # back off harder each time
@@ -498,8 +500,11 @@ class Monitor:
         if r.name == "pokemoncenter" and r.rcfg.get("watch_queue", True):
             return f"OK, watching for the queue (checked {at})"
         if self._discovery_on(r):
-            return f"OK at {at}, no Pokemon products found yet"
-        return "Nothing to check: add product links (Control panel > My products)"
+            return (f"OK at {at}, searched the store but no Pokemon products found yet "
+                    "(a block or an empty search; see the Methods lab)")
+        if not r.supports_search:
+            return "No automatic search for this store yet. Add product links (Control panel > My products)"
+        return "Product search is off for this store (Stores & keys). Add product links (My products) to check it"
 
     # ---- work --------------------------------------------------------------------
     def resolve(self, retailer: Retailer, upc: str, force: bool = False) -> str | None:
@@ -619,7 +624,10 @@ class Monitor:
         hours = float(d.get("refresh_hours") or 6)
         if not self.catalog.tracked(r.name, type_settings(self.cfg.raw)):
             hours = min(hours, 0.5)
-        if self._discovery_on(r) and self.catalog.due(r.name, hours):
+        first_try = (self._discovery_on(r) and r.name not in self._discovery_tried
+                     and not self.catalog.tracked(r.name, type_settings(self.cfg.raw)))
+        if self._discovery_on(r) and (self.catalog.due(r.name, hours) or first_try):
+            self._discovery_tried.add(r.name)       # a store with nothing found is tried again after each restart
             try:
                 self._discover(r, d)
             except Blocked:
@@ -785,6 +793,7 @@ class Monitor:
                 self.info(f"Not sent ({rule.why_not}) {res.retailer_name}: {res.title} ({change.reason})")
             else:
                 self.info(f"ALERT {res.retailer_name}: {res.title} ({change.reason})")
+                self.store_history.note_alert(res.retailer)
                 sent = self.notifier.restock(res, change.reason, rule.store_ids, rule.ping) if self.notifier.enabled else False
                 if s.get("windows_toast", True):
                     self.toaster.show(res, change.reason)

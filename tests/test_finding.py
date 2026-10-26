@@ -146,6 +146,15 @@ class TargetTests(Tmp):
         self.assertIn("Booster Bundle", found[1].title)                  # named from the link when it shows no text
         self.assertEqual(found[0].online_status, "UNCHECKED")
 
+    def test_a_blocked_search_page_backs_off_without_pausing_target(self):
+        browser = mock.Mock(usable=True)
+        t = self.store(Target, browser)
+        t._search_raw = mock.Mock(return_value=[])
+        t._via_browser = mock.Mock(side_effect=Blocked("Target asked for a bot check (PerimeterX)", 3600))
+        self.assertEqual(t.search("pokemon tcg", 20), [])                 # no exception: product checks carry on
+        self.assertEqual(t.search("pokemon etb", 20), [])
+        self.assertEqual(t._via_browser.call_count, 1)                   # the page is not hammered again for hours
+
     def test_without_a_browser_a_blocked_search_finds_nothing_quietly(self):
         t = self.store(Target, None)
         t._search_raw = mock.Mock(return_value=[])

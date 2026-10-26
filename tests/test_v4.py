@@ -227,9 +227,18 @@ class DeniedPageTests(unittest.TestCase):
 
     def test_real_challenge_still_asks_a_person(self):
         from restock.retailers.blocks import classify, wants_person
-        info = classify(200, "<div id='px-captcha'>Press &amp; Hold</div>")
+        info = classify(200, "<title>Robot or human?</title><div id='captcha'>Verify you are human</div>")
         self.assertTrue(wants_person(info))
         self.assertFalse(wants_person(None))
+
+    def test_press_and_hold_is_a_block_not_a_request_for_you(self):
+        # Target's PerimeterX press-and-hold answers "Please try again" in the app's browsers however long you hold.
+        from restock.retailers.blocks import classify, wants_person
+        info = classify(200, "<div id='px-captcha'>Press &amp; Hold to confirm you are a human</div>")
+        self.assertFalse(wants_person(info))
+        self.assertEqual(info.retry_after, 3600)
+        self.assertNotIn("asked for a wait", info.message("Target"))
+        self.assertIn("cannot be passed", info.message("Target"))
 
     def test_http_links_become_https(self):
         from restock.util import clean_url

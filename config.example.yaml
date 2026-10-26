@@ -1,0 +1,170 @@
+# Pokemon Restock Monitor config
+# setup.ps1 copies this to config.yaml. Everything here can also be changed in
+# the control panel (http://127.0.0.1:8765 while the app runs). Saving from the
+# panel rewrites config.yaml without these comments; this file keeps them.
+# config.yaml holds your webhook and keys, so do not share it.
+
+discord:
+  webhooks:
+    # Discord: Server Settings > Integrations > Webhooks > New Webhook > pick your
+    # restock channel > Copy Webhook URL.
+    default: ""
+    # Optional channels. online: alerts for things you can order online.
+    # in_store: alerts for stock on shelves near you. Each area (below) can also
+    # have its own webhook and gets only the stores inside that area.
+    online: ""
+    in_store: ""
+    # Optional: send a store to its own channel. Anything not listed uses default.
+    # target: ""
+    # pokemoncenter: ""
+  mention_role_id: ""      # optional: role to ping (Developer Mode on, right-click role, Copy ID)
+  mention_user_id: ""      # optional: your own user id to ping yourself
+  username: "Restock Monitor"
+
+# Where you shop. Stores inside any circle are checked and can alert.
+# Distances are straight-line miles from the ZIP's center.
+areas:
+  - {name: Home, zip: "", radius_miles: 15, webhook: ""}   # webhook: optional channel just for this area
+  # - {name: Work, zip: "", radius_miles: 8}
+
+settings:
+  alert_on_startup: true       # alert for things already in stock when the app opens
+  alert_cooldown_minutes: 30   # do not re-alert the same item/store within this window
+  notify_sold_out: false       # also post when an item sells out online
+  msrp_tolerance_pct: 5        # allow price up to MSRP + this percent (tax rounding, small bumps)
+  retailer_sold_only: true     # skip marketplace/third-party sellers (scalper listings)
+  confirm_restocks: true       # look a second time a few seconds later before alerting
+  link_delay_seconds: 4        # wait this long (plus up to 50% random) before the next page of the same store
+  min_store_qty: 1             # 2 skips stores showing a single unit (often already gone)
+  allow_non_english: false     # include Japanese and other-language products
+  windows_toast: true          # Windows pop-up notification too
+  in_store: true               # check nearby store shelves where the store supports it
+  max_search_results: 24
+  debug_dump: false            # save raw store responses to data/debug when troubleshooting
+
+# Product types: every listing is sorted into one from its title. Built-in MSRPs
+# come from collector price guides (see the user guide). Override any of them,
+# or turn a type off so it never alerts. Examples:
+product_types: {}
+#  etb: {msrp: 49.99, alert: true}
+#  booster_pack: {alert: false}
+
+# Optional extra keyword filter for your own searches (and the product list if
+# apply_to_watchlist is true). The product-type sorter already drops sleeves,
+# plush, video games, lots, repacks and graded cards.
+keywords:
+  include_any: []
+  include_all: []
+  exclude: []
+  apply_to_watchlist: false
+
+# Optional price caps by title phrase. They win over product-type MSRPs.
+price_rules: []
+#  - {match: "charizard ultra premium", max_price: 119.99}
+
+# Finding products and stores on its own.
+discovery:
+  enabled: true
+  retailers: [target, bestbuy, walmart, kroger, dicks]   # stores whose catalogs get searched
+  queries: ["pokemon trading card game", "pokemon tcg"]
+  refresh_hours: 6               # search catalogs again this often
+  alert_new_listings: true       # post when a store lists a product for the first time
+  items_per_cycle: {target: 6, bestbuy: 20, kroger: 50, walmart: 0, dicks: 3}
+  places: true                   # map nearby stores weekly (store finders + OpenStreetMap)
+
+retailers:
+  target:
+    enabled: true
+    store_ids: []              # optional: only these store numbers count
+    interval_seconds: 90
+  bestbuy:
+    enabled: false             # turn on after you get a free key at developer.bestbuy.com
+    api_key: ""
+    interval_seconds: 60
+  kroger:
+    enabled: false             # Kroger, Fred Meyer, Smith's, Ralphs and other Kroger stores
+    client_id: ""              # free at developer.kroger.com (create an app, Products scope)
+    client_secret: ""
+    max_stores: 5              # nearest stores checked; 5 fits the free daily limit
+    store_ids: []
+    interval_seconds: 300
+  # fetch_mode for website-based stores:
+  #   auto     plain requests first, real browser once the store blocks them (recommended)
+  #   browser  always use the real browser
+  #   direct   plain requests only
+  walmart: {enabled: true, interval_seconds: 180, fetch_mode: auto}
+  pokemoncenter: {enabled: true, interval_seconds: 900, fetch_mode: browser, watch_queue: true}
+  gamestop: {enabled: true, interval_seconds: 240, fetch_mode: auto}
+  costco: {enabled: true, interval_seconds: 300, fetch_mode: auto}
+  samsclub: {enabled: true, interval_seconds: 300, fetch_mode: auto}
+  barnesandnoble: {enabled: true, interval_seconds: 300, fetch_mode: auto}
+  booksamillion: {enabled: true, interval_seconds: 300, fetch_mode: auto}
+  amazon: {enabled: true, interval_seconds: 300, fetch_mode: browser}
+  dicks: {enabled: true, interval_seconds: 300, fetch_mode: browser}     # Dick's Sporting Goods
+  safeway: {enabled: true, interval_seconds: 300, fetch_mode: browser}   # Safeway and other Albertsons stores
+  raleys: {enabled: true, interval_seconds: 300, fetch_mode: auto}
+  walgreens: {enabled: true, interval_seconds: 240, fetch_mode: auto}
+  cvs: {enabled: true, interval_seconds: 240, fetch_mode: auto}
+  web:
+    enabled: true              # any other product link
+    interval_seconds: 180
+    fetch_mode: auto
+    # Optional fallback when a page has no structured stock data:
+    # in_stock_text: ["add to cart"]
+    # out_of_stock_text: ["out of stock", "sold out"]
+
+control_panel:
+  enabled: true
+  port: 8765
+  allow_lan: false             # true lets your phone on home Wi-Fi open it (needs a pin)
+  pin: ""                      # 4+ characters, required when allow_lan is true
+
+# When a store blocks plain checks, a real Edge or Chrome window takes over.
+browser:
+  enabled: true
+  channel: msedge              # used when profiles is empty
+  # Separate checking browsers, each with its own cookies. Checks rotate across them and a
+  # blocked one rests for that store while the others carry on. Restart the app after changing.
+  profiles:
+    - {name: edge, channel: msedge}
+    - {name: chrome, channel: chrome}
+    # Attach to a Chrome you started yourself (real signed-in profile). Start it with:
+    #   chrome.exe --remote-debugging-port=9222 --user-data-dir="C:\chrome-restock"
+    # - {name: my-chrome, cdp_url: "http://127.0.0.1:9222"}
+  # Your own Chrome. Run start-my-chrome.ps1: the app notices Chrome on this port (even while it is
+  # running) and uses it first for the stores below. Set the port to 0 to turn this off.
+  own_chrome_port: 9222
+  own_chrome_sites: [cvs.com, dickssportinggoods.com, gamestop.com]
+  tabs_per_site: 3             # a store's pages rotate through this many tabs (1 to 6)
+  show_window: false           # false keeps it off screen until a store needs you
+  headless: false              # headless gets blocked more often; leave false
+  ask_me_to_verify: true
+  notify_discord: false        # also post "needs a human check" to Discord
+  min_interval_seconds: 120
+
+schedule:
+  learn_from_history: true     # check faster in hours when a store restocked before
+  fast_factor: 0.5
+  slow_factor: 3
+  min_interval_seconds: 30
+  fast_windows: []             # e.g. - {days: [mon, tue, wed, thu, fri], start: "06:00", end: "10:00"}
+  slow_windows: []             # e.g. - {days: all, start: "23:00", end: "05:00"}
+
+jitter_seconds: 20
+
+# Specific products. A UPC is enough for Target, Best Buy, Walmart and Kroger.
+# Paste links for any other store under urls.
+watchlist: []
+#  - name: "Mega Evolution Elite Trainer Box"
+#    upc: "820650000000"
+#    msrp: 49.99
+#    urls: ["https://www.pokemoncenter.com/product/...", "https://www.gamestop.com/..."]
+#    in_store: true
+
+# Your own keyword searches, on top of automatic discovery.
+searches: []
+#  - name: "Charizard"
+#    query: "pokemon charizard collection"
+#    retailers: [target, walmart, bestbuy, kroger]
+#    max_price: null
+#    in_store: false

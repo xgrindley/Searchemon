@@ -320,6 +320,7 @@ table.matrix td.none { color: var(--faint); }
     <button data-tab="places">Stores near you <span class="count" id="c-places"></span></button>
     <button data-tab="times">Restock times</button>
     <button data-tab="methods">Methods lab</button>
+    <button data-tab="accounts">Accounts <span class="count" id="c-accounts"></span></button>
     <div class="navlabel">Set up</div>
     <button data-tab="notify">Notifications</button>
     <button data-tab="areas">Areas &amp; radius</button>
@@ -431,7 +432,8 @@ function counts() {
   if (!cfg) return;
   $("c-watch").textContent = (cfg.watchlist || []).length || "";
   $("c-search").textContent = (cfg.searches || []).length || "";
-  if (status) { $("c-found").textContent = status.catalog_total || ""; $("c-places").textContent = status.places_total || ""; }
+  if (status) { $("c-found").textContent = status.catalog_total || ""; $("c-places").textContent = status.places_total || "";
+    $("c-accounts").textContent = (status.accounts || []).filter((a) => a.state === "signed_in").length || ""; }
 }
 function text(obj, key, attrs = {}) {
   return h("input", { type: "text", value: obj[key] ?? "", ...attrs, oninput: (e) => { obj[key] = e.target.value; touch(); } });
@@ -894,6 +896,45 @@ const views = {
         " ", h("button", { class: "btn quiet", id: "scan-stop", type: "button", text: "Stop", style: "display:none", onclick: scanCancel })),
       h("div", { id: "scan-out" }),
       h("p", { class: "hint", text: "With the switch on, up to 150 products per store are checked (a store with no search uses what discovery already found); with it off, up to 30. Walmart and the other sites do not share shelf stock, so they are not part of this scan." }),
+    ];
+  },
+
+  accounts() {
+    const rows = (status && status.accounts) || [];
+    const enabled = new Set(((status && status.retailers) || []).map((r) => r.name));
+    const when = (t) => t ? new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+    const act = async (body, quiet) => { try { const r = await api("/api/action", body); if (!quiet) toast(r.message || "Done", r.ok === false); await poll(); } catch (e) { toast(e.message, true); } };
+    const signed = rows.filter((r) => r.state === "signed_in");
+    const card = (r) => {
+      const days = r.expires ? Math.max(0, Math.round((r.expires - Date.now() / 1000) / 86400)) : null;
+      const badge = r.state === "signed_in"
+        ? h("span", { class: "badge live", text: r.working === false ? "Signed in, store not loading well" : "Signed in and saved" })
+        : h("span", { class: "badge", text: r.lost ? "Sign-in is gone" : "Not signed in" });
+      return h("div", { class: "mc-row", style: "grid-template-columns:minmax(0,1.5fr) minmax(0,2fr) auto" },
+        h("div", { class: "nm" }, h("b", {}, r.display, " ", badge),
+          h("span", { text: enabled.has(r.site) ? "Being checked" : "Not being checked (switched off in Stores & keys)" })),
+        h("div", { class: "nm" },
+          r.state === "signed_in" ? [
+            h("span", { text: "Saved in the " + r.profiles.join(", ") + " browser" + (r.profiles.length > 1 ? "s" : "") + (r.confirmed ? " (you confirmed it)" : "") + (r.since ? ", since " + when(r.since) : "") + ". It stays when you close the app." }),
+            h("span", { style: r.working === false ? "color:var(--warn)" : "color:var(--ok)", text: r.working === null || r.working === undefined
+              ? "Working: no checks to judge by yet" : r.working ? "Working: the store loaded " + r.success + "% of recent checks" : "Not working well: the store loaded " + r.success + "% of recent checks" }),
+            days !== null ? h("span", { text: days > 0 ? "Sign-in lasts about " + days + " more day" + (days === 1 ? "" : "s") : "The sign-in cookie is about to expire, sign in again soon" }) : null,
+          ] : [
+            r.lost ? h("span", { style: "color:var(--warn)", text: "It was saved before but is gone now (expired or you signed out), " + when(r.lost) + ". Sign in again." }) : h("span", { text: "Press Sign in, log in to your account in the window that opens, and it saves by itself." }),
+            r.last_seen ? h("span", { text: "Last looked " + when(r.last_seen) }) : h("span", { text: "Not looked at yet (the checking browser has to be running)" }),
+          ]),
+        h("div", { style: "display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end" },
+          h("button", { class: "btn" + (r.state === "signed_in" ? "" : " primary"), type: "button", text: r.state === "signed_in" ? "Open again" : "Sign in", onclick: () => act({ action: "account_open", store: r.site }) }),
+          r.state === "signed_in" ? null : h("button", { class: "btn", type: "button", text: "I signed in", title: "Use if you signed in but it still says not signed in", onclick: () => act({ action: "account_confirm", store: r.site }) })));
+    };
+    return [
+      h("h1", {}, "Account ", h("b", { text: "sign-ins" })),
+      h("p", { class: "lede", text: "Stores trust a browser that is signed in to a real account more than an anonymous one. Sign in once and the checking browser keeps it between runs. The app looks at the saved cookies every few minutes (never their contents) and shows here which stores have a sign-in saved and whether the store is still loading well." }),
+      h("div", { class: "mc-tools" },
+        h("button", { class: "btn", type: "button", text: "Check now", onclick: () => act({ action: "accounts_scan" }) }),
+        h("span", { class: "hint", text: signed.length + " of " + rows.length + " stores signed in. The first check happens about a minute after the app starts." })),
+      h("div", { class: "panel", style: "overflow:hidden" }, rows.map(card)),
+      h("p", { class: "hint", text: "How it knows: a signed-in browser holds cookies that only exist after logging in. Some stores name them in ways the app cannot recognise, so if you signed in and it says not signed in, press I signed in and it will remember that for as long as the cookies stay. Sign-ins live in your browser folders under data\\ (keep that folder private). Walmart: also pick your store in that window." }),
     ];
   },
 
@@ -1520,7 +1561,7 @@ async function poll() {
   try {
     status = await api("/api/status"); drawStrip();
     if (tab === "dash") drawDash();
-    if (tab === "methods") render();
+    if (tab === "methods" || tab === "accounts") render();
     if (tab === "times" && status.history_total !== lastHistoryTotal) { lastHistoryTotal = status.history_total; loadPatterns(); }
     if (tab === "places" && placesData && status.places_total !== placesData.places.length) loadPlaces();
     counts();

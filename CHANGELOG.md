@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.0 (2026-10-26, stable release)
+- Declared stable by the owner. It is exactly test build v3.6 (saved as build/v3.6), with the version number changed to 4.0.
+  Everything listed under v3.6 to v3.1 below is in it: link-free product search at the page stores, restock boost, the status
+  Discord channel, the Areas map, the stock-by-store view on Stores near you, Walgreens and store picking in the ZIP scan, your own
+  Chrome started for you when CVS, Sam's Club, GameStop or Dick's need it, browser profile cleanup, dark and light themes, a control
+  panel that fits any window, faster and safer closing, quieter background running, phone access fixes, and the new README.
+- Install it with `.\update.ps1` (no channel name). Test builds continue from v4.1.
+
 ## v3.6 (2026-10-26, test build, includes v3.5)
 - **Dark and light themes for the desktop window.** The window now opens in a dark violet theme that matches the control panel
   (same ground, raised surfaces, violet accent and cyan for in stock), with a thin violet to cyan gradient line under the top bar.

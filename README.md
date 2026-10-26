@@ -6,7 +6,7 @@ stores by itself, and tells your Discord when something is really in stock.**
 No subscription, no cloud service, no account with anyone. Checks run from your computer while the app is
 open, your settings stay in a file next to the app, and the control panel only answers on your PC.
 
-> This is the **test branch** (v3.6). The stable release is on the `main` branch.
+> This is the **stable release** (v4.0). Newer test builds live on the `test` branch.
 > See [Versions and branches](#versions-and-branches).
 
 ![The control panel dashboard](docs/img/dashboard.png)
@@ -209,11 +209,11 @@ carry on, set `power: keep_awake: true`. Closing the app hides the window at onc
 
 | Branch | What it is |
 |---|---|
-| `main` | The stable release. Only changes when a build is declared stable |
-| `test` | The current test build (this one) |
+| `main` | The stable release (this one, v4.0). Only changes when a build is declared stable |
+| `test` | The current test build, if you want to try the newest changes |
 | `build/vX.Y`, `release/vN.0` | Frozen copies of single builds, for going back to one |
 
-Stable releases count up whole numbers (v3.0), test builds count up from them (v3.1 to v3.6). [RELEASING.md](RELEASING.md) has the
+Stable releases count up whole numbers (v4.0), test builds count up from them (v4.1, v4.2 and so on). [RELEASING.md](RELEASING.md) has the
 rules, [CHANGELOG.md](CHANGELOG.md) lists every change with how to test it, [NOTES.md](NOTES.md) is the rolling project memory, and
 [RESOURCES.md](RESOURCES.md) lists the tools reviewed and why each was used or not.
 

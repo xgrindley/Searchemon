@@ -297,6 +297,7 @@ table.matrix td.none { color: var(--faint); }
     <div class="brand"><span>Searchemon<small id="hostline">Running on this PC</small><small id="verline"></small></span></div>
     <div class="navlabel">Monitor</div>
     <button data-tab="dash" aria-current="page">Dashboard</button>
+    <button data-tab="scan">Find stock near a ZIP</button>
     <button data-tab="found">Found products <span class="count" id="c-found"></span></button>
     <button data-tab="places">Stores near you <span class="count" id="c-places"></span></button>
     <button data-tab="times">Restock times</button>
@@ -471,6 +472,55 @@ function trialPanel(tri) {
           oninput: (e) => { t.slice_checks = Math.max(5, Number(e.target.value) || 20); touch(); } }))),
     h("div", { class: "settings-list", style: "margin-top:12px" }, rows),
     h("p", { class: "hint", text: "Turn on only a few at a time so each result is easy to read. Changes apply after you save. A full trace of every switch and block is kept in data\\trial-log.jsonl." }));
+}
+
+
+/* ---------- find stock near a ZIP (started by hand) ---------- */
+const scanState = Object.assign({ zip: "", radius: 15, online: false, stores: null }, store.get("restock-scan", {}));
+let scanData = null, scanTimer = null;
+function saveScan() { store.set("restock-scan", { zip: scanState.zip, radius: scanState.radius, online: scanState.online, stores: scanState.stores }); }
+async function scanLoad() {
+  clearTimeout(scanTimer); scanTimer = null;
+  try { scanData = await api("/api/scan"); } catch (e) { return; }
+  if (tab === "scan") drawScan();
+  if (scanData && scanData.running && tab === "scan") scanTimer = setTimeout(scanLoad, 2000);
+}
+async function scanStart() {
+  try {
+    const r = await api("/api/action", { action: "scan_start", zip: scanState.zip, radius: scanState.radius, online: scanState.online,
+      stores: scanState.stores || (scanData && scanData.available) || undefined });
+    if (!r.ok) { toast(r.message, true); return; }
+    toast("Scanning near " + scanState.zip);
+    scanLoad();
+  } catch (e) { toast(e.message, true); }
+}
+async function scanCancel() { try { await api("/api/action", { action: "scan_cancel" }); toast("Stopping the scan"); } catch (e) { toast(e.message, true); } }
+function drawScan() {
+  const out = $("scan-out"), d = scanData;
+  if (!out) return;
+  const btn = $("scan-go");
+  if (btn) { btn.disabled = !!(d && d.running) || scanState.zip.length !== 5; btn.textContent = d && d.running ? "Scanning..." : "Scan now"; }
+  const stop = $("scan-stop"); if (stop) stop.style.display = d && d.running ? "" : "none";
+  if (!d || !d.state) { out.replaceChildren(h("div", { class: "panel empty", text: "Nothing scanned yet. Enter a ZIP, set a radius and press Scan now." })); return; }
+  const stores = Object.entries(d.stores || {});
+  const rows = d.rows || [];
+  const sites = new Set(rows.filter((r) => !r.online).map((r) => r.retailer + ":" + r.store));
+  const dot = { ok: "var(--ok)", bad: "var(--warn)", run: "var(--muted)", wait: "var(--faint)", skip: "var(--faint)", none: "var(--faint)" };
+  const head = h("p", { class: "lede", text: (d.running ? "Scanning " : d.state === "cancelled" ? "Stopped. Partial results for " : "Results for ") + d.zip
+    + (d.place ? " (" + d.place + ")" : "") + " within " + d.radius + " miles: " + sites.size + " store" + (sites.size === 1 ? "" : "s") + " with stock so far." });
+  const prog = h("div", { class: "panel", style: "overflow:hidden" }, stores.map(([k, v]) => h("div", { class: "mrow" },
+    h("div", { class: "top" }, h("b", { text: v.name }), h("span", { style: "color:" + (dot[v.state] || "var(--muted)"), text: v.status }))))) ;
+  const table = rows.length ? h("div", { class: "table-wrap" }, h("table", { class: "stock" },
+    h("tr", {}, ["Distance", "Store", "Product", "Stock", "Price", ""].map((t) => h("th", { text: t }))),
+    rows.map((r) => h("tr", {},
+      h("td", { text: r.distance === null ? "Online" : r.distance.toFixed(1) + " mi" }),
+      h("td", {}, h("b", { text: r.retailer_name }), " ", r.store === "Online" ? "" : r.store, r.address ? h("div", { class: "hint", text: r.address }) : null),
+      h("td", { text: r.product }),
+      h("td", { text: r.stock + (r.pickup ? ", pickup" : "") }),
+      h("td", { text: money(r.price) + (r.over_msrp ? " (over MSRP)" : "") }),
+      h("td", {}, r.url ? extLink(r.url, "Open") : null))))) :
+    h("div", { class: "panel empty", text: d.running ? "Nothing found yet..." : "No stores in range have these products in stock right now." });
+  out.replaceChildren(head, prog, h("h2", { text: "Stores with stock, nearest first" }), table);
 }
 
 /* ---------- views ---------- */
@@ -686,6 +736,33 @@ const views = {
             oninput: (e) => { const v = Number(e.target.value); n.max_miles = v || null; capVal.textContent = v ? v + " mi" : "Off"; touch(); } }), capVal)),
         setting("Check store shelves", "Shelf stock at Target, Best Buy and Kroger stores in your areas.", sw(cfg.settings, "in_store", ""))),
       h("p", { class: "hint" }, "Skip single stores you never visit on ", h("a", { href: "#", onclick: (e) => { e.preventDefault(); go("places"); }, text: "Stores near you" }), "."),
+    ];
+  },
+
+  scan() {
+    setTimeout(scanLoad, 0);
+    const avail = (scanData && scanData.available) || ["target", "bestbuy", "kroger", "gamestop", "cvs"];
+    const names = (scanData && scanData.names) || { target: "Target", bestbuy: "Best Buy", kroger: "Kroger family", gamestop: "GameStop", cvs: "CVS" };
+    scanState.stores = (scanState.stores || avail).filter((x) => avail.includes(x));
+    const zip = h("input", { type: "text", inputmode: "numeric", maxlength: "5", placeholder: "ZIP code", "aria-label": "ZIP code", value: scanState.zip,
+      oninput: (e) => { scanState.zip = e.target.value.replace(/\D/g, "").slice(0, 5); e.target.value = scanState.zip; saveScan(); drawScan(); },
+      onkeydown: (e) => { if (e.key === "Enter" && scanState.zip.length === 5) scanStart(); } });
+    const radVal = h("span", { class: "radius-val", text: scanState.radius + " mi" });
+    const rad = h("input", { type: "range", min: "1", max: "100", step: "1", value: String(scanState.radius), "aria-label": "Search radius in miles",
+      oninput: (e) => { scanState.radius = Number(e.target.value); radVal.textContent = scanState.radius + " mi"; saveScan(); } });
+    const chips = h("div", { class: "checks" }, avail.map((k) => h("label", { class: "chip" },
+      h("input", { type: "checkbox", checked: scanState.stores.includes(k), onchange: (e) => {
+        scanState.stores = e.target.checked ? [...new Set([...scanState.stores, k])] : scanState.stores.filter((x) => x !== k); saveScan(); } }), names[k] || k)));
+    const onl = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: scanState.online, onchange: (e) => { scanState.online = e.target.checked; saveScan(); } }), "Also list online stock");
+    return [
+      h("h1", { text: "Find stock near a ZIP" }),
+      h("p", { class: "lede", text: "Type a ZIP, choose how far to look, and press Scan now. The app asks each store that shares shelf stock which of its stores nearby have your products. It only runs when you press the button, sends no Discord alerts, and does not change your areas." }),
+      h("div", { class: "zipbar on" }, h("b", { text: "Near" }), zip, h("span", { text: "within" }), rad, radVal),
+      h("div", { class: "card" }, h("div", { class: "card-body" }, h("div", { class: "wide" }, h("p", { style: "margin:0 0 6px", class: "hint", text: "Stores to ask" }), chips, onl))),
+      h("p", {}, h("button", { class: "btn primary", id: "scan-go", type: "button", text: "Scan now", disabled: scanState.zip.length !== 5, onclick: scanStart }),
+        " ", h("button", { class: "btn quiet", id: "scan-stop", type: "button", text: "Stop", style: "display:none", onclick: scanCancel })),
+      h("div", { id: "scan-out" }),
+      h("p", { class: "hint", text: "Uses the products in My products plus what discovery has found, up to 30 per store. Walmart and the other sites do not share shelf stock, so they are not part of this scan." }),
     ];
   },
 
@@ -1281,6 +1358,7 @@ function render() {
   $("view").replaceChildren(...views[tab]().flat(Infinity).filter((x) => x !== null && x !== undefined && x !== false));
   document.querySelectorAll("nav.rail button").forEach((b) => b.dataset.tab === tab ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
   counts();
+  if (tab === "scan") drawScan();
   window.scrollTo(0, y);
 }
 function drawStrip() {

@@ -297,6 +297,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(200, html.encode(), "text/html; charset=utf-8")
         if not self._authed():
             return self._json(401, {"error": "PIN required"})
+        if path == "/api/scan":
+            return self._json(200, self.panel.monitor.scan.snapshot())
         if path == "/api/status":
             return self._json(200, self.panel.status())
         if path == "/api/config":
@@ -344,6 +346,12 @@ class _Handler(BaseHTTPRequestHandler):
                     m.show_browser()
                 elif action == "refresh_places":
                     threading.Thread(target=_safe(m, m.refresh_places), daemon=True).start()
+                elif action == "scan_start":
+                    ok, msg = m.scan.start(body.get("zip"), body.get("radius"), body.get("stores"),
+                                           bool(body.get("online")))
+                    return self._json(200, {"ok": ok, "message": msg})
+                elif action == "scan_cancel":
+                    m.scan.cancel()
                 elif action == "rediscover":
                     m.rediscover()
                 elif action == "exclude_store":

@@ -51,6 +51,11 @@ def playwright_installed() -> bool:
     return importlib.util.find_spec("playwright") is not None
 
 
+def patchright_installed() -> bool:
+    """Patchright is a drop-in Playwright build with the automation markers removed (stealth)."""
+    return importlib.util.find_spec("patchright") is not None
+
+
 
 def _force_foreground(hint: str) -> None:
     """Windows only. Bring the Chrome or Edge window whose title contains `hint` to the front.
@@ -106,7 +111,9 @@ class BrowserWorker:
     def __init__(self, raw_cfg: dict, data_dir: str, log: logging.Logger,
                  on_human: Callable[[str, str, BlockInfo], None] | None = None,
                  on_verified: Callable[[str], None] | None = None,
-                 name: str = "edge", channel: str = "", cdp_url: str = "", profile_dir: str = ""):
+                 name: str = "edge", channel: str = "", cdp_url: str = "", profile_dir: str = "",
+                 stealth: bool = False):
+        self.stealth = stealth           # runs on patchright instead of playwright; only used by the stealth trial
         self.raw = raw_cfg
         self.bcfg = raw_cfg.get("browser") or {}
         self.name = name
@@ -135,7 +142,8 @@ class BrowserWorker:
 
     @property
     def usable(self) -> bool:
-        return self.enabled and playwright_installed() and not self.failed
+        lib = patchright_installed() if self.stealth else playwright_installed()
+        return self.enabled and lib and not self.failed
 
     @property
     def keep_hidden(self) -> bool:
@@ -213,7 +221,10 @@ class BrowserWorker:
     def _run(self) -> None:
         pw = ctx = None
         try:
-            from playwright.sync_api import sync_playwright
+            if self.stealth:
+                from patchright.sync_api import sync_playwright
+            else:
+                from playwright.sync_api import sync_playwright
             pw = sync_playwright().start()
             ctx = self._launch(pw)
             self.ctx = ctx
@@ -548,6 +559,10 @@ class BrowserPool:
         if port and not any(isinstance(p, dict) and p.get("cdp_url") for p in profiles) and _port_open(port):
             profiles.append({"name": OWN_CHROME, "cdp_url": f"http://127.0.0.1:{port}"})
             log.info("Your own Chrome is running on port %d, so it joins the checking browsers", port)
+        trial = self.raw.get("trials") or {}
+        if trial.get("enabled", True) and "browser-stealth" in (trial.get("active") or []) \
+                and not any(isinstance(p, dict) and p.get("stealth") for p in profiles):
+            profiles.append({"name": "stealth", "channel": "chrome", "stealth": True})
         seen = set()
         for i, prof in enumerate(profiles):
             if not isinstance(prof, dict):
@@ -560,7 +575,7 @@ class BrowserPool:
             self.workers.append(BrowserWorker(
                 raw_cfg, data_dir, log, on_human, on_verified, name=name,
                 channel=str(prof.get("channel") or ""), cdp_url=str(prof.get("cdp_url") or ""),
-                profile_dir=folder))
+                profile_dir=folder, stealth=bool(prof.get("stealth"))))
 
     # ---- settings reload ---------------------------------------------------------------
     @property
@@ -668,7 +683,12 @@ class BrowserPool:
 
     # ---- checking -------------------------------------------------------------------
     def fetch(self, url: str, timeout: float = 120, post: dict | None = None, referer: str = "",
-              page_get: bool = False) -> FetchResult:
+              page_get: bool = False, pick: str = "", label: str = "") -> FetchResult:
+        """Load a page in one of the checking browsers.
+
+        pick is for trial methods: "solo" stays on one steady profile instead of rotating, "own" uses
+        only your own Chrome or Edge, "stealth" uses the stealth profile. label is the name the result
+        is recorded under (a trial method's name) instead of the profile's own name."""
         domain = urlsplit(referer or url).netloc.lower()
         site = domain.removeprefix("www.")
         in_page = post is not None or page_get
@@ -677,7 +697,8 @@ class BrowserPool:
             extra.pop("post", None)
         now = time.time()
         self._maybe_attach_own_chrome()
-        live = [w for w in self.workers if w.usable]
+        # The stealth profile is only for its own trial; normal checks never touch it.
+        live = [w for w in self.workers if w.usable and (bool(getattr(w, "stealth", False)) == (pick == "stealth"))]
         if not live:
             raise BrowserUnavailable(self.failed or "Browser checking is off or Playwright is not installed")
         start = self.cursor.get(domain, 0) % len(live)
@@ -697,6 +718,15 @@ class BrowserPool:
             order = mine + [w for w in order if w not in mine]
         ready = [w for w in order if self.rest.get((w.name, domain), 0) <= now
                  and not any(p["domain"] == domain for p in w.waiting_domains())]
+        if pick == "stealth":
+            pass
+        elif pick == "own":
+            ready = [w for w in ready if getattr(w, "cdp_url", "")]
+        elif pick == "solo":
+            steady = [w for w in self.workers if w in ready]
+            steady = [w for w in steady if getattr(w, "cdp_url", "")] + [w for w in steady if not getattr(w, "cdp_url", "")] \
+                if (mine and any(site == x or site.endswith("." + x) for x in sites)) else steady
+            ready = steady[:1]
         waiting = [w for w in order if any(p["domain"] == domain for p in w.waiting_domains())]
         last: FetchResult | None = None
         for n, w in enumerate(ready):
@@ -713,16 +743,17 @@ class BrowserPool:
                 continue
             last = res
             blocked = bool(res.block and res.block.kind != "queue")
-            if self.trial and not in_page and not res.waiting_for_human:
+            if self.trial and not in_page and not pick and not res.waiting_for_human:
                 if self.prefer and self.bcfg.get("learn_from_compare", True):
                     self.trial.record("learned_routing", use_route, not blocked)
                 if int(self.bcfg.get("tabs_per_site", 3) or 1) > 1:
                     self.trial.record("tab_rotation", use_tabs, not blocked)
-            if self.tracker:
+            if self.tracker and not label:
                 self.tracker.record(w.name + ("+page" if in_page else ""), site, not blocked,
                                     res.block.kind if res.block else "")
             if not blocked:
-                self.cursor[domain] = (order.index(w) + 1 + start) % len(live)
+                if not pick:
+                    self.cursor[domain] = (order.index(w) + 1 + start) % len(live)
                 return res
             kind = res.block.kind
             rest = res.block.retry_after or self.DEFAULT_REST_S.get(kind, 900)

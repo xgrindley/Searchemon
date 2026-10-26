@@ -26,9 +26,10 @@ from .retailers.base import Blocked, Retailer
 from .retailers.blocks import BlockInfo
 from .compare import SideBySide
 from .features import FeatureTrial
-from .retailers.base import set_tracker
+from .retailers.base import set_tracker, set_trials
 from .retailers.browser import BrowserPool
 from .sessions import BlockTracker
+from .trials import TrialPlan
 from .rules import allow_kind, decide
 from .state import StateStore
 from .tcg import classify, type_settings
@@ -82,6 +83,7 @@ class Monitor:
         self._pacing_lock = threading.Lock()
         self.browser: BrowserPool | None = None
         self.tracker: BlockTracker | None = None
+        self.trials: TrialPlan | None = None
         self.queue_state: dict[str, dict] = {}
         self._confirms_left = MAX_CONFIRMS_PER_CYCLE
         self._from_upc: set[str] = set()
@@ -106,6 +108,11 @@ class Monitor:
         if self.tracker is None:
             self.tracker = BlockTracker(self.cfg.data_dir)
             set_tracker(self.tracker)
+        if self.trials is None:
+            self.trials = TrialPlan(self.cfg.raw, self.cfg.data_dir, self.log, self.tracker)
+            set_trials(self.trials)
+        else:
+            self.trials.raw = self.cfg.raw
         if self.browser is None:
             # The checking browsers (one per profile) are kept across settings reloads.
             # Each only launches the first time a site actually needs it.
@@ -406,6 +413,8 @@ class Monitor:
         if r.using_browser():
             floor = max(floor, float((self.cfg.raw.get("browser") or {}).get("min_interval_seconds") or 120))
         interval = max(interval, floor)
+        if r.using_browser() and self.trials:
+            interval *= self.trials.interval_factor(r.name)   # the half-pace trial method
         jitter = random.uniform(0, float(self.cfg.raw.get("jitter_seconds") or 0))
         notes = [why] if why else []
         if h["slow"] > 1.05:

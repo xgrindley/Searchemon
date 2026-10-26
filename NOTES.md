@@ -2,8 +2,8 @@
 
 Read this first when picking the project back up. Newest entries at the top of each section.
 
-## State (v2.0 stable; working on test build v2.5)
-- Repo: github.com/xgrindley/Searchemon (public). main = the latest stable release only (v2.0, declared 2026-10-25), test = current work (next test build is v2.1). See RELEASING.md.
+## State (v2.0 stable; working on test build v2.6)
+- Repo: github.com/xgrindley/Searchemon (public). main = the latest stable release only (v2.0, declared 2026-10-25), test = current work (next test build is v2.7). See RELEASING.md.
 - Version scheme: stable v1.0, v2.0, v3.0...; tests count up from the release (v2.1, v2.2, v2.3, v2.4, v2.5...). v1.0 was v0.6 promoted, v2.0 is v1.2 promoted.
 - Windows app, Python 3.13 venv, tkinter window + local control panel at 127.0.0.1:8765.
 - Retailers: Target, Best Buy, Walmart, Kroger family, Pokemon Center, GameStop, Costco, Sam's,
@@ -14,10 +14,19 @@ Read this first when picking the project back up. Newest entries at the top of e
 ## Decisions
 - GitHub pushes only after the user tests and approves a build (2026-10-25). Until then work stays local and is synced to the PC folder only. Stable (main) is a separate, later word from the user.
 - UI direction chosen: B, Glass Aurora (2026-10-25). Control panel (panel_page.py) carries the rich visuals; the tkinter window stays lightweight and only gets what is needed. No external fonts (privacy).
-- No stealth, fingerprint spoofing, CAPTCHA solving or proxy rotation (see RESOURCES.md).
+- Stealth trials (direct-impersonate, browser-stealth) added in v2.6 on request, off by default. No CAPTCHA solving or proxy rotation built.
 - Per-store MSRP allowance (`msrp_tolerance_pct` per retailer) instead of changing the MSRP.
 - Blocks are per browser session, not per IP, so rotate profiles and rest the blocked one.
 - Browser profile 1 keeps the old `data\browser-profile` folder; others live in `data\browser-profiles\<name>`.
+
+## Trials (v2.6)
+- restock/trials.py: TrialPlan picks one arm per store at a time (slices of 20 checks, control included, blocked arm
+  rests 90 min). Arms: direct-h2, direct-warm, direct-impersonate, browser-solo, browser-own, browser-stealth, browser-slow. Default on: direct-h2,
+  browser-solo, browser-own. Hooks: Retailer.fetch_html (base.py), BrowserPool.fetch(pick, label), Monitor._next_delay.
+- Trial results are recorded in the block tracker under the arm key; the control is recorded where it always was
+  (direct, or the profile name). Trace: data\trial-log.jsonl. Panel: Methods lab, "Trial methods".
+- Not covered: API stores (Target, Best Buy, Kroger) go through Retailer.get, not fetch_html.
+- Needs a live check on the PC: httpx[http2] install (setup.ps1), browser-own with start-my-chrome.ps1 running.
 
 ## Known issues / next
 - CVS refuses the automated browsers (Akamai "Access Denied"). v0.5 routes CVS and Dick's through the
@@ -29,6 +38,7 @@ Read this first when picking the project back up. Newest entries at the top of e
 - Pick list: waiting on the user's chosen products to add to the watchlist.
 
 ## Log
+- 2026-10-26: v2.6 test build: trial methods (on top of the PC v2.5) (see Trials). Local and PC folder only until approved.
 - 2026-10-25: v0.1 (was 3.4.0) session rotation, tracker, A/B test, webhooks routing, versions script.
 
 - Standing rule: every report of a new version ends with the PowerShell text to run it (cd, Get-Content .\VERSION, start-my-chrome, run.ps1), and the CHANGELOG entry carries the same "To test" block.

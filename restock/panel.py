@@ -158,6 +158,7 @@ class PanelServer:
                          "resting": browser.resting() if browser else [],
                          "compare": cmp_rows,
                          "features": getattr(m, "trial", None).rows() if getattr(m, "trial", None) else []},
+            "trials": m.trials.snapshot() if m.trials else None,
             "history_total": len(m.history.events),
             "areas": [{"name": a.name, "zip": a.zip, "radius": a.radius, "lat": a.lat, "lon": a.lon,
                        "place": zip_place(a.zip)} for a in m.cfg.areas],

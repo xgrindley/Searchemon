@@ -31,6 +31,12 @@ Read this first when picking the project back up. Newest entries at the top of e
 ## Rolling history (v2.10)
 - history_store.py: data/store-history.json, per store recent (40 chars of 0/1), hourly [ok, fail] for 7 days, last problem. Engine preloads health["recent"] from it; trust.py falls back to the 7 day totals.
 
+## Page-store search (v3.5)
+- WebPage.search uses search_url + product_re per store (CVS, GameStop, Costco, Sam's, Walgreens, B&N, BAM, Safeway); parse_listing reads JSON-LD, anchors, then script data. Untested on live sites; debug copies go to data\\debug.
+- Catalog.cross_queries gives UPC/title lookups of products found elsewhere; Catalog.boost_siblings checks siblings every cycle for 2h after a restock.
+- Profile cleanup: BrowserWorker.clear_bot_cookies / reset, BrowserPool.profiles_info / clear_bot_cookies / reset_profile; panel actions profile_clear_bot, profile_reset.
+- Fonts live in restock/fonts (served at /fonts/, OFL). build-exe.ps1 runs --selftest before zipping. tkinter cannot be run in the cloud sandbox, so GUI edits are compile-checked only.
+
 ## Accounts (v3.4)
 - accounts.py: classify() matches cookie NAMES only (STRONG vs IGNORE regexes), AccountTracker saves data/accounts.json (per site per profile: state, since, expires, confirmed, lost). Engine scans every 3 min and 20/50/95/185 s after Sign in; BrowserWorker.cookie_report runs on the browser thread and only if the browser is already running.
 

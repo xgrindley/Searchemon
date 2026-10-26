@@ -288,6 +288,25 @@ class Monitor:
             self.scan_accounts()
             stop.wait(180)
 
+    def profile_clear_bot(self, profile: str, site: str | None = None) -> tuple[bool, str]:
+        """Delete the cookies stores use to remember a bad opinion of a checking browser (Akamai, PerimeterX,
+        Cloudflare). Sign-ins stay."""
+        if not (self.browser and self.browser.usable):
+            return False, "The checking browser is off or not installed."
+        ok, msg = self.browser.clear_bot_cookies(profile, site)
+        self.info(msg)
+        return ok, msg
+
+    def profile_reset(self, profile: str) -> tuple[bool, str]:
+        """Delete a checking browser's whole saved profile (cookies, sign-ins, cache). It starts fresh."""
+        if not (self.browser and self.browser.usable):
+            return False, "The checking browser is off or not installed."
+        ok, msg = self.browser.reset_profile(profile)
+        if ok:
+            self.accounts.forget_profile(profile)
+        self.info(msg)
+        return ok, msg
+
     def open_in_browser(self, url: str) -> None:
         """Show a page in the checking browser (used for signing in to store accounts)."""
         def run():
@@ -556,7 +575,12 @@ class Monitor:
 
     def _discovery_on(self, r: Retailer) -> bool:
         d = self.cfg.raw.get("discovery") or {}
-        return bool(d.get("enabled", True)) and r.supports_search and r.name in (d.get("retailers") or [])
+        if not (d.get("enabled", True) and r.supports_search):
+            return False
+        if r.name in (d.get("retailers") or []):
+            return True
+        # Stores with a search page get the same automatic product list, so no links need to be pasted.
+        return bool(d.get("cross_store", True)) and bool(getattr(r, "search_url", ""))
 
     def targets_for(self, r: Retailer) -> dict[str, Watch]:
         """Every product id this retailer should check this cycle, mapped to its watch entry."""
@@ -578,7 +602,7 @@ class Monitor:
                     self._from_upc.add(found)
         if self._discovery_on(r):
             d = self.cfg.raw.get("discovery") or {}
-            n = int((d.get("items_per_cycle") or {}).get(r.name, 6))
+            n = int((d.get("items_per_cycle") or {}).get(r.name, 4 if getattr(r, "search_url", "") else 6))
             types = type_settings(self.cfg.raw)
             for item in self.catalog.rotation(r.name, n, types):
                 if item["id"] not in out:
@@ -631,6 +655,15 @@ class Monitor:
         found: list[StockResult] = []
         for q in d.get("queries") or ["pokemon trading card game"]:
             found.extend(r.search(q, max(limit, 48)))
+        if getattr(r, "search_url", ""):
+            # Stores without a product API: also look for what the other stores already list, by UPC or name.
+            for q in self.catalog.cross_queries(r.name, int(d.get("cross_per_refresh", 8))):
+                try:
+                    found.extend(r.search(q, 6))
+                except Blocked:
+                    raise
+                except Exception as exc:
+                    self.log.debug("%s lookup of '%s' failed: %s", r.name, q, exc)
         if not found:
             found = r.seed_products()
             if found:
@@ -802,6 +835,8 @@ class Monitor:
         if res.in_stock:
             res = self._confirm(res, r)
         self.catalog.note_stock(res)
+        if res.in_stock and self.catalog.boost_siblings(res):
+            self.log.debug("%s restocked: its listings at other stores are checked every cycle for 2 hours", res.title[:50])
         change = self.state.evaluate(res, float(s.get("alert_cooldown_minutes") or 0) * 60,
                                      bool(s.get("alert_on_startup")))
         if not change.first_look:

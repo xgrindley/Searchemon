@@ -9,7 +9,11 @@ PAGE = r"""<!doctype html>
 <title>Restock Control</title>
 <style>
 /* Glass Aurora: deep violet ground, frosted panels, cyan = in stock, violet = actions,
-   amber = blocked or waiting, rose = error. Fonts are system fonts only (no outside requests). */
+   amber = blocked or waiting, rose = error. Fonts (Sora, Inter, JetBrains Mono) are served by this program
+   itself from /fonts, so the page makes no outside requests; system fonts are the fallback. */
+@font-face { font-family: "Sora"; src: url(/fonts/sora.woff2) format("woff2"); font-weight: 100 800; font-display: swap; }
+@font-face { font-family: "Inter"; src: url(/fonts/inter.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url(/fonts/mono.woff2) format("woff2"); font-weight: 100 800; font-display: swap; }
 :root {
   color-scheme: dark;
   --bg: #0b0820; --panel: rgba(255,255,255,.07); --raised: rgba(255,255,255,.09); --line: rgba(255,255,255,.17); --line-soft: rgba(255,255,255,.09);
@@ -19,12 +23,16 @@ PAGE = r"""<!doctype html>
   --warn: #fcd34d; --warn-bg: rgba(251,191,36,.13); --bad: #fda4af; --bad-bg: rgba(251,113,133,.15);
   --r-s: 12px; --r-m: 22px;
   --grad: linear-gradient(90deg, #a78bfa, #22d3ee);
-  --font: "Sora", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --font: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   --font-display: "Sora", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", Consolas, "Cascadia Mono", monospace;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font); font-variant-numeric: tabular-nums; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+::selection { background: var(--act-soft); }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.22) transparent; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 a { color: var(--act); }
 button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--act); outline-offset: 2px; }
@@ -49,7 +57,7 @@ main { padding: 0 28px 120px; max-width: 1180px; width: 100%; }
 /* ---- annunciator strip: the one loud element ---- */
 .strip { display: flex; align-items: stretch; gap: 12px; padding: 16px 0; position: sticky; top: 0; background: var(--bg); z-index: 5; flex-wrap: wrap; }
 .lamp { flex: 1 1 260px; display: flex; align-items: center; gap: 14px; padding: 10px 16px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--panel); min-height: 64px; }
-.lamp .big { font: 600 30px/1 var(--font-display); min-width: 1.6ch; }
+.lamp .big { font: 600 30px/1 var(--font-display); min-width: 1.6ch; letter-spacing: -.02em; }
 .lamp .what { color: var(--muted); }
 .lamp.lit { background: var(--ok-bg); border-color: var(--ok-strong); }
 .lamp.lit .big { color: var(--ok); }
@@ -61,9 +69,11 @@ main { padding: 0 28px 120px; max-width: 1180px; width: 100%; }
 .state.pause { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
 .state.pause i { background: var(--warn); }
 
-.btn { border: 1px solid var(--line); background: var(--raised); padding: 7px 13px; border-radius: var(--r-s); cursor: pointer; white-space: nowrap; }
-.btn:hover { border-color: var(--muted); }
-.btn.primary { background: var(--act); border-color: var(--act); color: var(--act-ink); font-weight: 600; }
+.btn { border: 1px solid var(--line); background: var(--raised); padding: 7px 14px; border-radius: var(--r-s); cursor: pointer; white-space: nowrap; font-weight: 500; transition: background .15s, border-color .15s, transform .08s, box-shadow .15s; }
+.btn:hover { border-color: var(--muted); background: rgba(255,255,255,.13); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--act); border-color: var(--act); color: var(--act-ink); font-weight: 600; box-shadow: 0 4px 16px -6px var(--act); }
+.btn.primary:hover { background: #b9a1ff; }
 .btn.quiet { background: none; border-color: transparent; color: var(--muted); padding: 5px 8px; }
 .btn.quiet:hover { color: var(--ink); background: var(--line-soft); }
 .btn.danger:hover { color: var(--bad); border-color: var(--bad); }
@@ -71,16 +81,21 @@ main { padding: 0 28px 120px; max-width: 1180px; width: 100%; }
 
 /* ---- sections ---- */
 h1 { font: 600 22px/1.25 var(--font-display); margin: 8px 0 4px; }
-h2 { font: 600 16px/1.3 var(--font-display); margin: 28px 0 10px; }
+h2 { font: 600 16px/1.3 var(--font-display); margin: 28px 0 10px; letter-spacing: -.005em; }
+h2.sec { margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line-soft); }
+h1 { letter-spacing: -.01em; }
+h1 b { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 700; }
+code, .mono { font-family: var(--mono); font-size: .92em; }
 .lede { color: var(--muted); margin: 0 0 18px; max-width: 68ch; }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-m); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-m); backdrop-filter: blur(8px); box-shadow: 0 10px 30px -18px rgba(0,0,0,.6); }
 .pad { padding: 16px; }
 .hint { color: var(--muted); font-size: 13px; }
 .empty { padding: 28px 16px; color: var(--muted); text-align: center; }
 
 /* retailer tiles: grey unless abnormal */
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
-.tile { padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--panel); }
+.tile { padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--panel); transition: border-color .15s, transform .15s; }
+.tile:hover { border-color: var(--muted); transform: translateY(-1px); }
 .tile b { display: block; font-weight: 600; }
 .tile span { font-size: 12px; color: var(--muted); }
 .tile.warn { background: var(--warn-bg); border-color: var(--warn); }
@@ -93,12 +108,13 @@ h2 { font: 600 16px/1.3 var(--font-display); margin: 28px 0 10px; }
 .toolbar input[type=search] { flex: 1 1 220px; width: auto; }
 .toolbar select { width: auto; flex: 0 0 auto; }
 table.stock { width: 100%; border-collapse: collapse; }
-table.stock th { text-align: left; font-weight: 600; font-size: 12px; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
+table.stock tbody tr:hover td { background: rgba(255,255,255,.05); }
+table.stock th { text-align: left; font-weight: 600; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
 table.stock td { padding: 8px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
 table.stock tr.in td { background: var(--ok-bg); }
 table.stock tr.in td:first-child { box-shadow: inset 4px 0 0 var(--ok-strong); }
 table.stock tr.dim td { color: var(--faint); }
-td.price { white-space: nowrap; text-align: right; }
+td.price { white-space: nowrap; text-align: right; font-family: var(--mono); font-size: 13px; }
 td .sub { display: block; font-size: 12px; color: var(--muted); }
 tr.in td .sub { color: var(--ok); }
 td.act { white-space: nowrap; text-align: right; }
@@ -149,6 +165,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--act); outline: n
 .mc-row .k { display: block; font-size: 12px; color: var(--muted); }
 .mc-row .nm b { display: block; }
 .mc-row .nm span { display: block; font-size: 13px; color: var(--muted); }
+.mc-row .nm b .badge { display: inline-block; font-size: 12px; font-weight: 500; margin-left: 6px; }
 .mc-row.off { opacity: .8; }
 .spark { display: flex; align-items: flex-end; gap: 1px; height: 28px; min-width: 150px; }
 .spark i { display: block; flex: 1; min-width: 3px; background: var(--ok-strong); border-radius: 1px; opacity: .85; }
@@ -738,7 +755,7 @@ const views = {
     });
     return [
       h("h1", { text: "Products" }),
-      h("p", { class: "lede", text: "Specific items you want, on top of what the monitor finds on its own. A UPC is enough for Target, Best Buy, Walmart and Kroger. For other stores, paste the product link." }),
+      h("p", { class: "lede", text: "Specific items you want, on top of what the monitor finds on its own. You do not need to add products for most stores: every enabled store searches its own site, and also looks up what other stores list by UPC and name. Add one here only for something it has not found." }),
       list.length ? list : h("div", { class: "panel empty", text: "No products yet. Add one with its UPC or a product link." }),
       h("button", { class: "btn primary", type: "button", text: "Add product", onclick: () => { cfg.watchlist.push({ name: "", upc: "", msrp: null, ids: {}, urls: [], retailers: [], in_store: true, enabled: true }); touch(); render(); } }),
     ];
@@ -927,6 +944,19 @@ const views = {
           h("button", { class: "btn" + (r.state === "signed_in" ? "" : " primary"), type: "button", text: r.state === "signed_in" ? "Open again" : "Sign in", onclick: () => act({ action: "account_open", store: r.site }) }),
           r.state === "signed_in" ? null : h("button", { class: "btn", type: "button", text: "I signed in", title: "Use if you signed in but it still says not signed in", onclick: () => act({ action: "account_confirm", store: r.site }) })));
     };
+    const profiles = (status && status.browser && status.browser.profiles) || [];
+    const kindName = { app: "App browser", stealth: "Stealth browser", own: "Your own browser" };
+    const profileRow = (p) => h("div", { class: "mc-row", style: "grid-template-columns:minmax(0,1.6fr) minmax(0,2fr) auto" },
+      h("div", { class: "nm" }, h("b", {}, p.name, " ", h("span", { class: "badge" + (p.running ? " live" : ""), text: p.running ? "Running" : "Not running" })),
+        h("span", { text: (kindName[p.kind] || "Browser") + (p.mb != null ? ", " + p.mb + " MB saved" : "") })),
+      h("div", { class: "nm" },
+        p.resting.length ? h("span", { style: "color:var(--warn)", text: "Blocked and resting: " + p.resting.map((x) => x.site + " (" + x.minutes + " min)").join(", ") }) : h("span", { text: "No store is resting this browser" }),
+        p.failed ? h("span", { style: "color:var(--warn)", text: p.failed }) : null),
+      h("div", { style: "display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end" },
+        h("button", { class: "btn", type: "button", text: "Clear bot-check cookies", title: "Deletes the cookies Akamai, PerimeterX and Cloudflare use to remember a bad opinion of this browser. Your sign-ins stay.",
+          onclick: () => { if (confirm("Delete the bot-check cookies in '" + p.name + "'? Sign-ins stay.")) act({ action: "profile_clear_bot", profile: p.name }); } }),
+        h("button", { class: "btn danger", type: "button", text: p.kind === "own" ? "Clear all cookies" : "Reset profile", title: p.kind === "own" ? "Clears every cookie in your own browser, including sign-ins." : "Deletes this browser's whole saved profile: cookies, sign-ins and cache. It starts fresh.",
+          onclick: () => { if (confirm((p.kind === "own" ? "Clear every cookie in '" : "Delete the whole saved profile '") + p.name + "'? You will have to sign in to your stores again.")) act({ action: "profile_reset", profile: p.name }); } })));
     return [
       h("h1", {}, "Account ", h("b", { text: "sign-ins" })),
       h("p", { class: "lede", text: "Stores trust a browser that is signed in to a real account more than an anonymous one. Sign in once and the checking browser keeps it between runs. The app looks at the saved cookies every few minutes (never their contents) and shows here which stores have a sign-in saved and whether the store is still loading well." }),
@@ -934,6 +964,9 @@ const views = {
         h("button", { class: "btn", type: "button", text: "Check now", onclick: () => act({ action: "accounts_scan" }) }),
         h("span", { class: "hint", text: signed.length + " of " + rows.length + " stores signed in. The first check happens about a minute after the app starts." })),
       h("div", { class: "panel", style: "overflow:hidden" }, rows.map(card)),
+      h("h2", { class: "sec", text: "Browser profiles" }),
+      h("p", { class: "lede", text: "If a store such as CVS or Target (Akamai, PerimeterX) starts blocking a browser because its cookies earned a bad reputation, clear the bot-check cookies first: it keeps your sign-ins. If that does not help, Reset profile deletes everything that browser saved and it starts clean." }),
+      profiles.length ? h("div", { class: "panel", style: "overflow:hidden" }, profiles.map(profileRow)) : h("div", { class: "panel empty", text: "No checking browser is set up yet." }),
       h("p", { class: "hint", text: "How it knows: a signed-in browser holds cookies that only exist after logging in. Some stores name them in ways the app cannot recognise, so if you signed in and it says not signed in, press I signed in and it will remember that for as long as the cookies stay. Sign-ins live in your browser folders under data\\ (keep that folder private). Walmart: also pick your store in that window." }),
     ];
   },
@@ -1156,12 +1189,12 @@ const views = {
       block("pokemoncenter", (r) => [modeField(r), h("div", { class: "wide" }, sw(r, "watch_queue", "Watch the Pokemon Center queue (usually opens minutes before a drop)"))], "Online drops and the waiting-room queue"),
       block("dicks", modeField, "Online, found automatically from its Pokemon section"),
       block("safeway", modeField, "Online, for the store set in the checking browser"),
-      block("raleys", modeField, "Online, from product links"),
+      block("raleys", modeField, "Online. Finds Pokemon products by itself, or add product links"),
       block("gamestop", modeField, "Online from product links, plus pickup stock at stores in your areas (experimental)"),
-      block("costco", modeField, "Online, from product links"),
-      block("samsclub", modeField, "Online, from product links"),
-      block("barnesandnoble", modeField, "Online, from product links"),
-      block("booksamillion", modeField, "Online, from product links"),
+      block("costco", modeField, "Online. Finds Pokemon products by itself, or add product links"),
+      block("samsclub", modeField, "Online. Finds Pokemon products by itself, or add product links"),
+      block("barnesandnoble", modeField, "Online. Finds Pokemon products by itself, or add product links"),
+      block("booksamillion", modeField, "Online. Finds Pokemon products by itself, or add product links"),
       block("amazon", modeField, "Online, sold by Amazon only"),
       block("walgreens", (r) => [modeField(r),
         field("API key (optional)", secret(r, "api_key", "From developer.walgreens.com"), "Adds exact Walgreens stores to Stores near you. Walgreens' API has no stock data, so stock still comes from product pages.")],

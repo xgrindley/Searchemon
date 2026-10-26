@@ -126,6 +126,8 @@ DEFAULTS: dict[str, Any] = {
         "queries": ["pokemon trading card game", "pokemon tcg"],
         "refresh_hours": 6,
         "alert_new_listings": True,
+        "cross_store": True,           # stores with a search page also get the products found elsewhere
+        "cross_per_refresh": 8,
         "items_per_cycle": {"target": 6, "bestbuy": 20, "kroger": 50, "walmart": 0, "dicks": 3},
         "places": True,
     },

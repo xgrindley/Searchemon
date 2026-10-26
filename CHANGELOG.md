@@ -1,5 +1,38 @@
 # Changelog
 
+## v3.5 (2026-10-26, test build, includes v3.4)
+- **No links needed for page stores.** CVS, GameStop, Costco, Sam's Club, Walgreens, Barnes & Noble, Books-A-Million and
+  Safeway now search their own site for Pokemon products (the same automatic product list Target, Best Buy and the others
+  already had), and they also look up the products found at other stores by UPC and by name, a few per refresh, so the product
+  list is shared across stores. Everything found goes through your **Product filters** (alerts on/off per type, MSRP caps),
+  the third-party seller rule and the sold-out checks like any other product. Switch off with `discovery: cross_store: false`.
+  Pokemon Center, Amazon and Raley's still need links (their search pages are not readable yet). Search pages that name no product
+  in the link are named by opening the page (up to 6 per search). If a store's search page shows nothing, a copy is saved in
+  data\debug so the reader can be adjusted. These readers were tested against mock pages only; they have not been run against the live sites yet.
+- **Restock boost:** when a product restocks at one store, the same product at the other stores is checked every cycle for 2 hours.
+- **Browser profiles (Accounts tab and the desktop window, Stores & speed tab):** if Akamai or PerimeterX blocks a browser because its
+  cookies earned a bad reputation, **Clear bot-check cookies** removes only those cookies (Akamai, PerimeterX, Cloudflare, Imperva,
+  DataDome) and keeps your sign-ins, and **Reset profile** deletes that browser's whole saved profile so it starts fresh. Both lift
+  the 90-minute rest for that browser right away. Your own Chrome or Edge is only cleared of cookies and stays open. The panel shows
+  each browser, its size on disk and which stores are resting it.
+- **Fonts and styling:** the control panel now uses Sora, Inter and JetBrains Mono, served by the app itself (no outside requests),
+  with refined buttons, panels, tables and spacing. The desktop window picks Segoe UI Variable, taller rows, clearer tabs and Cascadia Mono.
+- **Exe build:** build-exe.ps1 now stamps the version, bundles VERSION, config.example.yaml and the fonts, collects curl_cffi, patchright,
+  zipcodes and certifi data, runs `PokeRestock.exe --selftest` on the fresh build, and only then zips it with a SHA256 checksum.
+  `--selftest` also works from source. A crash in the windowed exe is written to data\crash.log.
+- Tests: tests\test_storesearch.py, test_pagestores_e2e.py (mock stores: products found with no links, type filters, MSRP caps),
+  test_profiles.py. 246 pass.
+
+To test v3.5 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+.\.venv\Scripts\python.exe app.py --selftest
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+`VERSION` should print 3.5. Close the running app first. Open **Found products** after a few minutes: CVS, GameStop and the others
+should list products without any links added. Open **Accounts** and look at **Browser profiles**.
+
 ## v3.4 (2026-10-26, test build, includes v3.3)
 - **Accounts tab:** shows, for each store you can sign in to, whether a sign-in is saved and whether it is working fine.
   Press **Sign in** (opens the store in the checking browser), log in, and the app notices by itself within a minute and marks

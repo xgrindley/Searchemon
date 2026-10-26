@@ -25,20 +25,38 @@ def base_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def resource_dir() -> str:
+    # Files bundled inside the .exe (VERSION, config.example.yaml) are unpacked here.
+    return getattr(sys, "_MEIPASS", "") or base_dir()
+
+
 def ensure_config(path: str) -> None:
     if os.path.exists(path):
         return
-    example = os.path.join(base_dir(), "config.example.yaml")
-    if os.path.exists(example):
-        shutil.copy(example, path)
-        print(f"Created {path} from config.example.yaml. Fill it in, then run again.")
-    else:
-        sys.exit(f"Missing {path}")
+    for folder in (base_dir(), resource_dir()):
+        example = os.path.join(folder, "config.example.yaml")
+        if os.path.exists(example):
+            shutil.copy(example, path)
+            print(f"Created {path} from config.example.yaml. Fill it in, then run again.")
+            return
+    sys.exit(f"Missing {path}")
+
+
+def log_crash() -> None:
+    """A windowed .exe has no console, so an unexpected error is written next to it instead of vanishing."""
+    import traceback
+    try:
+        os.makedirs(os.path.join(base_dir(), "data"), exist_ok=True)
+        with open(os.path.join(base_dir(), "data", "crash.log"), "a", encoding="utf-8") as fh:
+            fh.write(time.strftime("%Y-%m-%d %H:%M:%S") + "\n" + traceback.format_exc() + "\n")
+    except OSError:
+        pass
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pokemon TCG restock monitor")
     parser.add_argument("--version", action="store_true", help="print the version and exit")
+    parser.add_argument("--selftest", action="store_true", help="check that everything the program needs is present, then exit")
     parser.add_argument("--config", default=os.path.join(base_dir(), "config.yaml"))
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--headless", action="store_true")
@@ -57,6 +75,9 @@ def main() -> None:
         except OSError:
             print("unknown")
         return
+    if args.selftest:
+        from restock.selftest import run as selftest
+        sys.exit(0 if selftest(resource_dir(), base_dir()) else 1)
     ensure_config(args.config)
 
     if not (args.headless or args.once or args.resolve or args.test_discord
@@ -126,4 +147,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        log_crash()
+        raise

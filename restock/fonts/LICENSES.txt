@@ -1,0 +1,4 @@
+Sora, Inter and JetBrains Mono (variable, latin subset) come from the Fontsource packages
+@fontsource-variable/sora, /inter and /jetbrains-mono (v5.3.0). All three fonts are licensed under the
+SIL Open Font License 1.1 (https://openfontlicense.org). They are bundled so the control panel and the
+desktop window need no outside requests.

@@ -15,6 +15,8 @@ import dataclasses
 import importlib.util
 import logging
 import os
+import re
+import shutil
 import queue
 import random
 import socket
@@ -107,6 +109,20 @@ def _port_open(port: int) -> bool:
         return False
 
 
+# Cookies stores set to remember that a browser looked automated or got a challenge: Akamai (_abck, bm_*, ak_bmsc),
+# PerimeterX (_px*), Cloudflare (cf_clearance, __cf_bm), Imperva (incap_ses_, visid_incap_, nlbi_), DataDome, Kasada.
+# Deleting them makes the store forget its bad opinion of the browser. Logins are other cookies and are left alone.
+BOT_COOKIE = re.compile(r"^(_px|pxcts$|px-captcha|_abck|bm_|ak_bmsc|akacd_|akavpau|cf_clearance|__cf_bm|_cfuvid|incap_ses_|visid_incap_|"
+                        r"nlbi_|reese84|datadome|x-kpsdk|_dd_s$)", re.I)
+
+
+def _in_domain(cookie_domain: str, domain: str | None) -> bool:
+    if not domain:
+        return True
+    host = str(cookie_domain or "").lstrip(".").lower()
+    return host == domain or host.endswith("." + domain) or domain.endswith("." + host)
+
+
 class BrowserWorker:
     def __init__(self, raw_cfg: dict, data_dir: str, log: logging.Logger,
                  on_human: Callable[[str, str, BlockInfo], None] | None = None,
@@ -189,6 +205,46 @@ class BrowserWorker:
         from ..accounts import DOMAINS, classify
         jar = self.ctx.cookies()
         return {site: classify(jar, domain) for site, domain in DOMAINS.items()}
+
+    def clear_bot_cookies(self, domain: str | None = None) -> int:
+        """Delete the cookies stores use to remember a bad opinion of this browser (all stores, or one domain).
+        Logins stay. Returns how many were removed. Only works while the browser is running."""
+        if not (self.usable and self.thread and self.thread.is_alive() and getattr(self, "ctx", None) is not None):
+            return 0
+        return self._submit(lambda: self._clear_bot(domain), 60)
+
+    def _clear_bot(self, domain: str | None) -> int:
+        bad = [c for c in self.ctx.cookies() if BOT_COOKIE.search(str(c.get("name") or "")) and _in_domain(c.get("domain"), domain)]
+        for c in bad:
+            self.ctx.clear_cookies(name=c["name"], domain=c["domain"], path=c.get("path") or "/")
+        return len(bad)
+
+    def reset(self) -> str:
+        """Throw away this browser's saved state: every cookie and sign-in in it. An app profile has its folder
+        deleted (the browser is closed first and starts fresh on the next check). Your own Chrome or Edge
+        stays open and just has its cookies cleared. Returns a sentence about what happened."""
+        if self.cdp_url:
+            if not (self.thread and self.thread.is_alive() and getattr(self, "ctx", None) is not None):
+                return f"'{self.name}' is not running, so there is nothing to clear. Start it, then try again."
+            self._submit(lambda: self.ctx.clear_cookies(), 60)
+            return f"Cleared every cookie in '{self.name}'. Its window stays open; sign in again where you need to."
+        self.stop()
+        self.thread = None
+        self.ctx = None
+        self.closed = False
+        self.failed = ""
+        self.pages.clear()
+        self.tabs.clear()
+        self.pending.clear()
+        left = ""
+        for attempt in range(4):                       # Windows keeps files locked for a moment after a browser exits
+            shutil.rmtree(self.profile_dir, ignore_errors=True)
+            if not os.path.exists(self.profile_dir):
+                break
+            time.sleep(1.0 + attempt)
+        else:
+            left = " Some files were still in use; close any window of that browser and press Reset again."
+        return f"Reset '{self.name}': its saved cookies and sign-ins were deleted and it starts fresh on the next check.{left}"
 
     def request_stop(self) -> None:
         if self.thread and self.thread.is_alive():
@@ -810,6 +866,66 @@ class BrowserPool:
     def open_url(self, url: str) -> None:
         for w in self.workers:
             w.open_url(url)
+
+    _size_cache: dict = {}
+
+    def _folder_mb(self, path: str) -> float | None:
+        hit = self._size_cache.get(path)
+        if hit and time.time() - hit[0] < 120:
+            return hit[1]
+        total = 0
+        for root, _dirs, files in os.walk(path):
+            for f in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, f))
+                except OSError:
+                    pass
+        mb = round(total / 1e6, 1) if os.path.isdir(path) else None
+        self._size_cache[path] = (time.time(), mb)
+        return mb
+
+    def profiles_info(self) -> list[dict]:
+        """What the control panels show about each checking browser."""
+        now = time.time()
+        out = []
+        for w in list(self.workers):
+            resting = [{"site": d, "minutes": int((t - now) / 60) + 1} for (p, d), t in self.rest.items() if p == w.name and t > now]
+            out.append({"name": w.name, "kind": "own" if w.cdp_url else ("stealth" if w.stealth else "app"),
+                        "running": bool(w.thread and w.thread.is_alive()), "mb": None if w.cdp_url else self._folder_mb(w.profile_dir),
+                        "resting": resting, "failed": w.failed})
+        return out
+
+    def _worker(self, name: str):
+        return next((w for w in self.workers if w.name == name), None)
+
+    def clear_bot_cookies(self, name: str, site: str | None = None) -> tuple[bool, str]:
+        w = self._worker(name)
+        if w is None:
+            return False, "No such browser."
+        domain = site.lower().removeprefix("www.") if site else None
+        try:
+            n = w.clear_bot_cookies(domain)
+        except Exception as exc:
+            return False, f"Could not clear them: {str(exc).splitlines()[0][:120]}"
+        for key in [k for k in self.rest if k[0] == name and (not domain or k[1].removeprefix("www.").endswith(domain))]:
+            self.rest.pop(key, None)                      # give it another try right away
+        where = f" for {domain}" if domain else ""
+        return True, (f"Removed {n} bot-check cookie{'s' if n != 1 else ''}{where} from '{name}'. Your sign-ins were not touched, "
+                      "and it will be tried again now." if n else
+                      f"No bot-check cookies{where} were found in '{name}' (it has to be running to look).")
+
+    def reset_profile(self, name: str) -> tuple[bool, str]:
+        w = self._worker(name)
+        if w is None:
+            return False, "No such browser."
+        try:
+            msg = w.reset()
+        except Exception as exc:
+            return False, f"Could not reset it: {str(exc).splitlines()[0][:120]}"
+        for key in [k for k in self.rest if k[0] == name]:
+            self.rest.pop(key, None)
+        self._size_cache.pop(w.profile_dir, None)
+        return True, msg
 
     def cookie_report(self) -> dict[str, dict]:
         """{profile: {store: counts}} for every browser that is running."""

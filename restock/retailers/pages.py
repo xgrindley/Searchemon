@@ -17,7 +17,7 @@ import html as htmllib
 import json
 import random
 import re
-from urllib.parse import urlsplit
+from urllib.parse import quote_plus, urlsplit
 
 from ..models import StockResult
 from ..util import clean_url, normalize_text, normalize_upc, parse_price
@@ -153,6 +153,67 @@ def parse_amazon(html: str) -> dict:
     return info
 
 
+SLUG_NOISE = re.compile(r"(?:^|-)(?:prodid|prod|id|ean|sku)-?\d+$|[-.]?\d{5,}$|\.html?$", re.I)
+
+
+def slug_title(path: str) -> str:
+    """A readable product name out of a product link, for pages that show no text next to the link."""
+    parts = [p for p in re.split(r"[/;?]", path.split("?")[0]) if p and "=" not in p]    # skip ID=prod123-product
+    words = ""
+    for part in sorted(parts, key=len, reverse=True):
+        if "-" in part and re.search(r"[a-z]{3}", part, re.I):
+            words = part
+            break
+    for _ in range(3):
+        words = SLUG_NOISE.sub("", words)
+    if re.fullmatch(r"(?i)(product[- ]?details?|products?|details?|item|ip|p|w)?", words.strip("-")):
+        return ""                      # the link names no product (a bare id), so the page itself has to be read
+    text = words.replace("-", " ").strip().title()
+    text = re.sub(r"\bPok ?Mon\b", "Pokemon", text)
+    return (text.replace("Pokmon", "Pokemon").replace("Tcg", "TCG").replace("Etb", "ETB")
+            .replace(" Mon ", " ") if text else "")
+
+
+def parse_listing(html: str, product_re, base: str) -> list[tuple[str, str]]:
+    """(product url, title) pairs from a store's search or category page. Reads schema.org lists, then
+    ordinary links, then any product-looking address inside the page's own data (search pages that are
+    built by script keep their results there)."""
+    out: dict[str, str] = {}
+
+    def add(path_or_url: str, title: str = "") -> None:
+        raw = htmllib.unescape(str(path_or_url)).replace("\\/", "/").replace("\\u002F", "/").replace("\\u002f", "/")
+        raw = raw.strip()
+        m = product_re.search(urlsplit(raw).path if raw.startswith("http") else raw.split("?")[0].split("#")[0])
+        if not m:
+            return
+        url = raw if raw.startswith("http") else base + (raw if raw.startswith("/") else "/" + raw)
+        url = clean_url(url)
+        title = (title or "").strip()
+        if len(title) < 8:
+            title = slug_title(urlsplit(url).path) or title
+        prev = out.get(url)
+        if prev is None or len(title) > len(prev):
+            out[url] = title[:200]
+
+    for block in LD_JSON.findall(html):
+        try:
+            data = json.loads(block.strip())
+        except ValueError:
+            continue
+        for node in _walk(data):
+            item = node.get("item") if isinstance(node.get("item"), dict) else node
+            u, name = item.get("url"), item.get("name")
+            if isinstance(u, str) and isinstance(name, str):
+                add(u, name)
+    for href, inner in re.findall(r'<a\b[^>]*?href="([^"]+)"[^>]*>(.*?)</a>', html, re.S | re.I):
+        add(href, page_text(inner))
+    for m in re.finditer(r'(?:https?:\\?/\\?/[a-z0-9.-]+)?(?:\\?/[a-z0-9_.%;=-]+)+', html, re.I):
+        found = m.group(0)
+        if "-" in found or ".product." in found or "/p/" in found:
+            add(found)
+    return list(out.items())
+
+
 class WebPage(Retailer):
     """Any product URL. Put URLs under a product's links."""
     name = "web"
@@ -160,9 +221,33 @@ class WebPage(Retailer):
     default_fetch_mode = "auto"
     domains: tuple[str, ...] = ()
     own_seller_names: tuple[str, ...] = ()      # seller names that mean "sold by the store itself"
+    search_url = ""                             # the store's own search page, "{q}" is the search words
+    product_re = None                           # what a product link on that store looks like
 
     def url_for(self, ident: str) -> str:
         return ident
+
+    def search(self, query: str, limit: int) -> list[StockResult]:
+        """Search the store's own site for a product or a UPC, so you do not have to paste links."""
+        if not (self.search_url and self.product_re):
+            return []
+        url = self.search_url.replace("{q}", quote_plus(query))
+        resp = self.fetch_html(url)
+        items = parse_listing(resp.text or "", self.product_re, f"https://www.{self.domains[0]}")
+        # Links that name no product (just an id) are named by opening the page, a few per search.
+        blank = [i for i, (_, t) in enumerate(items) if not t][:6]
+        for i in blank:
+            page = self.fetch_html(items[i][0])
+            info = self.parse(page.text or "", items[i][0]) if page.status == 200 else {}
+            items[i] = (items[i][0], info.get("title") or "")
+            self.pause(self.link_delay())
+        items = [(u, t) for u, t in items if t]
+        self.dump("search", (resp.text or "")[:300000], force=not items)
+        if not items:
+            self.log.info("%s search for '%s' showed no product links (status %s, %d characters). "
+                          "A copy of the page is in data\\debug.", self.display, query[:40], resp.status, len(resp.text or ""))
+        self.pause(self.link_delay())
+        return [StockResult(self.name, self.display, u, t, u, online_status="UNCHECKED") for u, t in items[:limit]]
 
     def parse(self, html: str, url: str) -> dict:
         return parse_product_page(html, self.rcfg)
@@ -319,6 +404,9 @@ class GameStop(WebPage):
     name = "gamestop"
     display = "GameStop"
     domains = ("gamestop.com",)
+    supports_search = True
+    search_url = "https://www.gamestop.com/search/?q={q}&lang=default"
+    product_re = re.compile(r"/products/[a-z0-9-]+/\d+\.html", re.I)
     own_seller_names = ("gamestop",)
     supports_in_store = True
     _store_ep = -1             # which entry of _GS_ENDPOINTS worked
@@ -373,12 +461,18 @@ class Costco(WebPage):
     name = "costco"
     display = "Costco"
     domains = ("costco.com",)
+    supports_search = True
+    search_url = "https://www.costco.com/CatalogSearch?dept=All&keyword={q}"
+    product_re = re.compile(r"\.product\.\d+\.html", re.I)
 
 
 class SamsClub(WebPage):
     name = "samsclub"
     display = "Sam's Club"
     domains = ("samsclub.com",)
+    supports_search = True
+    search_url = "https://www.samsclub.com/s/{q}"
+    product_re = re.compile(r"/(?:ip|p)/[a-z0-9-]+/[a-z0-9]+", re.I)
     own_seller_names = ("sam s club", "sams club")
 
 
@@ -386,12 +480,18 @@ class BarnesAndNoble(WebPage):
     name = "barnesandnoble"
     display = "Barnes & Noble"
     domains = ("barnesandnoble.com",)
+    supports_search = True
+    search_url = "https://www.barnesandnoble.com/s/{q}"
+    product_re = re.compile(r"/w/[a-z0-9-]+/\d+", re.I)
 
 
 class BooksAMillion(WebPage):
     name = "booksamillion"
     display = "Books-A-Million"
     domains = ("booksamillion.com",)
+    supports_search = True
+    search_url = "https://www.booksamillion.com/search?query={q}"
+    product_re = re.compile(r"/p/\d{10,13}", re.I)
 
 
 class Amazon(WebPage):
@@ -471,6 +571,9 @@ class Safeway(WebPage):
     default_fetch_mode = "browser"
     domains = ("safeway.com", "albertsons.com", "vons.com", "pavilions.com", "randalls.com", "tomthumb.com",
                "jewelosco.com", "acmemarkets.com", "shaws.com", "starmarket.com")
+    supports_search = True
+    search_url = "https://www.safeway.com/shop/search-results.html?q={q}"
+    product_re = re.compile(r"/shop/product-details\.\d+\.html", re.I)
 
 
 class Raleys(WebPage):
@@ -524,6 +627,9 @@ class Walgreens(WebPage):
     name = "walgreens"
     display = "Walgreens"
     domains = ("walgreens.com",)
+    supports_search = True
+    search_url = "https://www.walgreens.com/search/results.jsp?Ntt={q}"
+    product_re = re.compile(r"/store/c/[a-z0-9-]+/ID=prod\d+-product", re.I)
 
     @property
     def key(self) -> str:
@@ -624,6 +730,9 @@ class CVS(WebPage):
     name = "cvs"
     display = "CVS"
     domains = ("cvs.com",)
+    supports_search = True
+    search_url = "https://www.cvs.com/search?searchTerm={q}"
+    product_re = re.compile(r"/shop/[a-z0-9-]+-prodid-\d+", re.I)
 
     def url_for(self, ident: str) -> str:
         if ident.startswith("http"):

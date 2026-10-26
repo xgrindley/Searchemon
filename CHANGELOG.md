@@ -1,5 +1,8 @@
 # Changelog
 
+## v4.1 (test build, in progress)
+- Test builds continue here after the v4.0 stable release. Nothing new yet.
+
 ## v4.0 (2026-10-26, stable release)
 - Declared stable by the owner. It is exactly test build v3.6 (saved as build/v3.6), with the version number changed to 4.0.
   Everything listed under v3.6 to v3.1 below is in it: link-free product search at the page stores, restock boost, the status

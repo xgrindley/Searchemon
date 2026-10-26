@@ -13,6 +13,10 @@
   windows and becomes a tab bar for small ones, rows and settings wrap, and the top strip no longer overflows or shows text through it.
   Methods lab and Accounts no longer rebuild every 5 seconds: they refresh only when their numbers change, and never while you are
   selecting text or typing, so the page stays still and responds faster.
+- **Phone access fixed up.** The phone link now lists every home-network address of your PC (192.168 first) instead of one guess that
+  could be a VPN or virtual adapter, and the panel answers on any of them (before, only the one it guessed worked, and anything else got
+  "Forbidden"). Stores & keys > Phone access now says plainly whether it is on, needs a PIN, or needs an app restart, and shows the one
+  Windows Firewall command that fixes "cannot connect" (private networks only), with a Copy button. Names and public addresses are still refused.
 - **New front page.** README.md is rewritten for v3.6 with a feature tour, screenshots (made-up stores and products, in docs\img), a
   how-it-works diagram, store coverage, privacy notes and the branch rules. The ZIP code used in the tests was replaced with a neutral one.
 - **Stores near you now shows stock, not just stores.** The page opens on the stores that have something in stock right now, nearest

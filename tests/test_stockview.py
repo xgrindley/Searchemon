@@ -30,3 +30,34 @@ class StockByStore(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PhoneAccess(unittest.TestCase):
+    def make(self, cp):
+        tmp = tempfile.mkdtemp()
+        cfg = os.path.join(tmp, "config.yaml")
+        open(cfg, "w").write("discord: {webhooks: {}}\nwatchlist: []\nsearches: []\ndiscovery: {enabled: false, places: false}\n" + cp)
+        return Monitor(cfg)
+
+    def test_states_explain_what_to_do(self):
+        m = self.make("control_panel: {allow_lan: false}\n")
+        self.assertEqual(PanelServer(m).phone_status()["state"], "off")
+        m = self.make("control_panel: {allow_lan: true, pin: '12'}\n")
+        self.assertEqual(PanelServer(m).phone_status()["state"], "needs_pin")
+        m = self.make("control_panel: {allow_lan: true, pin: '1234', port: 8771}\n")
+        p = PanelServer(m)
+        self.assertEqual(p.phone_status()["state"], "restart")       # saved, not restarted yet
+        self.assertIn("-LocalPort 8771", p.phone_status()["firewall"])
+        self.assertIn("-Profile Private", p.phone_status()["firewall"])
+
+    def test_any_private_address_is_answered_but_names_and_public_addresses_are_not(self):
+        from restock.panel import private_ip_literal
+        for ok in ("192.168.1.20", "10.0.0.5", "172.20.1.9"):
+            self.assertTrue(private_ip_literal(ok), ok)
+        for bad in ("evil.example.com", "8.8.8.8", "127.0.0.1", "localhost", "192.168.1.20.evil.com", ""):
+            self.assertFalse(private_ip_literal(bad), bad)
+
+    def test_address_list_is_private_ipv4_only(self):
+        from restock.panel import lan_addresses
+        for a in lan_addresses():
+            self.assertTrue(a.startswith(("10.", "192.168.", "172.")))

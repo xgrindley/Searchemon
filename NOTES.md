@@ -2,7 +2,7 @@
 
 Read this first when picking the project back up. Newest entries at the top of each section.
 
-## State (v4.0 stable; test builds continue from v4.1)
+## State (v4.0 stable; working on test build v4.1)
 - Repo: github.com/xgrindley/Searchemon (public). main = the latest stable release only (v4.0, declared 2026-10-26, saved as release/v4.0), test = current work (continues from v4.1; frozen copies build/v3.1 to build/v3.6 are on GitHub). See RELEASING.md.
 - Version scheme: stable v1.0, v2.0, v3.0...; tests count up from the release (v2.1, v2.2, v2.3, v2.4, v2.5...). v1.0 was v0.6 promoted, v2.0 is v1.2 promoted.
 - Windows app, Python 3.13 venv, tkinter window + local control panel at 127.0.0.1:8765.

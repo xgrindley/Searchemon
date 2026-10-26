@@ -2,6 +2,7 @@
 import os
 import sys
 import tempfile
+import types
 import time
 import unittest
 from unittest import mock
@@ -206,12 +207,63 @@ class ScanTests(unittest.TestCase):
         self.assertNotIn("901", asked)                   # the Booster Bundle type is turned off
         self.assertIn("900", asked)
 
-    def test_off_keeps_the_old_behaviour(self):
+    def test_off_keeps_the_old_behaviour_when_you_already_have_enough_products(self):
+        SearchTarget.asked = []
+        with mock.patch.dict(scan_mod.REGISTRY, {"target": SearchTarget}), mock.patch.object(scan_mod, "THIN_LIST", 1):
+            run_scan(self.mon, stores=["target"], everything=False)
+        asked = {i for chunk in SearchTarget.asked for i in chunk}
+        self.assertNotIn("900", asked)
+
+    def test_a_short_product_list_is_topped_up_by_searching_even_with_search_every_product_off(self):
         SearchTarget.asked = []
         with mock.patch.dict(scan_mod.REGISTRY, {"target": SearchTarget}):
             run_scan(self.mon, stores=["target"], everything=False)
         asked = {i for chunk in SearchTarget.asked for i in chunk}
-        self.assertNotIn("900", asked)
+        self.assertTrue({"111", "900", "901"} <= asked)
+
+    def test_scan_searches_your_own_keywords_and_the_product_types(self):
+        asked_q = []
+
+        class Rec(SearchTarget):
+            def search(self, query, limit):
+                asked_q.append(query)
+                return []
+        self.mon.cfg.raw["discovery"] = {"queries": ["pokemon tcg"]}
+        self.mon.cfg.searches.append(types.SimpleNamespace(name="Charizard", query="pokemon charizard collection", retailers=["target"]))
+        self.mon.cfg.searches.append(types.SimpleNamespace(name="Elsewhere", query="pokemon eevee plush", retailers=["walmart"]))
+        with mock.patch.dict(scan_mod.REGISTRY, {"target": Rec}):
+            run_scan(self.mon, stores=["target"], everything=True)
+        self.assertEqual(asked_q[0], "pokemon tcg")                      # your discovery words first
+        self.assertIn("pokemon charizard collection", asked_q)          # your own keyword search for this store
+        self.assertNotIn("pokemon eevee plush", asked_q)                # meant for another store
+        self.assertIn("pokemon elite trainer box", asked_q)             # built-in product types
+        self.assertEqual(len(asked_q), len(set(asked_q)))
+        self.assertLessEqual(len(asked_q), scan_mod.MAX_QUERIES)
+
+    def test_empty_search_falls_back_to_known_products_and_says_why_when_there_are_none(self):
+        class Seeded(SearchTarget):
+            def search(self, query, limit):
+                return []
+
+            def seed_products(self):
+                return [StockResult("target", "Target", "777", "Pokemon TCG ETB", "u")]
+        self.mon.cfg.watchlist[0].ids.clear()
+        with mock.patch.dict(scan_mod.REGISTRY, {"target": Seeded}):
+            SearchTarget.asked = []
+            run_scan(self.mon, stores=["target"], everything=True)
+        self.assertIn("777", {i for chunk in SearchTarget.asked for i in chunk})
+
+        class Dead(SearchTarget):
+            def search(self, query, limit):
+                raise ConnectionError("no route")
+        with mock.patch.dict(scan_mod.REGISTRY, {"target": Dead}):
+            snap = run_scan(self.mon, stores=["target"], everything=True)
+        st = snap["stores"]["target"]
+        self.assertIn("search failed", st["status"])
+        self.assertIn("no route", st["status"])
+        with mock.patch.dict(scan_mod.REGISTRY, {"target": SearchTarget.__bases__[0]}):
+            snap = run_scan(self.mon, stores=["target"], everything=True)
+        self.assertIn("showed no products", snap["stores"]["target"]["status"])
 
     def test_nothing_is_written_to_disk(self):
         data = os.path.join(os.path.dirname(self.mon.config_path), "data")

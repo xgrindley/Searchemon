@@ -1,6 +1,12 @@
 # Changelog
 
 ## v4.1 (test build, in progress)
+- **The ZIP scan searches properly.** It now asks each store for your discovery words, your own keyword searches that include that
+  store, and built-in product-type searches (Elite Trainer Box, Booster Bundle, Collection Box, Booster Box, Tin, Blister, Premium
+  Collection), up to 8 per store (4 for stores read through a browser page). If a store's search still finds nothing it falls back to
+  the store's known products, and if that is empty the row now says why (the search failed with the error, or the store showed no
+  products, which usually means it is blocking searches) instead of "No products to look for yet". A short product list is topped up
+  by searching even when Search every product is off.
 - **Books and stickers no longer alert.** Pokemon books, sticker books, coloring and activity books, handbooks and notebooks are
   skipped (the Epic Sticker Collection paperback at Sam's Club was passing as a collection box). Anything an older version already
   saved in the product list that is no longer accepted is removed on start. The Tech Sticker Collection card product still alerts.

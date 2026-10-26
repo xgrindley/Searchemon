@@ -26,6 +26,13 @@ ONLINE_ONLY = ("walgreens",)  # no shelf stock is published: the scan can only r
 MAX_PRODUCTS = 30            # products asked about per store in one scan (your products only mode)
 MAX_ALL = 150                # products asked about per store when "search every product" is on
 CHUNK = 10                   # product ids per request batch
+MAX_QUERIES = 8              # searches asked of one store in a scan (yours first, then the built-in ones)
+MAX_PAGE_QUERIES = 4         # same, for stores that are read through a browser page (Walgreens, CVS, GameStop...)
+THIN_LIST = 5                # with fewer known products than this, a scan searches the store even in "your products only" mode
+# Product-type searches, so the scan finds the main sealed products even when a store's general Pokemon search is thin.
+SCAN_QUERIES = ("pokemon trading card game", "pokemon tcg", "pokemon elite trainer box", "pokemon booster bundle",
+                "pokemon collection box", "pokemon booster box", "pokemon tin", "pokemon blister pack",
+                "pokemon premium collection")
 MAX_RADIUS = 100
 
 
@@ -119,34 +126,73 @@ class ZipScan:
                 self.job["finished"] = time.time()
                 self.job["rows"].sort(key=lambda r: (r["distance"] is None, r["distance"] or 0, r["store"]))
 
+    def scan_queries(self, r) -> list[str]:
+        """Searches to ask this store: your discovery words, your own keyword searches that include this store,
+        then the built-in product-type searches. No repeats, at most MAX_QUERIES."""
+        cfg = self.mon.cfg
+        d = cfg.raw.get("discovery") or {}
+        wanted = list(d.get("queries") or [])
+        for srch in cfg.searches:
+            if not srch.retailers or r.name in srch.retailers:
+                wanted.append(srch.query)
+        wanted.extend(SCAN_QUERIES)
+        out, seen = [], set()
+        for q in wanted:
+            key = " ".join(str(q).lower().split())
+            if key and key not in seen:
+                seen.add(key)
+                out.append(str(q).strip())
+        # Stores read through a browser load a whole page per search, so they get fewer.
+        return out[:MAX_PAGE_QUERIES if getattr(r, "search_url", "") else MAX_QUERIES]
+
     def _search_all(self, r, out: dict, cap: int) -> str:
-        """Search the store's own catalog for Pokemon products right now (same queries as discovery), so nothing
-        has to be added by hand. Kept in memory only; the saved catalog is not changed. Returns a note if the
-        store has no search."""
+        """Search the store's own catalog for Pokemon products right now, so nothing has to be added by hand.
+        Kept in memory only; the saved catalog is not changed. Returns a short note when the search gave
+        little or nothing, saying why."""
         mon = self.mon
-        d = mon.cfg.raw.get("discovery") or {}
         types = type_settings(mon.cfg.raw)
         allow = bool((mon.cfg.raw.get("settings") or {}).get("allow_non_english"))
         limit = max(int(mon.cfg.settings.get("max_search_results") or 24), 48)
-        searched = False
-        for q in d.get("queries") or ["pokemon trading card game"]:
+        asked, failed, listed, kept, why = 0, 0, 0, 0, ""
+        for q in self.scan_queries(r):
             if self.cancel_flag.is_set() or len(out) >= cap:
                 break
+            asked += 1
             try:
                 found = r.search(q, limit)
             except Blocked:
                 raise
             except Exception as exc:
+                failed += 1
+                why = why or f"{exc.__class__.__name__}: {str(exc)[:80]}"
                 mon.log.info("ZIP scan, %s search '%s': %s", r.name, q, exc)
                 continue
-            searched = searched or bool(found)
+            listed += len(found)
             for res in found:
                 c = classify(res.title, allow_non_english=allow)
                 if not c.is_tcg or res.third_party or not types.get(c.type_key, {}).get("alert", True):
                     continue
-                if res.product_id and len(out) < cap:
-                    out.setdefault(res.product_id, {"name": res.title, "msrp": c.msrp})
-        return "" if searched else "no store-wide search, used the products already known"
+                if res.product_id and len(out) < cap and res.product_id not in out:
+                    out[res.product_id] = {"name": res.title, "msrp": c.msrp}
+                    kept += 1
+        if kept == 0:
+            # Last resort: the store's built-in list of known Pokemon products (Target has one).
+            try:
+                for res in r.seed_products():
+                    if res.product_id and len(out) < cap:
+                        out.setdefault(res.product_id, {"name": res.title, "msrp": None})
+                        kept += 1
+            except Blocked:
+                raise
+            except Exception as exc:
+                mon.log.info("ZIP scan, %s known products: %s", r.name, exc)
+        if kept == 0:
+            if failed and failed == asked:
+                return f"its search failed ({why})"
+            if listed == 0:
+                return "its search showed no products, so the store may be blocking searches"
+            return "its search showed no Pokemon card products"
+        return ""
 
     def _ids(self, r, cfg, everything: bool = False) -> tuple[dict[str, dict], str]:
         """Product ids to ask this store about: your watchlist first, then what discovery found. With
@@ -177,7 +223,9 @@ class ZipScan:
             if len(out) >= cap:
                 break
             out.setdefault(item["id"], {"name": item.get("title", ""), "msrp": item.get("msrp")})
-        note = self._search_all(r, out, cap) if everything else ""
+        note = ""
+        if everything or len(out) < THIN_LIST:
+            note = self._search_all(r, out, cap)
         return dict(list(out.items())[:cap]), note
 
     def _one(self, name: str, cfg, area: Area, online: bool, everything: bool = False) -> None:
@@ -192,8 +240,8 @@ class ZipScan:
                 online = True          # online is all such a store can report, so it is never left out
             ids, note = self._ids(r, cfg, everything)
             if not ids:
-                self._set(name, status="No products to look for yet. Add some in My products or wait for discovery.",
-                          state="skip")
+                self._set(name, status="Nothing to check: " + (note or "no products known yet") + ". Add products in My products "
+                                       "or paste a product link.", state="skip")
                 return
             self._set(name, status=f"Checking {len(ids)} products" + (f" ({note})" if note else ""), products=len(ids), state="run")
             keys = list(ids)

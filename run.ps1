@@ -36,7 +36,9 @@ if ($Headless) {
 $p = Start-Process -FilePath ".\.venv\Scripts\pythonw.exe" -ArgumentList "app.py" -WorkingDirectory $PSScriptRoot -PassThru
 Write-Host "Starting the monitor. Its window opens in a few seconds."
 Start-Sleep -Seconds 5
-if ($p.HasExited) {
+if ($p.HasExited -and $p.ExitCode -eq 0) {
+    Write-Host "It was already running (or you closed it). Look for its window in the taskbar." -ForegroundColor Yellow
+} elseif ($p.HasExited) {
     Write-Host "The app closed right after starting. Showing the error:" -ForegroundColor Red
     & $python app.py --headless
 } else {

@@ -2,12 +2,10 @@
 
 All offline: retailer and map responses are canned. Run: python -m unittest discover tests
 """
-import json
 import os
 import shutil
 import sys
 import tempfile
-import time
 import types
 import unittest
 from unittest import mock
@@ -18,7 +16,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ZIPS = {
     "89431": ("39.5400", "-119.7480", "ANYTOWN", "NV"),
     "89502": ("39.4950", "-119.7740", "RENO", "NV"),
-    "10001": ("39.5530", "-119.6620", "ANYTOWN", "NV"),
     "96150": ("38.9170", "-119.9860", "SOUTH LAKE TAHOE", "CA"),
     "10001": ("40.7500", "-73.9970", "NEW YORK", "NY"),
 }
@@ -239,7 +236,7 @@ class PageSiteTests(Base):
         self.assertEqual(titles, ["Pokemon Center queue is open"])   # once, then the quiet period holds
 
     def test_walmart_pickup_and_seller(self):
-        cfg = load_config(self.cfg_path)
+        load_config(self.cfg_path)          # the config must load
         p = {"name": "Pokemon TCG Booster Bundle", "availabilityStatus": "OUT_OF_STOCK", "sellerId": "F55CDC31AB754BB68FE0B39041159D63",
              "priceInfo": {"currentPrice": {"price": 26.94}},
              "fulfillmentOptions": [{"type": "SHIPPING", "availabilityStatus": "OUT_OF_STOCK"},

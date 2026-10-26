@@ -10,7 +10,7 @@ import yaml
 
 from .geo import Area, build_areas
 from .trials import DEFAULTS as TRIAL_DEFAULTS
-from .util import normalize_text
+from .util import normalize_text, replace_file
 
 ALL_RETAILERS = ("bestbuy", "target", "kroger", "walmart", "pokemoncenter", "gamestop", "costco", "samsclub",
                  "barnesandnoble", "booksamillion", "amazon", "dicks", "safeway", "raleys", "walgreens", "cvs", "web")
@@ -143,11 +143,40 @@ DEFAULTS: dict[str, Any] = {
 def _merge(base: dict, override: dict) -> dict:
     out = copy.deepcopy(base)
     for k, v in (override or {}).items():
+        if isinstance(out.get(k), dict) and v is None:
+            continue            # "settings:" with nothing under it keeps the defaults instead of breaking everything
         if isinstance(v, dict) and isinstance(out.get(k), dict):
             out[k] = _merge(out[k], v)
         else:
             out[k] = v
     return out
+
+
+def _fix_numbers(defaults: dict, raw: dict, problems: list[str], where: str = "") -> None:
+    """Every setting whose default is a number must be a number. A typo such as "90s" or "abc" in config.yaml
+    falls back to the default (and is reported) instead of stopping a store's checks later."""
+    for key, default in defaults.items():
+        if key not in raw:
+            continue
+        val, name = raw[key], f"{where}{key}"
+        if isinstance(default, dict) and isinstance(val, dict):
+            _fix_numbers(default, val, problems, name + ".")
+        elif isinstance(default, (int, float)) and not isinstance(default, bool):
+            if val is None or val == "":
+                raw[key] = default
+                continue
+            if isinstance(val, bool):
+                raw[key] = default
+                problems.append(f"{name} should be a number, not {val}; using {default}.")
+                continue
+            if isinstance(val, (int, float)):
+                continue
+            try:
+                num = float(str(val).strip())
+                raw[key] = int(num) if isinstance(default, int) and num.is_integer() else num
+            except ValueError:
+                raw[key] = default
+                problems.append(f"{name} should be a number, not '{val}'; using {default}.")
 
 
 def _as_list(value: Any) -> list[str]:
@@ -240,6 +269,7 @@ class Config:
     keywords: KeywordFilter
     price_rules: list[PriceRule]
     areas: list[Area] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)   # settings that were fixed up while loading
 
     @property
     def data_dir(self) -> str:
@@ -272,9 +302,13 @@ class Config:
 
 
 def load_config(path: str) -> Config:
-    with open(path, encoding="utf-8") as fh:
+    with open(path, encoding="utf-8-sig") as fh:      # -sig: Notepad may save a byte-order mark
         user = yaml.safe_load(fh) or {}
+    if not isinstance(user, dict):
+        raise ValueError("config.yaml must hold settings (name: value lines), not a single value or list")
     raw = _merge(DEFAULTS, user)
+    problems: list[str] = []
+    _fix_numbers(DEFAULTS, raw, problems)
 
     watchlist = []
     for i, w in enumerate(raw.get("watchlist") or []):
@@ -324,6 +358,7 @@ def load_config(path: str) -> Config:
         keywords=KeywordFilter.from_dict(raw.get("keywords")),
         price_rules=rules,
         areas=build_areas(raw),
+        problems=problems,
     )
 
 
@@ -346,7 +381,7 @@ def save_config(path: str, raw: dict, backup_dir: str | None = None) -> Config:
         if backup_dir and os.path.exists(path):
             os.makedirs(backup_dir, exist_ok=True)
             shutil.copy(path, os.path.join(backup_dir, "config.backup.yaml"))
-        os.replace(tmp, path)
+        replace_file(tmp, path)
         cfg.path = path
         return cfg
     finally:
@@ -356,8 +391,8 @@ def save_config(path: str, raw: dict, backup_dir: str | None = None) -> Config:
 
 def validate(cfg: Config) -> list[str]:
     """Human-readable problems worth showing at startup."""
-    problems = []
-    hooks = {k: v for k, v in cfg.discord.get("webhooks", {}).items() if v}
+    problems = list(cfg.problems)
+    hooks = {k: v for k, v in (cfg.discord.get("webhooks") or {}).items() if v}
     hooks.update({f"area {a.name}": a.webhook for a in cfg.areas if a.webhook})
     if not hooks:
         problems.append("No Discord webhook set: alerts will only show in the app.")

@@ -71,7 +71,12 @@ class Kroger(Retailer):
                 raise Blocked("Kroger: client ID or secret was rejected", 3600)
             if resp.status_code != 200:
                 raise ConnectionError(f"Kroger: sign-in failed ({resp.status_code})")
-            data = resp.json()
+            try:
+                data = resp.json()
+            except ValueError as exc:
+                raise ConnectionError("Kroger: sign-in answer was not readable; trying again later") from exc
+            if not isinstance(data, dict) or not data.get("access_token"):
+                raise ConnectionError("Kroger: sign-in gave no access token; trying again later")
             self._token = data.get("access_token", "")
             self._token_until = time.time() + float(data.get("expires_in") or 1800)
             return self._token

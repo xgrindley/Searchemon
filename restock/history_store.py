@@ -15,7 +15,7 @@ import tempfile
 import threading
 import time
 
-from .util import read_json
+from .util import read_json, replace_file
 
 FILE = "store-history.json"
 RECENT = 40
@@ -152,13 +152,22 @@ class StoreHistory:
     def save(self) -> None:
         with self.lock:
             self._prune()
-            data = {"stores": {s: dict(r) for s, r in self.stores.items()}, "methods": self.methods}
+            # Serialized while locked: the nested hour counts change from other threads, and dumping
+            # them unlocked can fail with "dictionary changed size during iteration".
+            text = json.dumps({"stores": self.stores, "methods": self.methods}, separators=(",", ":"))
+        tmp = ""
         try:                                   # compact on purpose: this file grows with the days kept
             folder = os.path.dirname(os.path.abspath(self.path))
             os.makedirs(folder, exist_ok=True)
             fd, tmp = tempfile.mkstemp(dir=folder, suffix=".tmp")
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(data, fh, separators=(",", ":"))
-            os.replace(tmp, self.path)
+                fh.write(text)
+            replace_file(tmp, self.path)
         except OSError:
             pass
+        finally:
+            if tmp and os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass

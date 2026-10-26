@@ -39,6 +39,12 @@ def msrp_text(price: float | None, msrp: float) -> str:
     return text
 
 
+def web_link(url: str | None) -> str:
+    """A cleaned http(s) link, or "" when it is not one. Discord refuses the whole alert over a bad link."""
+    u = clean_url(url)
+    return u if u.startswith(("https://", "http://")) and len(u) <= 2000 else ""
+
+
 def embed_size_so_far(title: str, desc: str, fields: list[dict], footer_len: int = 0) -> int:
     return len(title) + 12 + len(desc) + footer_len + sum(len(f["name"]) + len(f["value"]) for f in fields)
 
@@ -176,6 +182,9 @@ class DiscordNotifier:
         return " ".join(content), allowed
 
     def _post(self, url: str, payload: dict) -> bool:
+        for embed in payload.get("embeds") or []:
+            if not embed.get("url"):
+                embed.pop("url", None)        # Discord refuses an empty link
         with self.lock:
             for _ in range(4):
                 wait = 0.6 - (time.time() - self.last_post)  # stay under 5 posts per 2s
@@ -183,16 +192,23 @@ class DiscordNotifier:
                     time.sleep(wait)
                 try:
                     resp = requests.post(url, json=payload, timeout=15)
+                except (requests.ConnectionError, requests.Timeout) as exc:
+                    # A dropped connection or Wi-Fi blip: try again shortly instead of losing the alert.
+                    self.log.warning("Discord post failed (%s), retrying", exc.__class__.__name__)
+                    self.last_post = time.time()
+                    time.sleep(2)
+                    continue
                 except requests.RequestException as exc:
                     self.log.warning("Discord post failed: %s", exc.__class__.__name__)
                     return False
                 self.last_post = time.time()
-                if resp.status_code == 429:
+                if resp.status_code == 429 or resp.status_code >= 500:
                     try:
-                        retry = float(resp.json().get("retry_after", 1))
-                    except ValueError:
+                        body = resp.json()
+                        retry = float(body.get("retry_after", 1)) if isinstance(body, dict) else 2.0
+                    except (ValueError, TypeError):
                         retry = 2.0
-                    time.sleep(min(retry, 30))
+                    time.sleep(min(max(retry, 0.5), 30))
                     continue
                 if resp.status_code >= 300:
                     self.log.warning("Discord returned %s: %s", resp.status_code, resp.text[:200])
@@ -226,7 +242,9 @@ class DiscordNotifier:
         store_fields = self._store_fields(res, set(new_store_ids)) if res.stores else []
         if res.upc:
             fields.append({"name": "UPC", "value": res.upc, "inline": True})
-        fields.append({"name": "Item ID", "value": str(res.product_id)[:100] or "-", "inline": True})
+        pid = str(res.product_id or "")
+        if pid and not pid.startswith(("http://", "https://")):
+            fields.append({"name": "Item ID", "value": pid[:100], "inline": True})
 
         desc = [reason.capitalize()] if reason else []
         if res.stores:
@@ -250,7 +268,7 @@ class DiscordNotifier:
         desc_text = "\n".join(desc)[:3500]
         embed = {
             "title": f"IN STOCK: {res.title}"[:256],
-            "url": clean_url(res.url),
+            "url": web_link(res.url),
             "description": desc_text or None,
             "color": RETAILER_COLORS.get(res.retailer, GREEN),
             "fields": fields + fit_store_fields(store_fields, embed_size_so_far(res.title, desc_text, fields, footer_len=60)),
@@ -310,7 +328,7 @@ class DiscordNotifier:
             fields.append({"name": "Price", "value": f"${item['price']:.2f}", "inline": True})
         if item.get("msrp"):
             fields.append({"name": "MSRP", "value": msrp_text(item.get("price"), item["msrp"]), "inline": True})
-        embed = {"title": f"New listing: {item['title']}"[:256], "url": clean_url(item["url"]), "color": BLUE,
+        embed = {"title": f"New listing: {item['title']}"[:256], "url": web_link(item.get("url")), "color": BLUE,
                  "description": "Just appeared in the store's catalog. It may not be buyable yet; "
                                 "the monitor now tracks it and alerts when it is in stock.",
                  "fields": fields, "timestamp": dt.datetime.now(dt.timezone.utc).isoformat()}
@@ -321,7 +339,7 @@ class DiscordNotifier:
         url = self._hook_for(sig["site"])
         if not url:
             return False
-        embed = {"title": f"{sig['display']} queue is open", "url": sig["url"], "color": AMBER,
+        embed = {"title": f"{sig['display']} queue is open", "url": web_link(sig.get("url")), "color": AMBER,
                  "description": "The waiting room is up, which usually means a drop is starting within minutes. "
                                 "Open the site and join the line; don't refresh once you're in.",
                  "timestamp": dt.datetime.now(dt.timezone.utc).isoformat()}
@@ -340,7 +358,7 @@ class DiscordNotifier:
         url = self._hook_for(res.retailer)
         if not url:
             return False
-        embed = {"title": f"Sold out: {res.title}"[:256], "url": clean_url(res.url), "color": GREY,
+        embed = {"title": f"Sold out: {res.title}"[:256], "url": web_link(res.url), "color": GREY,
                  "footer": {"text": res.retailer_name}}
         return self._post(url, {"username": self.username, "embeds": [embed],
                                 "allowed_mentions": {"parse": []}})
@@ -396,7 +414,7 @@ class Toaster:
                 app_id="Restock Monitor",
                 title=f"{res.retailer_name}: in stock"[:60],
                 msg=f"{res.title[:90]}\n{reason}",
-                launch=clean_url(res.url),
+                launch=web_link(res.url),
             )
             toast.show()
         except Exception:

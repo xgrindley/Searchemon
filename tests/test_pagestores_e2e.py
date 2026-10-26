@@ -80,7 +80,6 @@ STORES = {
 
 def serve(url):
     host = url.split("/")[2].removeprefix("www.")
-    path = url[url.index(host) + len(host):]
     site = STORES.get(host, {})
     if any(k in url for k in ("search", "CatalogSearch", "/s/")):          # a search page: links to every product
         links = "".join(f'<a href="{p}"><img></a>' for p in site)

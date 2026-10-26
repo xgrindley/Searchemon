@@ -92,13 +92,37 @@ def dig(data: Any, *path: Any, default: Any = None) -> Any:
     return cur
 
 
+def replace_file(tmp: str, path: str, tries: int = 6) -> None:
+    """os.replace that rides out Windows briefly locking the target (antivirus, the search indexer, OneDrive
+    syncing the Documents folder): a few short retries before giving up."""
+    import time
+    delay = 0.05
+    for attempt in range(tries):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.8)
+
+
 def atomic_write_json(path: str, data: Any) -> None:
+    """Write JSON so a crash or power cut never leaves a half-written file. The temp file is always cleaned up."""
     folder = os.path.dirname(os.path.abspath(path))
     os.makedirs(folder, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=folder, suffix=".tmp")
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2)
-    os.replace(tmp, path)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, default=str)
+        replace_file(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def read_json(path: str, default: Any) -> Any:

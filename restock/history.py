@@ -15,6 +15,7 @@ import time
 from collections import Counter, defaultdict
 
 from .models import StockResult, StoreStock
+from .util import replace_file
 
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _DAY_KEYS = {d.lower(): i for i, d in enumerate(DAY_NAMES)}
@@ -51,9 +52,14 @@ class History:
             return
         # Rewrite without expired lines once in a while so the file stays small.
         if len(self.events) < lines:
-            with open(self.path, "w", encoding="utf-8") as fh:
-                for ev in self.events:
-                    fh.write(json.dumps(ev) + "\n")
+            try:
+                text = "".join(json.dumps(ev) + "\n" for ev in self.events)
+                tmp = self.path + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+                replace_file(tmp, self.path)
+            except OSError:
+                pass        # tidying is optional; the app must start regardless
 
     def record(self, res: StockResult, store: StoreStock | None, when: float | None = None) -> None:
         ev = {
@@ -70,9 +76,12 @@ class History:
         }
         with self.lock:
             self.events.append(ev)
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            with open(self.path, "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(ev) + "\n")
+            try:                 # the restock-time record is nice to have; it must never stop an alert
+                os.makedirs(os.path.dirname(self.path), exist_ok=True)
+                with open(self.path, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(ev) + "\n")
+            except OSError:
+                pass
 
     # ---- analysis -------------------------------------------------------------
     def visits(self, retailer: str | None = None, place: str | None = None) -> list[dict]:
@@ -154,29 +163,67 @@ class History:
 
 
 def _parse_days(value) -> set[int]:
+    """Weekday numbers (Monday 0) from "all", "weekdays", "weekend", "mon-fri", "sat,sun" or a list of those.
+    Text that names no day at all counts as every day, so a typo never silently turns a window off."""
     if value in (None, "", "all", ["all"]):
         return set(range(7))
-    items = [value] if isinstance(value, str) else list(value)
+    if isinstance(value, str):
+        items = [p for p in value.replace(";", ",").replace(" ", ",").split(",") if p]
+    elif isinstance(value, (list, tuple, set)):
+        items = list(value)
+    else:
+        items = [value]
     out: set[int] = set()
     for item in items:
-        key = str(item).strip().lower()[:3]
-        if key == "wee" and str(item).lower().startswith("weekday"):
+        text = str(item).strip().lower()
+        if "-" in text:                                    # a range such as mon-fri or fri-mon
+            a, _, b = text.partition("-")
+            if a[:3] in _DAY_KEYS and b[:3] in _DAY_KEYS:
+                d, last = _DAY_KEYS[a[:3]], _DAY_KEYS[b[:3]]
+                out.add(d)
+                while d != last:
+                    d = (d + 1) % 7
+                    out.add(d)
+                continue
+        key = text[:3]
+        if text.startswith("weekday"):
             out.update(range(5))
-        elif key == "wee":
+        elif text.startswith("weekend"):
             out.update({5, 6})
-        elif key == "all":
+        elif key in ("all", "dai", "eve"):
             out.update(range(7))
         elif key in _DAY_KEYS:
             out.add(_DAY_KEYS[key])
-    return out
+    return out or set(range(7))
 
 
-def _minutes(hhmm: str) -> int:
-    h, _, m = str(hhmm or "0").partition(":")
-    return (int(h) % 24) * 60 + int(m or 0)
+def _minutes(hhmm) -> int:
+    """Minutes after midnight from "22:00", "7:30", "10pm", "10:30 PM" or 22. A bare 22:00 typed into
+    config.yaml without quotes arrives as the number 1320 (YAML reads it as minutes), which is handled too.
+    Anything unreadable counts as midnight rather than stopping alerts."""
+    if isinstance(hhmm, bool):
+        return 0
+    if isinstance(hhmm, (int, float)):
+        v = int(hhmm)
+        return (v % 24) * 60 if 0 <= v < 24 else v % 1440
+    text = str(hhmm or "0").strip().lower().replace(".", "")
+    pm, am = text.endswith(("pm", "p")), text.endswith(("am", "a"))
+    text = text.rstrip("apm ").strip()
+    h, _, m = text.partition(":")
+    try:
+        hour, minute = int(h or 0), int(m or 0)
+    except ValueError:
+        return 0
+    if pm and hour < 12:
+        hour += 12
+    if am and hour == 12:
+        hour = 0
+    return (hour % 24) * 60 + max(0, min(minute, 59))
 
 
 def in_window(window: dict, lt: time.struct_time) -> bool:
+    if not isinstance(window, dict):
+        return False
     start, end = _minutes(window.get("start", "0:00")), _minutes(window.get("end", "0:00"))
     now_m = lt.tm_hour * 60 + lt.tm_min
     days = _parse_days(window.get("days"))

@@ -184,12 +184,28 @@ and the raw responses land in `data\debug` for fixing.
 - `config.yaml` (your webhooks and keys) and `data\` stay on your PC and are in `.gitignore`. Never paste a webhook URL into a file
   that gets committed.
 - The checking browsers use their own profiles, separate from your everyday Edge and Chrome.
+- With phone access on, the panel needs your PIN, and an address that guesses wrong 8 times in 10 minutes is refused for 10 minutes.
+- Troubleshooting copies of store pages in `data\debug` are deleted after 14 days (at most 150 are kept).
 
 ## Runs while you use the PC
 
 Browsers stay off screen and never take focus (sign-in is the only time one comes forward, and only when you ask). The app runs at
 below-normal priority so games and calls get the CPU first (`power: low_priority`). If your PC sleeps when idle and you want checks to
 carry on, set `power: keep_awake: true`. Closing the app hides the window at once and closes every browser together.
+
+## Built to keep running
+
+- **One copy at a time.** Starting the app again from the same folder offers its control panel instead of running a second copy,
+  which would post every alert twice.
+- **Alerts are never lost to a hiccup.** A Wi-Fi blip or a Discord outage is retried; if an alert still cannot be sent, the next
+  check tries again, and a webhook that keeps failing is given up on after a few tries instead of retrying forever.
+- **Saving settings does not re-send alerts** for stock the app already told you about.
+- **Windows file locks are ridden out.** Antivirus, the search indexer or OneDrive briefly locking a file no longer stops a store's
+  checks; saves are retried and a save that still fails is logged and skipped.
+- **A typo in `config.yaml` does not stop the app.** A setting that should be a number but is not falls back to its default and is
+  listed at startup. If the file cannot be read at all, the window offers the copy saved before your last change.
+- **The window never freezes** on one odd update, and a browser that could not start (Edge mid-update, say) is tried again after
+  10 minutes.
 
 ## Files
 

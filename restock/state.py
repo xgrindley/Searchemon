@@ -59,13 +59,16 @@ class StateStore:
             new_online = new_online and cooled("online")
             new_stores = {s for s in new_stores if cooled(f"store:{s}")}
 
-            self.data[res.key] = {
+            entry = {
                 "online": res.online,
                 "stores": sorted(cur_stores),
                 "alerts": last_alerts,
                 "title": res.title[:120],
                 "checked": now,
             }
+            if prev and prev.get("send_failures"):
+                entry["send_failures"] = prev["send_failures"]   # kept, so a dead webhook gives up after a few tries
+            self.data[res.key] = entry
             reason = []
             if new_online:
                 reason.append("online restock")

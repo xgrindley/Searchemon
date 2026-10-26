@@ -8,7 +8,7 @@ from __future__ import annotations
 from urllib.parse import quote
 
 from ..models import StockResult, StoreStock
-from ..util import normalize_upc, upc_variants
+from ..util import normalize_upc, parse_price, upc_variants
 from .base import Blocked, Retailer
 
 API = "https://api.bestbuy.com/v1"
@@ -86,13 +86,13 @@ class BestBuy(Retailer):
             data = self._api(f"products/{sku}/stores.json", postalCode=area.zip)
             ispu = data.get("ispuEligible")
             for s in data.get("stores") or []:
-                dist = s.get("distance")
-                if dist is not None and float(dist) > area.radius:
+                dist = parse_price(s.get("distance"))
+                if dist is not None and dist > area.radius:
                     continue
                 stock = StoreStock(
                     store_id=str(s.get("storeID") or s.get("storeId") or ""),
                     name=s.get("name") or "",
-                    distance=float(dist) if dist is not None else None,
+                    distance=dist,
                     address=s.get("address") or "",
                     pickup=bool(ispu) if ispu is not None else None,
                     zip=str(s.get("postalCode") or "")[:5],

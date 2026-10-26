@@ -166,7 +166,7 @@ class Target(Retailer):
                 stock = StoreStock(
                     store_id=store_id,
                     name=loc.get("location_name") or loc.get("store_name") or "",
-                    distance=float(dist) if dist not in (None, "") else None,
+                    distance=parse_price(dist),
                     qty=qty_n,
                     address=str(address).split(",")[0] if address else "",
                     pickup=pickup,

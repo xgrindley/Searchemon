@@ -49,13 +49,17 @@ MAX_SLOWDOWN = 8.0
 def make_logger(data_dir: str, console: bool = False) -> logging.Logger:
     log = logging.getLogger("restock")
     log.setLevel(logging.INFO)
-    if not log.handlers:
+    path = os.path.abspath(os.path.join(data_dir, "restock.log"))
+    for old in [h for h in log.handlers if isinstance(h, RotatingFileHandler)]:
+        if os.path.abspath(old.baseFilename) != path:     # the config moved: log next to the new one
+            log.removeHandler(old)
+            old.close()
+    if not any(isinstance(h, RotatingFileHandler) for h in log.handlers):
         os.makedirs(data_dir, exist_ok=True)
-        fh = RotatingFileHandler(os.path.join(data_dir, "restock.log"), maxBytes=1_000_000,
-                                 backupCount=3, encoding="utf-8")
+        fh = RotatingFileHandler(path, maxBytes=1_000_000, backupCount=3, encoding="utf-8", delay=True)
         fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
         log.addHandler(fh)
-        if console:
+        if console and not any(type(h) is logging.StreamHandler for h in log.handlers):
             ch = logging.StreamHandler()
             ch.setFormatter(logging.Formatter("%(asctime)s  %(message)s", "%H:%M:%S"))
             log.addHandler(ch)
@@ -88,30 +92,58 @@ class Monitor:
         self.tracker: BlockTracker | None = None
         self.trials: TrialPlan | None = None
         self.queue_state: dict[str, dict] = {}
-        self._confirms_left = MAX_CONFIRMS_PER_CYCLE
-        self._from_upc: set[str] = set()
+        self._tl = threading.local()   # per-store-thread: confirm budget and ids found by UPC this cycle
         self.scan = ZipScan(self)      # the by-hand ZIP stock scan
         self.load()
+
+    # Each store's loop runs in its own thread. These two values belong to one cycle of one store, so they are
+    # kept per thread; shared, one store's cycle could reset them while another store was using them.
+    @property
+    def _confirms_left(self) -> int:
+        return getattr(self._tl, "confirms_left", MAX_CONFIRMS_PER_CYCLE)
+
+    @_confirms_left.setter
+    def _confirms_left(self, value: int) -> None:
+        self._tl.confirms_left = value
+
+    @property
+    def _from_upc(self) -> set:
+        if not hasattr(self._tl, "from_upc"):
+            self._tl.from_upc = set()
+        return self._tl.from_upc
+
+    @_from_upc.setter
+    def _from_upc(self, value: set) -> None:
+        self._tl.from_upc = value
 
     # ---- setup ----------------------------------------------------------------
     def load(self) -> None:
         self.cfg: Config = load_config(self.config_path)
-        self.store_history = StoreHistory(self.cfg.data_dir)
-        self._discovery_tried: set[str] = set()
-        self._status_sent: dict[tuple[str, str], float] = {}
-        self._status_lock = threading.Lock()
-        self.accounts = AccountTracker(self.cfg.data_dir)
-        self._accounts_lock = threading.Lock()
+        # Saving settings reloads. What the app has learned while running (which stock it already saw and
+        # alerted on, the product list, sign-ins, cooldowns) is kept, so a save never re-sends alerts or
+        # re-posts status messages. Only a different data folder starts fresh.
+        fresh = getattr(self, "_data_dir", None) != self.cfg.data_dir
+        self._data_dir = self.cfg.data_dir
+        if fresh:
+            self._status_lock = threading.Lock()
+            self._accounts_lock = threading.Lock()
+            self._resolved_lock = threading.Lock()
+            self._discovery_tried: set[str] = set()
+            self._status_sent: dict[tuple[str, str], float] = {}
+            self.store_history = StoreHistory(self.cfg.data_dir)
+            self.accounts = AccountTracker(self.cfg.data_dir)
+            self.state = StateStore(self.cfg.data_dir)
+            self.resolved_path = os.path.join(self.cfg.data_dir, "resolved.json")
+            self.resolved: dict = read_json(self.resolved_path, {})
+            self.history = History(self.cfg.data_dir)
+            self.catalog = Catalog(self.cfg.data_dir)
+        else:
+            self._discovery_tried.clear()       # settings changed: let discovery try again with them
         self.log = make_logger(self.cfg.data_dir, self.console)
         with self.snap_lock:
             self.retailer_status.clear()
         self.notifier = DiscordNotifier(self.cfg.discord, self.log, self.cfg.areas)
         self.toaster = Toaster(bool(self.cfg.settings.get("windows_toast")))
-        self.state = StateStore(self.cfg.data_dir)
-        self.resolved_path = os.path.join(self.cfg.data_dir, "resolved.json")
-        self.resolved: dict = read_json(self.resolved_path, {})
-        self.history = History(self.cfg.data_dir)
-        self.catalog = Catalog(self.cfg.data_dir)
         self.places = PlaceFinder(self.cfg.data_dir, self.log)
         self.places.assign(self.cfg.areas)
         self.schedule = Schedule(self.cfg.raw, self.history)
@@ -494,13 +526,9 @@ class Monitor:
     def _save_pacing(self) -> None:
         with self._pacing_lock:
             rows = {n: {"slow": round(h["slow"], 3), "at": time.time()}
-                    for n, h in self.health.items() if h["slow"] > 1.05}
+                    for n, h in list(self.health.items()) if h["slow"] > 1.05}
             try:
-                os.makedirs(self.cfg.data_dir, exist_ok=True)
-                tmp = self._pacing_path() + ".tmp"
-                with open(tmp, "w", encoding="utf-8") as fh:
-                    json.dump(rows, fh)
-                os.replace(tmp, self._pacing_path())
+                atomic_write_json(self._pacing_path(), rows)
             except OSError:
                 pass
 
@@ -582,10 +610,17 @@ class Monitor:
                 self.store_history.record(name, False, f"error: {str(exc)[:80]}")
                 status = f"Error: {str(exc)[:60]}"
                 backoff = 60
-            self.state.save()
-            self._save_pacing()
-            self.store_history.save()
-            delay, notes = self._next_delay(r, h, time.time() - started)
+            try:
+                self.state.save()
+                self._save_pacing()
+                self.store_history.save()
+            except Exception as exc:   # a locked or full disk must never stop this store's checks
+                self.log.warning("%s: could not save progress: %s", name, exc)
+            try:
+                delay, notes = self._next_delay(r, h, time.time() - started)
+            except (TypeError, ValueError) as exc:   # a bad number in the settings: keep checking at a safe pace
+                self.log.warning("%s: bad interval setting (%s), using 2 minutes", name, exc)
+                delay, notes = 120.0, ""
             if backoff:
                 delay = backoff
             h["next"] = time.time() + delay
@@ -622,8 +657,12 @@ class Monitor:
             raise
         except Exception as exc:
             self.log.warning("UPC lookup %s failed: %s", key, exc)
-        self.resolved[key] = {"id": found, "ts": time.time()}
-        atomic_write_json(self.resolved_path, self.resolved)
+        with self._resolved_lock:          # several store threads can look up UPCs at once
+            self.resolved[key] = {"id": found, "ts": time.time()}
+            try:
+                atomic_write_json(self.resolved_path, self.resolved)
+            except OSError as exc:
+                self.log.warning("Could not save UPC lookups: %s", exc)
         if found:
             self.info(f"{retailer.display}: UPC {upc} is item {found}")
         return found
@@ -914,7 +953,11 @@ class Monitor:
             else:
                 self.info(f"ALERT {res.retailer_name}: {res.title} ({change.reason})")
                 self.store_history.note_alert(res.retailer)
-                sent = self.notifier.restock(res, change.reason, rule.store_ids, rule.ping) if self.notifier.enabled else False
+                try:
+                    sent = self.notifier.restock(res, change.reason, rule.store_ids, rule.ping) if self.notifier.enabled else False
+                except Exception as exc:     # never lose a restock to a formatting or network surprise: retried next check
+                    self.log.exception("Discord alert failed: %s", exc)
+                    sent = False
                 if s.get("windows_toast", True):
                     self.toaster.show(res, change.reason)
             wanted = rule.send and not paused and self.notifier.enabled

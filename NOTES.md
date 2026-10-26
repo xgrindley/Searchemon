@@ -31,6 +31,9 @@ Read this first when picking the project back up. Newest entries at the top of e
 ## Rolling history (v2.10)
 - history_store.py: data/store-history.json, per store recent (40 chars of 0/1), hourly [ok, fail] for 7 days, last problem. Engine preloads health["recent"] from it; trust.py falls back to the 7 day totals.
 
+## Auto-balance (v3.3)
+- trials.py: saved["balance"][store][arm] = decayed [ok, fail] (x0.97 per check). Turn length = slice_checks * (min_share + (2 - min_share) * (score/best)^3); methods under 6 recent checks get 1.0.
+
 ## Method control (v2.9)
 - trials.py keeps data/trial-state.json: active list, per-method attempt counters (since switched on), stopped records, last 30 events.
 - Auto-stop: attempts > stop_after (25) and fails/attempts >= stop_fail_pct (50). Only trial arms; controls are never counted.

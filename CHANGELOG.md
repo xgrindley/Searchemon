@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.3 (2026-10-26, test build, includes v3.2)
+- **Auto-balance:** the app now shifts checks toward what is working, store by store. Every method (the normal ones and the
+  trial ones) keeps a running score at each store, weighted toward its most recent ~30 checks. A method that has been loading
+  pages gets longer turns, one that has been failing gets shorter turns, down to a quarter of a normal turn so it can still
+  recover and be judged again. Nothing is judged until a method has about 6 recent checks at that store, and until then everyone
+  gets a normal turn. A blocked trial method still rests for 90 minutes and falls back to the normal method, and a method that
+  fails more than 25 attempts at 50% is still switched off (v2.9), so a poor method cannot drag down the tool's overall results.
+- **Method control** shows "How checks are shared out right now": for each store, each method's share of the checks and how
+  often it loaded recently. The balance is saved in data\trial-state.json and survives a restart.
+- Settings (Methods lab, About the trial methods): **Auto-balance checks** on/off and, in config.yaml, `trials: min_share`
+  (default 0.25). Off gives every method equal turns, as before.
+- Tests: tests\test_methodcontrol.py (turn lengths, per-store, recovery, off switch, rotation, restart).
+
+To test v3.3 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+`VERSION` should print 3.3. Close the running app first. Open **Methods lab**, **Method control**: "How checks are shared out right now" fills in after a few minutes of checking.
+
 ## v3.2 (2026-10-26, test build, includes v3.1)
 - **The whole picture** (Methods lab, under the trust table): every store, every day, kept for 180 days in
   data\store-history.json (compact, under 200 KB). Per store: checks, % loaded, average check time, products found, alerts

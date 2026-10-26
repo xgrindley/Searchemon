@@ -24,6 +24,8 @@ from .notify import DiscordNotifier, Toaster
 from .retailers import REGISTRY, route_url
 from .retailers.base import Blocked, Retailer
 from .retailers.blocks import BlockInfo
+from .compare import SideBySide
+from .features import FeatureTrial
 from .retailers.base import set_tracker
 from .retailers.browser import BrowserPool
 from .sessions import BlockTracker
@@ -74,6 +76,8 @@ class Monitor:
         self.activity: deque = deque(maxlen=300)
         self.retailer_status: dict[str, str] = {}
         self.health: dict[str, dict] = {}
+        self._close_lock = threading.Lock()
+        self._closed = False
         self.human_checks: dict[str, dict] = {}
         self._pacing_lock = threading.Lock()
         self.browser: BrowserPool | None = None
@@ -111,6 +115,14 @@ class Monitor:
             self.browser.on_reopen = self._browser_reopened
         else:
             self.browser.raw = self.cfg.raw
+        if getattr(self, "compare", None) is None:
+            self.compare = SideBySide(self.cfg.data_dir, self.log, self.browser)
+        else:
+            self.compare.browser = self.browser
+        self.browser.prefer = self.compare.rates
+        if getattr(self, "trial", None) is None:
+            self.trial = FeatureTrial(self.cfg.data_dir, lambda: self.cfg.raw)
+        self.browser.trial = self.trial
         self.retailers: dict[str, Retailer] = {
             name: REGISTRY[name](self.cfg, self.log, self.browser) for name in self.cfg.enabled_retailers()
         }
@@ -254,12 +266,21 @@ class Monitor:
             self.info("The checking browser is off or not installed, so there is nothing to sign in to.")
 
     def close(self) -> None:
-        """Stop everything, including the browser. Call when the app exits."""
+        """Stop everything, including every browser window the app opened or joined. Call when the app
+        exits. Safe to call more than once."""
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+        if self.browser:
+            self.browser.stopping = True            # no new browsers join while the app is closing
         self.stop()
         if self.browser:
             self.browser.stop()
         if self.tracker:
             self.tracker.save()
+        if getattr(self, "trial", None):
+            self.trial.save()
 
     # ---- lifecycle --------------------------------------------------------------
     @property
@@ -537,6 +558,10 @@ class Monitor:
         results = r.check_ids(ids, in_store) if ids else {}
         for res in results.values():
             self.localize(res)
+        if results and getattr(self, "compare", None):
+            sample = next((x.url for x in results.values() if x.url and x.url.startswith("http")), "")
+            if sample and r.name not in ("target", "bestbuy", "kroger"):    # these use official or JSON calls, not pages
+                self.compare.maybe_run(r.name, sample)
         return results
 
     def _discover(self, r: Retailer, d: dict) -> None:
@@ -757,7 +782,7 @@ class Monitor:
         return bool(d.get("places", True)) and bool(self.cfg.areas) and self.places.stale(self.cfg.areas)
 
     def refresh_places(self) -> int:
-        sources = [r.stores_near for name, r in self.retailers.items() if name in ("target", "bestbuy", "kroger")]
+        sources = [r.stores_near for name, r in self.retailers.items() if name in ("target", "bestbuy", "kroger", "walgreens")]
         n = self.places.refresh(self.cfg.areas, sources)
         self.info(f"Found {n} stores near your areas"
                   + (f" (some sources failed: {self.places.last_error})" if self.places.last_error else ""))

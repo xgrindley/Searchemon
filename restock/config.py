@@ -56,6 +56,17 @@ DEFAULTS: dict[str, Any] = {
         # Your own Chrome, started with start-my-chrome.ps1. Whenever it is running it joins
         # the profiles and gets these stores first, since a real Chrome is refused least.
         "own_chrome_port": 9222,
+        # Your own Edge (start-my-edge.ps1): a second real browser to compare against Chrome. 0 turns it off.
+        "own_edge_port": 9223,
+        # When a store refuses a plain data request, repeat it from inside the store's own page in a real browser.
+        "page_fetch": True,
+        # Every N minutes, per store, load one page through every method at once and record the outcome (0 = off).
+        "compare_every_minutes": 15,
+        # Use what the side-by-side tests found: methods that load a store reliably get its checks first.
+        "learn_from_compare": True,
+        # Run about half of the checks without each new feature and count the blocks, so Methods lab can show whether it helps.
+        "feature_trial": True,
+        "close_own_on_exit": True,
         "own_chrome_sites": ["cvs.com", "dickssportinggoods.com", "gamestop.com"],
         "notify_discord": False,
         "min_interval_seconds": 120,
@@ -85,7 +96,8 @@ DEFAULTS: dict[str, Any] = {
         },
         "kroger": {"enabled": False, "client_id": "", "client_secret": "", "interval_seconds": 300,
                    "max_stores": 5, "store_ids": []},
-        "walmart": {"enabled": True, "interval_seconds": 180, "fetch_mode": "auto"},
+        "walmart": {"enabled": True, "interval_seconds": 180, "fetch_mode": "auto",
+                    "consumer_id": "", "private_key_file": "", "key_version": "1", "publisher_id": ""},
         "pokemoncenter": {"enabled": True, "interval_seconds": 900, "fetch_mode": "browser", "watch_queue": True},
         "gamestop": {"enabled": True, "interval_seconds": 240, "fetch_mode": "auto"},
         "costco": {"enabled": True, "interval_seconds": 300, "fetch_mode": "auto"},
@@ -96,7 +108,7 @@ DEFAULTS: dict[str, Any] = {
         "dicks": {"enabled": True, "interval_seconds": 300, "fetch_mode": "browser"},
         "safeway": {"enabled": True, "interval_seconds": 300, "fetch_mode": "browser"},
         "raleys": {"enabled": True, "interval_seconds": 300, "fetch_mode": "auto"},
-        "walgreens": {"enabled": True, "interval_seconds": 240, "fetch_mode": "auto"},
+        "walgreens": {"enabled": True, "api_key": "", "interval_seconds": 240, "fetch_mode": "auto"},
         "cvs": {"enabled": True, "interval_seconds": 240, "fetch_mode": "auto"},
         "web": {"enabled": True, "interval_seconds": 180, "fetch_mode": "auto"},
     },
@@ -341,6 +353,11 @@ def validate(cfg: Config) -> list[str]:
     for name, url in hooks.items():
         if not str(url).startswith(("https://discord.com/api/webhooks/", "https://discordapp.com/api/webhooks/")):
             problems.append(f"Webhook '{name}' does not look like a Discord webhook URL.")
+    wm = cfg.retailer_cfg("walmart")
+    if wm.get("consumer_id") and not wm.get("private_key_file"):
+        problems.append("Walmart.io Consumer ID is set but the private key file is empty, so the website is used instead.")
+    if wm.get("private_key_file") and not os.path.exists(os.path.expanduser(str(wm.get("private_key_file")).strip('"'))):
+        problems.append("The Walmart.io private key file was not found at that path.")
     if cfg.retailer_cfg("bestbuy").get("enabled") and not cfg.retailer_cfg("bestbuy").get("api_key"):
         problems.append("Best Buy is enabled but has no api_key (free at developer.bestbuy.com).")
     if cfg.settings.get("in_store") and not cfg.areas:

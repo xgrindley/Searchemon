@@ -88,6 +88,7 @@ def _force_foreground(hint: str) -> None:
         pass
 
 OWN_CHROME = "my-chrome"
+OWN_EDGE = "my-edge"
 # Stores that always try your own Chrome first (added to browser.own_chrome_sites).
 DEFAULT_OWN_SITES = ("cvs.com", "dickssportinggoods.com", "gamestop.com")
 
@@ -147,11 +148,12 @@ class BrowserWorker:
 
     # ---- public API (any thread) ---------------------------------------------------
     def fetch(self, url: str, timeout: float = 120, ask: bool = True, post: dict | None = None,
-              referer: str = "") -> FetchResult:
-        """Load a page. With `post`, send that JSON to `url` from inside a page on the same site
-        (so the site's own cookies and session go with it) and return the answer."""
-        if post is not None:
-            res = self._submit(lambda: self._post(url, post, referer, ask), timeout)
+              referer: str = "", page_get: bool = False) -> FetchResult:
+        """Load a page. With `post` (JSON) or `page_get`, call `url` from inside a page on the
+        store's own site, so the site's cookies and session go with it, and return the answer."""
+        if post is not None or page_get:
+            res = self._submit(lambda: self._in_page("POST" if post is not None else "GET", url, post, referer, ask),
+                               timeout)
         else:
             res = self._submit(lambda: self._fetch(url, ask), timeout)
         res.profile = self.name
@@ -168,10 +170,33 @@ class BrowserWorker:
         if self.usable:
             self._submit(lambda: self._open(url), 90)
 
-    def stop(self) -> None:
+    def request_stop(self) -> None:
         if self.thread and self.thread.is_alive():
+            while True:                       # checks still waiting in line are dropped, not waited for
+                try:
+                    job = self.jobs.get_nowait()
+                except queue.Empty:
+                    break
+                if job:
+                    job[1].set_exception(BrowserUnavailable("The app is closing"))
             self.jobs.put(None)
+
+    def stop(self) -> None:
+        self.request_stop()
+        if self.thread and self.thread.is_alive():
             self.thread.join(timeout=15)
+
+    def _close_own_browser(self) -> None:
+        """Your own Chrome or Edge (started by start-my-chrome.ps1 / start-my-edge.ps1) belongs to this app:
+        close its windows when the app closes. The profile keeps your sign-ins for next time."""
+        browser = getattr(self, "_cdp_browser", None)
+        if not (self.cdp_url and browser) or not self.bcfg.get("close_own_on_exit", True):
+            return
+        try:
+            browser.new_browser_cdp_session().send("Browser.close")
+            self.log.info("Closed '%s' (the app was closed)", self.name)
+        except Exception:
+            pass     # already closed, or it went away on its own
 
     def _submit(self, fn, timeout: float):
         if not self.usable:
@@ -225,12 +250,17 @@ class BrowserWorker:
                     # Someone closed the window mid-check. Reopen for the next job.
                     self.closed = True
                 fut.set_exception(exc)
+        self._close_own_browser()
         try:
-            ctx.close()
+            if not self.cdp_url:
+                ctx.close()
         except Exception:
             pass
         finally:
-            pw.stop()
+            try:
+                pw.stop()
+            except Exception:
+                pass
 
     def _watch_close(self, ctx) -> None:
         self.closed = False
@@ -264,6 +294,7 @@ class BrowserWorker:
         if self.cdp_url:
             # Attach to a Chrome you started yourself with --remote-debugging-port, using its real profile.
             browser = pw.chromium.connect_over_cdp(self.cdp_url)
+            self._cdp_browser = browser
             return browser.contexts[0] if browser.contexts else browser.new_context()
         os.makedirs(self.profile_dir, exist_ok=True)
         channel = (self.channel or self.bcfg.get("channel") or "msedge").lower()
@@ -294,6 +325,8 @@ class BrowserWorker:
                 return ""
 
     def tab_count(self) -> int:
+        if getattr(self, "single_tab", False):       # feature trial: this check runs without tab rotation
+            return 1
         try:
             n = int(self.bcfg.get("tabs_per_site", 3))
         except (TypeError, ValueError):
@@ -335,9 +368,9 @@ class BrowserWorker:
         self.pages[domain] = page
         return page
 
-    def _post(self, url: str, payload: dict, referer: str, ask: bool = True) -> FetchResult:
-        """POST JSON from a page on the store's own site, the way the site's own scripts do."""
-        domain = urlsplit(url).netloc.lower()
+    def _in_page(self, method: str, url: str, payload: dict | None, referer: str, ask: bool = True) -> FetchResult:
+        """Call a JSON address from a page on the store's own site, the way the site's own scripts do."""
+        domain = urlsplit(referer or url).netloc.lower()
         if domain in self.pending:
             return self._fetch(referer or url, ask)       # a person is still being asked to verify
         gap = max(SAME_SITE_GAP_S, self.link_gap()) - (time.time() - self.last_load.get(domain, 0))
@@ -350,13 +383,14 @@ class BrowserWorker:
                 page.wait_for_load_state("load", timeout=10000)
             except Exception:
                 pass
+        same_origin = urlsplit(url).netloc.lower() == domain
         out = page.evaluate(
-            """async ([u, body]) => {
-                 const r = await fetch(u, {method: 'POST', credentials: 'include',
-                   headers: {'accept': 'application/json', 'content-type': 'application/json'},
-                   body: JSON.stringify(body)});
+            """async ([m, u, body, creds]) => {
+                 const o = {method: m, credentials: creds, headers: {'accept': 'application/json'}};
+                 if (body !== null) { o.headers['content-type'] = 'application/json'; o.body = JSON.stringify(body); }
+                 const r = await fetch(u, o);
                  return {status: r.status, text: await r.text()};
-               }""", [url, payload])
+               }""", [method, url, payload, "include" if same_origin else "omit"])
         self.last_load[domain] = time.time()
         status, text = int(out.get("status") or 0), out.get("text") or ""
         info = classify(status, text) if status >= 400 or text.lstrip().startswith("<") else None
@@ -500,7 +534,10 @@ class BrowserPool:
         self._data_dir = data_dir
         self._on_human, self._on_verified = on_human, on_verified
         self._own_looked = 0.0
+        self.trial = None             # set by the engine: FeatureTrial, for A/B counts of the app's features
+        self.prefer = None            # set by the engine: site -> {method: share of side-by-side runs that loaded}
         self._attach_lock = threading.Lock()
+        self.stopping = False
         self.log = log
         self.tracker = tracker
         self.rest: dict[tuple[str, str], float] = {}
@@ -593,36 +630,51 @@ class BrowserPool:
     def _uses_own_chrome(self, site: str) -> bool:
         return any(site == x or site.endswith("." + x) for x in self._own_chrome_sites())
 
-    def _maybe_attach_own_chrome(self) -> None:
-        """If you start your own Chrome after the app is already running, join it here, so
-        nothing needs restarting. Looks at most every 15 seconds."""
-        port = int(self.bcfg.get("own_chrome_port") or 0)
-        with self._attach_lock:
-            now = time.time()
-            if not port or now - self._own_looked < 15:
-                return
-            # A Chrome that was closed leaves a dead entry behind; drop it so a new one can join.
-            self.workers = [w for w in self.workers if not (getattr(w, "cdp_url", "") and w.failed)]
-            if any(getattr(w, "cdp_url", "") for w in self.workers):
-                return
-            self._own_looked = now
-            if not _port_open(port):
-                return
-            self._attach_own(port)
+    def _own_browsers(self) -> list[tuple[str, int, str]]:
+        """(profile name, DevTools port, display name) for each of your own browsers that is switched on."""
+        out = []
+        for name, key, label in ((OWN_CHROME, "own_chrome_port", "Chrome"), (OWN_EDGE, "own_edge_port", "Edge")):
+            port = int(self.bcfg.get(key) or 0)
+            if port:
+                out.append((name, port, label))
+        return out
 
-    def _attach_own(self, port: int) -> None:
+    def _maybe_attach_own_chrome(self) -> None:
+        """If you start your own Chrome or Edge after the app is already running, join it here, so
+        nothing needs restarting. Looks at most every 15 seconds."""
+        with self._attach_lock:
+            if self.stopping:
+                return
+            now = time.time()
+            wanted = self._own_browsers()
+            if not wanted or now - self._own_looked < 15:
+                return
+            # A browser that was closed leaves a dead entry behind; drop it so a new one can join.
+            self.workers = [w for w in self.workers if not (getattr(w, "cdp_url", "") and w.failed)]
+            self._own_looked = now
+            for name, port, label in wanted:
+                if any(w.name == name for w in self.workers):
+                    continue
+                if _port_open(port):
+                    self._attach_own(port, name, label)
+
+    def _attach_own(self, port: int, name: str = OWN_CHROME, label: str = "Chrome") -> None:
         worker = BrowserWorker(
-            self._raw, self._data_dir, self.log, self._on_human, self._on_verified, name=OWN_CHROME,
-            cdp_url=f"http://127.0.0.1:{port}", profile_dir=os.path.join(self._data_dir, "browser-profiles", OWN_CHROME))
+            self._raw, self._data_dir, self.log, self._on_human, self._on_verified, name=name,
+            cdp_url=f"http://127.0.0.1:{port}", profile_dir=os.path.join(self._data_dir, "browser-profiles", name))
         worker.on_reopen = self.on_reopen
         self.workers.append(worker)
-        self.log.info("Your own Chrome is running on port %d, so it joined the checking browsers", port)
+        self.log.info("Your own %s is running on port %d, so it joined the checking browsers", label, port)
 
     # ---- checking -------------------------------------------------------------------
-    def fetch(self, url: str, timeout: float = 120, post: dict | None = None, referer: str = "") -> FetchResult:
-        domain = urlsplit(url).netloc.lower()
+    def fetch(self, url: str, timeout: float = 120, post: dict | None = None, referer: str = "",
+              page_get: bool = False) -> FetchResult:
+        domain = urlsplit(referer or url).netloc.lower()
         site = domain.removeprefix("www.")
-        extra = {"post": post, "referer": referer} if post is not None else {}
+        in_page = post is not None or page_get
+        extra = {"post": post, "referer": referer, "page_get": page_get} if in_page else {}
+        if post is None:
+            extra.pop("post", None)
         now = time.time()
         self._maybe_attach_own_chrome()
         live = [w for w in self.workers if w.usable]
@@ -630,6 +682,15 @@ class BrowserPool:
             raise BrowserUnavailable(self.failed or "Browser checking is off or Playwright is not installed")
         start = self.cursor.get(domain, 0) % len(live)
         order = live[start:] + live[:start]
+        use_route = use_tabs = True
+        if self.trial and not in_page:
+            use_route = self.trial.decide("learned_routing", bool(self.bcfg.get("learn_from_compare", True)))
+            use_tabs = self.trial.decide("tab_rotation", int(self.bcfg.get("tabs_per_site", 3) or 1) > 1)
+        rates = self.prefer(site) if (self.prefer and not in_page and use_route) else {}
+        if rates:
+            # What the side-by-side tests found: methods that load this store reliably go first,
+            # untested ones keep their turn, methods that are mostly refused go last.
+            order.sort(key=lambda w: 0 if rates.get(w.name, 0.5) >= 0.9 else (2 if rates.get(w.name, 0.5) < 0.5 else 1))
         mine = [w for w in live if getattr(w, "cdp_url", "")]
         sites = self._own_chrome_sites()
         if mine and any(site == x or site.endswith("." + x) for x in sites):
@@ -640,6 +701,7 @@ class BrowserPool:
         last: FetchResult | None = None
         for n, w in enumerate(ready):
             try:
+                w.single_tab = not use_tabs
                 res = w.fetch(url, timeout, ask=(n == len(ready) - 1 and not waiting), **extra)
             except Exception as exc:
                 if not getattr(w, "cdp_url", ""):
@@ -651,8 +713,14 @@ class BrowserPool:
                 continue
             last = res
             blocked = bool(res.block and res.block.kind != "queue")
+            if self.trial and not in_page and not res.waiting_for_human:
+                if self.prefer and self.bcfg.get("learn_from_compare", True):
+                    self.trial.record("learned_routing", use_route, not blocked)
+                if int(self.bcfg.get("tabs_per_site", 3) or 1) > 1:
+                    self.trial.record("tab_rotation", use_tabs, not blocked)
             if self.tracker:
-                self.tracker.record(w.name, site, not blocked, res.block.kind if res.block else "")
+                self.tracker.record(w.name + ("+page" if in_page else ""), site, not blocked,
+                                    res.block.kind if res.block else "")
             if not blocked:
                 self.cursor[domain] = (order.index(w) + 1 + start) % len(live)
                 return res
@@ -689,5 +757,12 @@ class BrowserPool:
             w.open_url(url)
 
     def stop(self) -> None:
+        """Close every browser the app opened or joined. All of them are told at once, so closing the
+        app does not wait for each one in turn."""
+        self.stopping = True
         for w in self.workers:
-            w.stop()
+            w.request_stop()
+        deadline = time.time() + 15
+        for w in self.workers:
+            if w.thread and w.thread.is_alive():
+                w.thread.join(timeout=max(0.5, deadline - time.time()))

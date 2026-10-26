@@ -111,6 +111,8 @@ def main() -> None:
             print(f"{res.retailer_name:12} {price:>8}  {(res.note or res.status_text())[:40]:40}  {res.title[:60]}")
         return
 
+    from restock.shutdown import install as install_exit
+    install_exit(mon.close, mon.log)
     mon.start()
     if (mon.cfg.raw.get("control_panel") or {}).get("enabled", True):
         from restock.panel import PanelServer

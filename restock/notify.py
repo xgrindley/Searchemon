@@ -62,12 +62,15 @@ class DiscordNotifier:
     def enabled(self) -> bool:
         return bool(self.hooks or self.area_hooks)
 
-    def routes(self, res: StockResult) -> list[tuple[str, StockResult]]:
+    def routes(self, res: StockResult, new_online: bool = True, new_stores: bool = True) -> list[tuple[str, StockResult]]:
         """Which channels an alert goes to, and what each one shows.
 
-        - a webhook named after the store (for example "target") wins for that store
-        - otherwise: the "online" channel when it is orderable online and the
-          "in_store" channel when stores near you have it; "default" fills any gap
+        - a webhook named after the store (for example "target") wins for that store and shows everything
+        - otherwise online stock goes to the "online" channel and shows only the online side, and
+          store shelf stock goes to the "in_store" channel and shows only the store side, so neither
+          channel repeats what belongs in the other; "default" fills any gap. When both land on the
+          same channel one combined alert is posted
+        - only the side that actually changed is posted (new_online / new_stores)
         - each of your areas with its own webhook also gets the alert, showing
           only the stores inside that area
         The same channel is never posted to twice for one alert.
@@ -85,20 +88,43 @@ class DiscordNotifier:
             add(own, res)
         else:
             default = self.hooks.get("default")
-            if res.online:
-                add(self.hooks.get("online") or default, res)
-            if res.stores:
-                add(self.hooks.get("in_store") or default, res)
-            if not out:
+            online_url = self.hooks.get("online") or default
+            store_url = self.hooks.get("in_store") or default
+            send_online = res.online and new_online
+            send_stores = bool(res.stores) and new_stores
+            if send_online and send_stores and online_url == store_url:
+                add(online_url, res)
+            else:
+                if send_online:
+                    add(online_url, dataclasses.replace(res, stores=[]))
+                if send_stores:
+                    add(store_url, dataclasses.replace(res, online=False, online_status=""))
+            if not out and not (res.online or res.stores):
                 add(default, res)
-        if res.stores and self.area_hooks:
+        if res.stores and new_stores and self.area_hooks:
             for area, url in self.area_hooks.items():
                 mine = [st for st in res.stores if st.area == area]
                 if mine:
-                    add(url, dataclasses.replace(res, stores=mine))
+                    add(url, dataclasses.replace(res, stores=mine, online=False, online_status=""))
         if not out:  # nothing matched: never lose an alert
             add(self.hooks.get("default") or next(iter(self.hooks.values()), None), res)
         return out
+
+    @staticmethod
+    def reason_for(view: StockResult, reason: str, new_store_ids: tuple[str, ...]) -> str:
+        """Reason text that only talks about what this channel's alert shows."""
+        parts = []
+        for part in [p.strip() for p in reason.split(",") if p.strip()]:
+            if part == "online restock":
+                if view.online:
+                    parts.append(part)
+            elif "new store" in part:
+                if view.stores:
+                    mine = [st for st in view.stores if st.store_id in set(new_store_ids)] if new_store_ids else []
+                    parts.append(f"in stock at {len(mine)} new store(s)" if mine else part)
+            else:
+                parts.append(part)
+        return ", ".join(parts)
 
     def _hook_for(self, retailer: str) -> str | None:
         return self.hooks.get(retailer) or self.hooks.get("default")
@@ -141,10 +167,14 @@ class DiscordNotifier:
         return False
 
     def restock(self, res: StockResult, reason: str, new_store_ids: tuple[str, ...] = (), ping: bool = True) -> bool:
-        routes = self.routes(res)
+        low = (reason or "").lower()
+        known = "online restock" in low or "new store" in low
+        routes = self.routes(res, new_online=("online restock" in low) if known else True,
+                             new_stores=("new store" in low or bool(new_store_ids)) if known else True)
         if not routes:
             return False
-        sent = [self._restock_to(url, view, reason, new_store_ids, ping) for url, view in routes]
+        sent = [self._restock_to(url, view, self.reason_for(view, reason, new_store_ids) if known else reason,
+                                 new_store_ids, ping) for url, view in routes]
         return any(sent)
 
     def _restock_to(self, url: str, res: StockResult, reason: str, new_store_ids: tuple[str, ...],

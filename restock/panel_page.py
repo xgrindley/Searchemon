@@ -667,7 +667,7 @@ const views = {
       m.checks += r.checks; m.blocks += r.blocks; m.streak += r.streak; m.best = Math.max(m.best, r.best); });
     const methods = Object.values(by).map((m) => Object.assign(m, { per: m.blocks ? m.checks / m.blocks : null }))
       .sort((a, b) => (b.per === null ? 1e9 + b.checks : b.per) - (a.per === null ? 1e9 + a.checks : a.per));
-    const label = (m) => m === "direct" ? "Plain requests" : m === "pool" ? "Browser pool" : "Browser: " + m;
+    const label = (m) => m === "direct" ? "Plain requests" : m === "pool" ? "Browser pool" : m.endsWith("+page") ? "Page fetch: " + m.slice(0, -5) : "Browser: " + m;
     const totalChecks = methods.reduce((t, m) => t + m.checks, 0), totalBlocks = methods.reduce((t, m) => t + m.blocks, 0);
     const top = methods.find((m) => m.checks >= 5) || methods[0];
     const maxPer = Math.max(1, ...methods.map((m) => m.per === null ? m.checks : m.per));
@@ -686,6 +686,7 @@ const views = {
     return [
       h("h1", {}, "Methods ", h("b", { text: "lab" })),
       h("p", { class: "lede", text: "Which way of loading pages lasts longest before a store blocks it. Counts are saved between runs, so the picture gets sharper over time." }),
+      trustReport((status && status.trust) || { stores: [], feeds: [] }),
       methods.length ? [
         h("div", { class: "hero" },
           h("div", { class: "big" }, h("div", { class: "k", text: "Lasting longest so far" }), h("div", { class: "v grad", text: label(top.method) }),
@@ -708,9 +709,37 @@ const views = {
       ] : h("div", { class: "panel empty", text: "No checks recorded yet. Numbers appear once the monitor has run for a few minutes." }),
       (ses.resting || []).length ? [h("h2", { text: "Resting right now" }), h("div", { class: "panel" }, h("ul", { class: "feed" },
         ses.resting.map((r) => h("li", {}, h("b", { text: r.profile }), " on " + r.site + ": back in about " + (r.minutes >= 90 ? Math.round(r.minutes / 60) + " h" : r.minutes + " min")))))] : null,
+      (ses.compare || []).length ? sideBySide(ses.compare, label) : h("div", { class: "panel empty", text: "Side-by-side test: no runs yet. It loads one page per store through every method at once, every 15 minutes by default (Stores & keys, Side-by-side test)." }),
+      featureTable(ses.features || []),
+      h("h2", { text: "Methods to compare" }),
+      h("div", { class: "panel", style: "overflow:hidden" }, [
+        { id: "direct", name: "Plain requests", pick: (m) => m === "direct", idea: "The baseline",
+          text: "Ordinary web requests at a polite pace. Fast and light, but stores with bot protection often refuse them." },
+        { id: "profiles", name: "App browser profiles (Edge, Chrome)", pick: (m) => m !== "direct" && m !== "pool" && !m.startsWith("my-") && !m.endsWith("+page"), idea: "Real-browser idea from SeleniumBase, without its stealth modes",
+          text: "A real browser with its own cookies, kept off screen. Several profiles share the load and a blocked one rests." },
+        { id: "my-chrome", name: "Your own Chrome", pick: (m) => m === "my-chrome", idea: "DevTools control of a real Chrome (SeleniumBase CDP mode idea)",
+          text: "The Chrome you start with start-my-chrome.ps1. A normal browser with your own profile, tried first at CVS, Dick's and GameStop." },
+        { id: "my-edge", name: "Your own Edge", pick: (m) => m === "my-edge", idea: "Same idea as your own Chrome, a second real browser",
+          text: "Start it with start-my-edge.ps1. Some stores accept Edge when they refuse Chrome, or the other way round. This shows which." },
+        { id: "page", name: "Page fetch", pick: (m) => m.endsWith("+page"), idea: "Page-context calls (SeleniumBase CDP mode idea)",
+          text: "When a plain data request is refused, the same call is made from inside the store's own page in a real browser, the way the store's own scripts do it. CVS store counts use it already." },
+      ].map((c) => {
+        const mine = methods.filter((m) => c.pick(m.method)), checks = mine.reduce((t, m) => t + m.checks, 0), blocks = mine.reduce((t, m) => t + m.blocks, 0);
+        const state = !checks ? "Not tried yet" : checks + " checks, " + (blocks ? blocks + " blocked (1 per " + Math.round(checks / blocks) + ")" : "never blocked");
+        return h("div", { class: "mrow" },
+          h("div", { class: "top" }, h("b", { text: c.name }), h("span", { text: state })),
+          h("div", { class: "sub2", text: c.text }), h("div", { class: "sub2", text: "Idea from: " + c.idea }));
+      })),
+      h("h2", { text: "Left out on purpose" }),
+      h("div", { class: "panel", style: "overflow:hidden" }, [
+        ["Stealth patches and hidden automation markers", "undetected-chromedriver, SeleniumBase UC mode: they disguise that a browser is automated."],
+        ["Fingerprint and connection mimicry", "CloakBrowser, PortSwigger bypass-bot-detection: they fake what the browser or connection looks like."],
+        ["Imitating human mouse movement", "anti_bot_scraper: built to look human to a detector."],
+        ["CAPTCHA solving services and proxy rotation", "Outside this project's rules. When a store wants a person, you are asked to finish the check."],
+      ].map((x) => h("div", { class: "mrow" }, h("div", { class: "top" }, h("b", { text: x[0] }), h("span", { text: "Not used" })), h("div", { class: "sub2", text: x[1] })))),
       h("h2", { text: "Profiles and tests" }),
       h("div", { class: "card" }, h("div", { class: "card-body" }, h("div", { class: "wide" },
-        h("p", { style: "margin:0 0 8px", text: "Active browser profiles: " + ((ses.profiles || []).join(", ") || "none") + ". Add or change them in config.yaml under browser: profiles, then restart the app." }),
+        h("p", { style: "margin:0 0 8px", text: "Active browser profiles: " + ((ses.profiles || []).join(", ") || "none") + ". Add or change them in config.yaml under browser: profiles, then restart the app. Your own Chrome (start-my-chrome.ps1) and Edge (start-my-edge.ps1) join by themselves while they are running." }),
         h("p", { style: "margin:0 0 6px", class: "hint", text: "For a side-by-side test of every method on the same pages, run this in PowerShell from the app folder:" }),
         h("code", { text: ".\\.venv\\Scripts\\python.exe app.py --abtest" })))),
     ];
@@ -838,7 +867,12 @@ const views = {
         field("Stores to check", num(r, "max_stores"), "Nearest stores in your areas. 5 fits the free daily limit."),
         field("Only these store IDs", lines(r, "store_ids", { placeholder: "Optional, one per line" }))],
         "Kroger, Fred Meyer, Smith's and other Kroger stores: stock level per store"),
-      block("walmart", modeField, "Online, plus pickup at the store set in the checking browser"),
+      block("walmart", (r) => [modeField(r),
+        field("Walmart.io Consumer ID", text(r, "consumer_id", { placeholder: "From your app on walmart.io" }), "Optional. With the key file below, stock comes from Walmart's own feed instead of its website."),
+        field("Private key file", text(r, "private_key_file", { placeholder: "C:\\Users\\you\\walmart\\private.pem" }), "Full path to the .pem private key you made for Walmart.io. It stays on this PC."),
+        field("Key version", text(r, "key_version", { placeholder: "1" }), "Shown next to your uploaded public key on walmart.io, usually 1."),
+        field("Publisher ID (optional)", text(r, "publisher_id", { placeholder: "Impact publisher ID" }))],
+        "Online, plus pickup at the store set in the checking browser. Add Walmart.io details for the official feed"),
       block("pokemoncenter", (r) => [modeField(r), h("div", { class: "wide" }, sw(r, "watch_queue", "Watch the Pokemon Center queue (usually opens minutes before a drop)"))], "Online drops and the waiting-room queue"),
       block("dicks", modeField, "Online, found automatically from its Pokemon section"),
       block("safeway", modeField, "Online, for the store set in the checking browser"),
@@ -849,7 +883,9 @@ const views = {
       block("barnesandnoble", modeField, "Online, from product links"),
       block("booksamillion", modeField, "Online, from product links"),
       block("amazon", modeField, "Online, sold by Amazon only"),
-      block("walgreens", modeField, "Online listings from your product links"),
+      block("walgreens", (r) => [modeField(r),
+        field("API key (optional)", secret(r, "api_key", "From developer.walgreens.com"), "Adds exact Walgreens stores to Stores near you. Walgreens' API has no stock data, so stock still comes from product pages.")],
+        "Online listings from your product links; store locations with a key"),
       block("cvs", modeField, "Online listings from your product links, plus shelf counts at stores around your areas (own Chrome)"),
       block("web", (r) => [modeField(r),
         field("Page says in stock when it shows", lines(r, "in_stock_text", { placeholder: "add to cart" }), "Only used on pages without built-in stock data"),
@@ -873,7 +909,10 @@ const views = {
         setting("Keep the window out of the way", "It moves on screen only when a store needs you.", sw(br, "show_window", "", true)),
         setting("Ask me to verify", "Bring the window forward when a store wants a person to finish a check.", sw(br, "ask_me_to_verify", "")),
         setting("Slowest pace for browser checks (seconds)", "Browser checks load whole pages, so go easy.", num(br, "min_interval_seconds")),
-        setting("Tabs per store", "Pages of one store rotate through this many tabs (1 to 6) instead of reloading a single tab.", num(br, "tabs_per_site", { min: "1", max: "6" }))),
+        setting("Tabs per store", "Pages of one store rotate through this many tabs (1 to 6) instead of reloading a single tab.", num(br, "tabs_per_site", { min: "1", max: "6" })),
+        setting("Close my Chrome and Edge with the app", "When the app closes, the Chrome and Edge started by start-my-chrome and start-my-edge close too. Your sign-ins are kept for next time.", sw(br, "close_own_on_exit", "")),
+        setting("Feature trial", "Run about half of the checks without learned routing and tab rotation so Methods lab can show whether they help.", sw(br, "feature_trial", "")),
+        setting("Side-by-side test (minutes, 0 = off)", "Every this many minutes, per store, one page loads through every method at once so Methods lab can compare them fairly.", num(br, "compare_every_minutes", { min: "0", max: "240" }))),
       h("p", { class: "hint", text: "Browser changes take effect after restarting the app." }),
       h("h2", { text: "Phone access" }),
       h("div", { class: "settings-list" },
@@ -897,6 +936,58 @@ function notifyCfg() { cfg.notify = cfg.notify || {}; const n = cfg.notify;
   for (const [k, v] of Object.entries({ online: true, in_store: true, pickup_only: false, new_listings: true, queue: true, ping_on: ["restock", "queue"], retailers: [], quiet_mode: "no_ping" }))
     if (!(k in n)) n[k] = v;
   return n; }
+function sideBySide(rows, label) {
+  const stores = [...new Set(rows.map((r) => r.store))].sort();
+  const methods = [...new Set(rows.map((r) => r.method))].sort((a, b) => a === "direct" ? -1 : b === "direct" ? 1 : a.localeCompare(b));
+  const cell = (store, method) => {
+    const r = rows.find((x) => x.store === store && x.method === method);
+    if (!r) return h("td", { class: "none", text: "not run" });
+    const pct = Math.round(100 * r.ok / r.runs);
+    const txt = pct + "% loaded (" + r.ok + " of " + r.runs + ")" + (r.avg_ms ? ", " + (r.avg_ms / 1000).toFixed(1) + " s" : "") + (r.last_ok ? "" : ", last: " + (r.last_kind || "blocked"));
+    return h("td", { class: pct >= 90 ? "best" : (pct < 50 ? "bad" : ""), text: txt });
+  };
+  return [
+    h("h2", { text: "Side by side, same page at the same time" }),
+    h("div", { class: "table-wrap" }, h("table", { class: "matrix" },
+      h("tr", {}, h("th", { text: "Store" }), methods.map((m) => h("th", { text: label(m) }))),
+      stores.map((st) => h("tr", {}, h("td", { text: st }), methods.map((m) => cell(st, m)))))),
+    h("p", { class: "hint", text: "Each run loads one product page through every method together. Green = loads almost every time, amber = often refused." }),
+  ];
+}
+
+function trustReport(t) {
+  const stores = t.stores || [], feeds = t.feeds || [];
+  const cls = (v) => v === "Reliable" ? "best" : (v === "Blocked" || v === "Flaky" ? "bad" : "none");
+  return [
+    h("h2", { text: "Can I trust each store?" }),
+    stores.length ? h("div", { class: "table-wrap" }, h("table", { class: "matrix" },
+      h("tr", {}, ["Store", "Rating", "Based on", "Best method", "What to do"].map((x) => h("th", { text: x }))),
+      stores.map((r) => h("tr", {},
+        h("td", { text: r.display }),
+        h("td", { class: cls(r.verdict), text: r.verdict + (r.score === null ? "" : " (" + r.score + "%)") }),
+        h("td", { text: r.basis || "nothing yet" }),
+        h("td", { text: r.best_method ? r.best_method + (r.best_rate === null ? "" : ", " + r.best_rate + "% side by side") : "none yet" }),
+        h("td", { text: r.advice || "Nothing needed." }))))) : h("div", { class: "panel empty", text: "No stores are being checked yet." }),
+    h("p", { class: "hint", text: "Reliable = 90% or more of real checks loaded. Flaky = 60 to 89%. Blocked = under 60%. Ratings use only the app's own recent checks, the block counts and the side-by-side test, and need about 10 checks." }),
+    feeds.length ? h("div", { class: "panel", style: "margin-bottom:16px" }, h("ul", { class: "feed" }, feeds.map((f) =>
+      h("li", {}, h("b", { text: f.label }), " is not switched on. Free key: " + f.where + ". Official feeds do not use bot checks, so they are the most dependable way to cover that store.")))) : null,
+  ];
+}
+
+function featureTable(rows) {
+  const pct = (b, c) => c ? (100 * b / c).toFixed(1) + "% blocked" : "no data";
+  return [
+    h("h2", { text: "Do the new features help?" }),
+    h("div", { class: "table-wrap" }, h("table", { class: "matrix" },
+      h("tr", {}, ["Feature", "With it", "Without it", "Verdict"].map((t) => h("th", { text: t }))),
+      rows.map((r) => h("tr", {}, h("td", { text: r.label }),
+        h("td", { text: r.with_checks + " checks, " + pct(r.with_blocks, r.with_checks) }),
+        h("td", { text: r.without_checks + " checks, " + pct(r.without_blocks, r.without_checks) }),
+        h("td", { class: r.verdict === "Helping" ? "best" : (r.verdict === "Not helping" ? "bad" : ""), text: r.verdict }))))),
+    h("p", { class: "hint", text: "With the feature trial on (Stores & keys), about half of the checks run without each feature. A verdict appears after 30 checks on each side." }),
+  ];
+}
+
 function go(t) { tab = t; window.scrollTo(0, 0); render(); }
 function ensureAreas() {
   const loc = cfg.location || {};

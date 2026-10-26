@@ -2,9 +2,9 @@
 
 Read this first when picking the project back up. Newest entries at the top of each section.
 
-## State (v2.0 stable; next test build is v2.1)
+## State (v2.0 stable; working on test build v2.5)
 - Repo: github.com/xgrindley/Searchemon (public). main = the latest stable release only (v2.0, declared 2026-10-25), test = current work (next test build is v2.1). See RELEASING.md.
-- Version scheme: stable v1.0, v2.0, v3.0...; tests count up from the release (v2.1, v2.2...). v1.0 was v0.6 promoted, v2.0 is v1.2 promoted.
+- Version scheme: stable v1.0, v2.0, v3.0...; tests count up from the release (v2.1, v2.2, v2.3, v2.4, v2.5...). v1.0 was v0.6 promoted, v2.0 is v1.2 promoted.
 - Windows app, Python 3.13 venv, tkinter window + local control panel at 127.0.0.1:8765.
 - Retailers: Target, Best Buy, Walmart, Kroger family, Pokemon Center, GameStop, Costco, Sam's,
   B&N, BAM, Amazon, Dick's, Safeway, Raley's, Walgreens, CVS.
@@ -30,3 +30,5 @@ Read this first when picking the project back up. Newest entries at the top of e
 
 ## Log
 - 2026-10-25: v0.1 (was 3.4.0) session rotation, tracker, A/B test, webhooks routing, versions script.
+
+- Standing rule: every report of a new version ends with the PowerShell text to run it (cd, Get-Content .\VERSION, start-my-chrome, run.ps1), and the CHANGELOG entry carries the same "To test" block.

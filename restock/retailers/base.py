@@ -47,6 +47,7 @@ class Retailer:
     display = "Base"
     supports_search = False
     supports_in_store = False
+    page_home = ""                    # the store's own site, where page-fetch loads its data calls from
     search_has_stock = False          # search results already carry online stock
     default_fetch_mode = "direct"     # direct | auto | browser
 
@@ -188,7 +189,13 @@ class Retailer:
         return res
 
     def get_json(self, url: str, **kw: Any) -> Any:
-        resp = self.get(url, expect_json=True, **kw)
+        try:
+            resp = self.get(url, expect_json=True, **kw)
+        except Blocked as exc:
+            data = self._json_via_page(url, kw.get("params"), exc)
+            if data is None:
+                raise
+            return data
         if resp.status_code == 404:
             return None
         try:
@@ -198,6 +205,33 @@ class Retailer:
             if info:
                 self._raise(info)
             raise ConnectionError(f"{self.display}: response was not JSON ({resp.status_code})") from exc
+        self.dump(url.rsplit("/", 1)[-1], data)
+        return data
+
+    def _json_via_page(self, url: str, params: dict | None, blocked: "Blocked") -> Any:
+        """Page fetch: a plain data request was refused, so repeat it from inside the store's own
+        page in a real browser, the way the store's own scripts do. Returns None when that is not
+        possible or fails, and the original block then stands."""
+        if (not self.page_home or blocked.waiting_for_human or not (self.browser and self.browser.usable)
+                or not self.cfg.raw.get("browser", {}).get("page_fetch", True)):
+            return None
+        full = requests.Request("GET", url, params=params).prepare().url
+        try:
+            res = self.browser.fetch(full, referer=self.page_home, page_get=True)  # type: ignore[union-attr]
+        except BrowserUnavailable:
+            return None
+        except Exception as exc:
+            self.log.debug("%s page fetch failed: %s", self.display, exc)
+            return None
+        if res.block and res.block.kind != "queue" or res.status >= 400:
+            return None
+        try:
+            data = json.loads(res.text)
+        except ValueError:
+            return None
+        self.log.info("%s: the plain request was refused; the same call from inside the page worked (%s)",
+                      self.display, res.profile or "browser")
+        self.last_via = "browser"
         self.dump(url.rsplit("/", 1)[-1], data)
         return data
 

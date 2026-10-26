@@ -13,6 +13,7 @@ services, no proxy rotation, no bought accounts.
 | ultrafunkamsterdam/undetected-chromedriver (GPL-3.0) | Patched chromedriver that hides automation markers | Not used | Hides that the browser is automated. GPL license also complicates reuse. Maintenance status unclear |
 | HarimxChoi/anti_bot_scraper | Playwright scraper for a Korean real-estate site with random zoom, drags and mouse movement | Not used | Built around imitating human behavior to dodge detection; different target and purpose |
 | crowdsecurity/crowdsec | Server-side tool that reads logs and blocks abusive IPs, with a shared blocklist | Lesson only (v0.5 remembers slow-downs across restarts) | It is what site operators run, not a client tool. Useful only as a reminder of why steady, low-volume traffic from one real IP gets blocked less |
+| klura-ai/klura (BSL 1.1, not open source until its change date) | Turns a recorded browser session into a reusable call: it finds the request the site's own page makes and replays it, either directly or from inside the live tab, validates the answer's shape, and hands CAPTCHAs and 2FA to a person | Ideas used (v2.3: learn-traffic.ps1, learned endpoints). No code copied | "Learn from traffic" and "replay the page's own request from inside the page" fit our rules and replace guessing at store endpoints. Its checks that an answer has the expected shape match what we want for trust. Its stealth driver with fingerprint patches is not used, and its license forbids reusing the code in a competing service anyway |
 
 ## What we took from them (the honest part)
 
@@ -20,6 +21,15 @@ services, no proxy rotation, no bought accounts.
   profiles, each with its own cookies, share the load, so one session is not asked for everything.
 - Chrome DevTools Protocol is the right way to control a real browser (Playwright already uses
   it). The app can also attach to a Chrome you start yourself, so it uses a profile you know.
+- Calling a store's data from inside its own page, in a real browser (SeleniumBase's CDP mode idea, minus its
+  stealth), is the "page fetch" method. A second real browser (your own Edge) joins beside your own Chrome.
+- Measure, don't guess, and keep measuring: side-by-side runs, learned routing and the feature trial show
+  which methods and features earn their place.
+- From Klura: learn a store's real data request from your own browsing instead of guessing it
+  (learn-traffic.ps1 saves the page's own request as a template with {zip}, {pid}, {radius} slots in
+  data\learned\endpoints.json, and the monitor tries it first), keep nothing sensitive while doing it (no cookies or
+  headers, token-like values blanked), and judge a result by whether the answer has the expected shape rather
+  than by a 200 status. A person handles human checks, as Klura also does.
 - Measure, don't guess: the block tracker and `--abtest` show which method lasts longest per store.
 
 ## Tools in use

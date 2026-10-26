@@ -327,11 +327,14 @@ class GameStop(WebPage):
         allowed = {str(s) for s in self.rcfg.get("store_ids") or [] if str(s).strip()}
         found: dict[str, object] = {}
         tried_any = False
+        from ..learn import learned_templates
+        endpoints = learned_templates(self.cfg.data_dir, self.name) + [e for e in _GS_ENDPOINTS]
         for area in self.areas:
-            order = ([self._store_ep] if self._store_ep >= 0 else []) + [
-                i for i in range(len(_GS_ENDPOINTS)) if i != self._store_ep]
+            order = ([self._store_ep] if 0 <= self._store_ep < len(endpoints) else []) + [
+                i for i in range(len(endpoints)) if i != self._store_ep]
             for i in order:
-                url = _GS_ENDPOINTS[i].format(zip=area.zip, radius=int(area.radius), pid=pid)
+                url = (endpoints[i].replace("{zip}", str(area.zip)).replace("{radius}", str(int(area.radius)))
+                       .replace("{pid}", pid))
                 resp = self.fetch_html(url)
                 tried_any = True
                 data = json_from_page(resp.text)
@@ -477,17 +480,90 @@ class Raleys(WebPage):
     domains = ("raleys.com",)
 
 
+_WAG_STORES_URL = "https://services.walgreens.com/api/stores/search/v2"
+
+
+def _num(v):
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_walgreens_stores(data) -> list:
+    """Stores out of Walgreens' store locator answer, whatever nesting it uses.
+    A store is any record with a store number plus a position."""
+    from ..places import Place
+    found: dict[str, Place] = {}
+    for node in _walk(data):
+        inner = node.get("store") if isinstance(node.get("store"), dict) else node
+        sid = inner.get("storeNumber") or inner.get("storeNo") or inner.get("storeId") or node.get("storeNumber")
+        if sid is None or isinstance(sid, (dict, list)):
+            continue
+        lat = _num(node.get("latitude", inner.get("latitude", node.get("lat", inner.get("lat")))))
+        lon = _num(node.get("longitude", inner.get("longitude", node.get("lng", inner.get("lng")))))
+        if lat is None or lon is None:
+            continue
+        addr = inner.get("address") if isinstance(inner.get("address"), dict) else {}
+        street = addr.get("street") or inner.get("street") or ""
+        if isinstance(street, dict):
+            street = street.get("line1") or ""
+        found[str(sid)] = Place("walgreens", str(inner.get("name") or f"Walgreens #{sid}"), lat, lon, str(street),
+                                str(addr.get("city") or inner.get("city") or ""),
+                                str(addr.get("zip") or inner.get("zip") or "")[:5], str(sid), "chain")
+    return list(found.values())
+
+
 class Walgreens(WebPage):
-    """Walgreens online listing. Accepts a full product URL or a 'prod1234567' id."""
+    """Walgreens online listing. Accepts a full product URL or a 'prod1234567' id.
+
+    With a developer key (retailers.walgreens.api_key) it also lists the Walgreens stores near your
+    areas for "Stores near you". Walgreens' public API has no stock data, so stock still comes from
+    the product pages."""
     name = "walgreens"
     display = "Walgreens"
     domains = ("walgreens.com",)
+
+    @property
+    def key(self) -> str:
+        return str(self.rcfg.get("api_key") or "").strip()
 
     def url_for(self, ident: str) -> str:
         if ident.startswith("http"):
             return ident
         pid = ident if ident.startswith("prod") else f"prod{ident}"
         return f"https://www.walgreens.com/store/c/-/ID={pid}-product"
+
+    def stores_near(self, areas) -> list:
+        if not self.key:
+            return []
+        out, last = [], ""
+        for a in areas:
+            if not a.located:
+                continue
+            body = {"apiKey": self.key, "affId": str(self.rcfg.get("aff_id") or "storesapi"), "lat": f"{a.lat:.5f}",
+                    "lng": f"{a.lon:.5f}", "r": str(int(min(max(a.radius, 1), 50))), "requestType": "locator",
+                    "act": "fndStore", "view": "fndStoreV2", "devinf": "Desktop", "appver": "1.0"}
+            try:
+                resp = self.session.post(_WAG_STORES_URL, json=body, timeout=25)
+                if resp.status_code in (400, 401, 403) and "apiKey" not in resp.url:
+                    resp = self.session.post(_WAG_STORES_URL, params={"apiKey": self.key}, json=body, timeout=25)
+            except Exception as exc:
+                raise ConnectionError(f"Walgreens store lookup: network error {exc.__class__.__name__}") from exc
+            try:
+                data = resp.json()
+            except ValueError:
+                data = None
+            rows = parse_walgreens_stores(data) if data is not None else []
+            if not rows:
+                last = f"HTTP {resp.status_code}"
+                self.dump(f"stores_{a.zip}", resp.text[:100000], force=True)
+            out.extend(rows)
+            self.pause(1.0)
+        if not out and last:
+            raise ConnectionError(f"Walgreens store lookup returned no stores ({last}). Check the API key; the "
+                                  "answer was saved to data\\debug.")
+        return out
 
 
 _CVS_STOCK_URL = "https://www.cvs.com/RETAGPV3/Inventory/V1/getStoreDetailsAndInventory"

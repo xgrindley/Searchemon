@@ -22,6 +22,7 @@ from .tcg import TYPES, classify, type_settings
 from .models import StockResult
 from .panel_page import PAGE
 from .retailers.browser import playwright_installed
+from .trust import build as trust_build, missing_feeds
 from .util import app_version, clean_url, version_label
 
 MAX_BODY = 1_000_000
@@ -34,6 +35,19 @@ def lan_ip() -> str:
             return s.getsockname()[0]
     except OSError:
         return "127.0.0.1"
+
+
+def store_domains(name: str) -> tuple[str, ...]:
+    """Web domains behind a store name, for matching block statistics."""
+    from .retailers import _KROGER_HOSTS, SITE_CLASSES
+    fixed = {"target": ("target.com",), "bestbuy": ("bestbuy.com",), "walmart": ("walmart.com",),
+             "kroger": tuple(_KROGER_HOSTS)}
+    if name in fixed:
+        return fixed[name]
+    for cls in SITE_CLASSES:
+        if cls.name == name:
+            return tuple(cls.domains)
+    return ()
 
 
 class PanelServer:
@@ -114,26 +128,36 @@ class PanelServer:
                 "last_block": h.get("last_block") or "",
             }
         browser = m.browser
+        retailer_rows = [
+            {"name": n, "display": r.display, "status": rstatus.get(n, "Waiting for first check"),
+             "fetch_mode": r.fetch_mode, "using_browser": r.using_browser(), **health(n)}
+            for n, r in m.retailers.items()
+        ]
+        cmp_rows = getattr(m, "compare", None).rows() if getattr(m, "compare", None) else []
+        trk_rows = m.tracker.rows() if m.tracker else []
+        trust = {
+            "stores": trust_build(retailer_rows, cmp_rows, trk_rows, store_domains, m.cfg.retailer_cfg),
+            "feeds": missing_feeds(m.cfg.retailer_cfg, set(m.retailers)),
+        }
         return {
             "running": m.running,
             "paused": bool(m.cfg.settings.get("alerts_paused")),
             "now": time.time(),
             "version": app_version(),
             "version_label": version_label(),
-            "retailers": [
-                {"name": n, "display": r.display, "status": rstatus.get(n, "Waiting for first check"),
-                 "fetch_mode": r.fetch_mode, "using_browser": r.using_browser(), **health(n)}
-                for n, r in m.retailers.items()
-            ],
+            "retailers": retailer_rows,
+            "trust": trust,
             "human_checks": list(m.human_checks.values()),
             "browser": {
                 "installed": playwright_installed(),
                 "running": bool(browser and browser.thread and browser.thread.is_alive()),
                 "problem": (browser.failed if browser else "") or "",
             },
-            "sessions": {"rows": m.tracker.rows() if m.tracker else [],
+            "sessions": {"rows": trk_rows,
                          "profiles": browser.names() if browser else [],
-                         "resting": browser.resting() if browser else []},
+                         "resting": browser.resting() if browser else [],
+                         "compare": cmp_rows,
+                         "features": getattr(m, "trial", None).rows() if getattr(m, "trial", None) else []},
             "history_total": len(m.history.events),
             "areas": [{"name": a.name, "zip": a.zip, "radius": a.radius, "lat": a.lat, "lon": a.lon,
                        "place": zip_place(a.zip)} for a in m.cfg.areas],

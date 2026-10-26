@@ -90,7 +90,15 @@ having separate cookies. Your own Chrome helps most with CVS, Dick's and
 GameStop: run `powershell -ExecutionPolicy Bypass -File .\start-my-chrome.ps1`, leave that Chrome
 open. The app adds it as "my-chrome" automatically, even while running and checks those stores first
 (`browser.own_chrome_sites`).
+Your own Edge works the same way: `powershell -ExecutionPolicy Bypass -File .\start-my-edge.ps1` (port 9223), so the Methods lab can compare the two.
+Methods lab also runs a side-by-side test (`browser.compare_every_minutes`), routes checks to the methods that proved reliable,
+and A/B tests the app's own features (`browser.feature_trial`) so you can see whether they help. `run.ps1 -Update` updates to the newest stable first.
+When a plain data request is refused, it is retried from inside the store's own page (page fetch; `browser.page_fetch`).
 Sign in to a store once and it opens in every profile. Restart the app after changing profiles.
+To learn a store's real data request from your own browsing (no guessing), start your own Chrome, then run
+`powershell -ExecutionPolicy Bypass -File .\learn-traffic.ps1 -Site gamestop -Zip 89436 -ProductId 123456` and use the store's
+"check nearby stores" box. Online alerts go to the online channel and in-store alerts to the in-store channel, each showing only its own side.
+Methods lab opens with a trust report that rates each store Reliable, Flaky or Blocked from the app's own recent checks, and points out official feeds (Best Buy, Kroger) that are not switched on.
 
 **See what works.** More > Block tracker (or `app.py --stats`) shows, per store and method, how
 many checks got through before a block. `app.py --abtest` runs plain requests and every profile

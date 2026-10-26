@@ -54,7 +54,7 @@ CHAINS: tuple[Chain, ...] = (
     Chain("walmart", "Walmart", ("walmart", "walmart supercenter", "walmart neighborhood market"), "online", "walmart",
           "Online stock; pickup at the store set in the checking browser"),
     Chain("gamestop", "GameStop", ("gamestop",), "online", "gamestop", "Online stock from product links; store pickup stock for your areas (experimental)"),
-    Chain("walgreens", "Walgreens", ("walgreens",), "online", "walgreens", "Online listings from product links"),
+    Chain("walgreens", "Walgreens", ("walgreens",), "online", "walgreens", "Online listings from product links; exact store locations with a developer key"),
     Chain("cvs", "CVS", ("cvs", "cvs pharmacy"), "live", "cvs", "Shelf count per store around your areas (needs your own Chrome)"),
     Chain("costco", "Costco", ("costco", "costco wholesale"), "online", "costco", "Bundles go live online first"),
     Chain("samsclub", "Sam's Club", ("sam s club", "sams club"), "online", "samsclub", "Online listings from product links"),

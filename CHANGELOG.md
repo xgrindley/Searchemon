@@ -1,5 +1,112 @@
 # Changelog
 
+## v2.5 (2026-10-25, test build, includes v2.4)
+- Walmart.io: Stores & keys (web panel and the desktop window) now has Walmart.io fields: Consumer ID, the path to
+  your private key .pem file, key version (usually 1) and an optional publisher ID. With them, Walmart stock and prices
+  come from Walmart's official affiliate feed (signed requests, done in plain Python, the key file never leaves your PC);
+  anything the feed does not return, or any refusal, falls back to the website. The feed's stock can lag the website a little.
+- Walgreens API key box added to the desktop window as well (it was already in the web panel since v2.3).
+- Version check: v2.4 reached your PC with its VERSION file still saying 2.3. Files are now verified by content, not only size.
+- Tests: tests\test_walmart_io.py (signature verified against the key, both key formats, feed path, fallbacks). 141 tests in all.
+
+To test v2.5 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+powershell -ExecutionPolicy Bypass -File .\start-my-chrome.ps1
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+`VERSION` should print 2.5. Close any older copy of the app first (an already-running app keeps its old screens). Then open Stores & keys: Walmart has the Walmart.io fields, and Walgreens has its API key box.
+
+## v2.4 (2026-10-25, test build, includes v2.3)
+- Closing the app closes the browsers: the checking browsers the app opened, and your own Chrome and Edge started
+  by start-my-chrome.ps1 and start-my-edge.ps1 (your sign-ins stay in their profiles). It also works when the
+  console window is closed, on Ctrl+C, at log off and when another program stops the app. All browsers are told at
+  once, checks still waiting are dropped, and no browser re-joins while the app is closing. Turn off the Chrome and
+  Edge part with `browser.close_own_on_exit: false` (Stores & keys, Close my Chrome and Edge with the app).
+  The control panel tab in your everyday browser is not something the app can close; it just stops answering.
+- Tests: tests\test_exit.py (real Chromium started with DevTools closes when the app stops; the setting off leaves it open).
+- Every version below has a "To test" block with the PowerShell to run.
+
+To test v2.4 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+powershell -ExecutionPolicy Bypass -File .\start-my-chrome.ps1
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+`VERSION` should print 2.4. Start it, then close the app window: the Chrome window should close too.
+
+## v2.3 (2026-10-25, test build, includes v2.2)
+
+To test v2.3 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+powershell -ExecutionPolicy Bypass -File .\start-my-chrome.ps1
+powershell -ExecutionPolicy Bypass -File .\learn-traffic.ps1 -Site gamestop -Zip 89436 -ProductId 123456
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+- Trust report: the top of Methods lab now rates every store Reliable (90% or more of recent real checks
+  loaded), Flaky (60 to 89%) or Blocked (under 60%), shows what the rating is based on, the best method found
+  by the side-by-side test, and what to do about it. It reads only numbers the app already collects (recent
+  checks, block counts, side-by-side runs) and needs about 10 checks before it rates a store.
+- Official feeds: Best Buy and Kroger have official developer APIs that use no bot checks. A store that is on
+  but has no key shows "Needs setup", and a store that is off but could use its feed is listed under the table.
+  Target already uses its own data feed. Other stores publish no feed, so they stay on page checks.
+- Learn from your own browsing (idea from Klura): `learn-traffic.ps1 -Site gamestop -Zip 89436 -ProductId <id>`
+  listens, through your own Chrome's DevTools port on this PC, to the data requests the store's page makes while
+  you use its own "check nearby stores" box. It keeps only JSON answers, no cookies or headers, with token-like
+  values blanked, ranks the ones that look like stock or store answers, and saves the replayable ones as
+  templates in data\learned\endpoints.json. The GameStop store reader tries those first, so it can use the
+  store's real request instead of a guess.
+- Discord channels no longer repeat each other: online stock goes to the online channel and shows only the
+  online side, in-store stock goes to the in-store channel and shows only the shelf stock, and only the side
+  that actually changed is posted. If both channels are the same (or only a default channel is set) you still get
+  one combined alert. A channel named after a store still shows everything for that store.
+- Walgreens: a new optional "API key" box under Stores & keys (Walgreens) takes your key from developer.walgreens.com.
+  With it, "Stores near you" lists exact Walgreens stores from Walgreens' Store Locator. Walgreens' public API has no
+  stock data, so stock still comes from product pages. The request shape is from public descriptions and is not
+  verified against a live key; if it fails, the answer is saved to data\debug and the app says so.
+- Tests: tests\test_walgreens.py, tests\test_trust.py, tests\test_learn.py (including a real Chromium recording), tests\test_split.py.
+
+## v2.2 (2026-10-25, test build, includes v2.1)
+
+To test v2.2 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+powershell -ExecutionPolicy Bypass -File .\start-my-chrome.ps1
+powershell -ExecutionPolicy Bypass -File .\start-my-edge.ps1
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+- Side-by-side test: every 15 minutes per store (`browser.compare_every_minutes`, 0 = off) one product page is loaded
+  through every method at once (plain request, each browser profile, your own Chrome and Edge). Results are kept
+  in data\compare.json and shown in Methods lab as a like-for-like table. A blocked profile rests as usual and a
+  comparison never pops a window asking you to verify.
+- Learned routing: checks go first to the methods the side-by-side tests found reliable (90% or more loaded over
+  5 or more runs) and last to the ones mostly refused (`browser.learn_from_compare`).
+- Feature trial: about half of the checks run without learned routing and without tab rotation, and the blocks
+  are counted with and without each, so Methods lab can say "Helping", "No clear difference", "Not helping" or
+  "Too early to say" (30 checks each side). Turn it off with `browser.feature_trial: false`.
+- `run.ps1 -Update` installs the newest stable release before starting (`-Update -Channel test` for the newest
+  test build). A snapshot is saved first.
+- Tests now include a real Chromium run against a local site (tests\test_live_browser.py), covering joining a
+  browser started with DevTools, page fetch GET and POST, the Cloudflare false-positive fix and a real
+  side-by-side run. 97 tests in all.
+
+## v2.1 (2026-10-25, test build)
+- New method: your own Edge. Run start-my-edge.ps1 (port 9223, profile in data\my-edge) and it joins like your
+  own Chrome, so the Methods lab can show which real browser each store accepts. `browser.own_edge_port: 0` turns it off.
+- New method: page fetch. When a plain data request is refused (Target's data calls first), the same call is
+  repeated from inside the store's own page in a real browser, the way the store's scripts do it. It is counted
+  separately in the Methods lab (for example "Page fetch: edge"). `browser.page_fetch: false` turns it off.
+- Methods lab: a "Methods to compare" list shows every method with its checks and blocks (or "Not tried yet"),
+  and "Left out on purpose" lists what was not taken from the reviewed repositories and why.
+- Ideas used from the reviewed repositories are the ones that keep a real, unmodified browser (SeleniumBase's
+  DevTools control and page-context calls). Stealth patches, fingerprint mimicry, human-motion imitation, CAPTCHA
+  services and proxy rotation stay out, per the project rules.
+
 ## v2.0 (2026-10-25, stable release)
 - Declared stable by the owner. It is exactly test build v1.2 (saved as build/v1.2), with the version number
   changed to 2.0. Everything listed under v1.2 below is in it.

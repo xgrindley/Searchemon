@@ -1,7 +1,19 @@
 # Opens the monitor window (no console). Monitoring runs while the window is open.
 # Add -Headless to run in this console instead.
-param([switch]$Headless)
+# Add -Update to install the newest stable release first (-Update -Channel test for the newest test build).
+# Your settings and data are never touched, and a snapshot is saved first (.\versions.ps1 restore undoes it).
+param([switch]$Headless, [switch]$Update, [string]$Channel = "stable")
 Set-Location $PSScriptRoot
+
+if ($Update) {
+    Write-Host "Checking for the newest $Channel version ..."
+    & powershell -ExecutionPolicy Bypass -File .\update.ps1 -Channel $Channel
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "The update did not finish, so the current version will start." -ForegroundColor Yellow
+    } else {
+        Write-Host "If packages changed in this update, run setup.ps1 once." -ForegroundColor Yellow
+    }
+}
 
 $python = ".\.venv\Scripts\python.exe"
 if (-not (Test-Path $python)) {

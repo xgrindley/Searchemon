@@ -53,7 +53,7 @@ if (-not (Test-Path (Join-Path $src.FullName "app.py"))) {
 
 $items = @("app.py", "restock", "tests", "requirements.txt", "config.example.yaml", "README.md",
            "VERSION", "CHANGELOG.md", "NOTES.md", "RESOURCES.md", "RELEASING.md",
-           "setup.ps1", "run.ps1", "versions.ps1", "update.ps1", "add-to-startup.ps1", "build-exe.ps1", "start-my-chrome.ps1")
+           "setup.ps1", "run.ps1", "versions.ps1", "update.ps1", "add-to-startup.ps1", "build-exe.ps1", "start-my-chrome.ps1", "start-my-edge.ps1", "learn-traffic.ps1")
 foreach ($i in $items) {
     $from = Join-Path $src.FullName $i
     if (-not (Test-Path $from)) { continue }

@@ -313,6 +313,8 @@ class SideBySideTests(unittest.TestCase):
         sbs.running.discard("cvs")
         self.assertFalse(sbs.maybe_run("cvs", "https://www.cvs.com/x"))     # just ran
         sbs.last_run["cvs"] = time.time() - 16 * 60
+        self.assertFalse(sbs.maybe_run("cvs", "https://www.cvs.com/x"))    # 15 is raised to the hourly minimum
+        sbs.last_run["cvs"] = time.time() - 61 * 60
         self.assertTrue(sbs.maybe_run("cvs", "https://www.cvs.com/x"))
         off, _ = self.setup(every=0)
         self.assertFalse(off.maybe_run("cvs", "https://www.cvs.com/x"))

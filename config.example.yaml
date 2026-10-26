@@ -150,7 +150,7 @@ browser:
   own_chrome_port: 9222
   own_chrome_sites: [cvs.com, dickssportinggoods.com, gamestop.com, samsclub.com]
   own_edge_port: 9223        # start-my-edge.ps1; 0 turns it off
-  compare_every_minutes: 15  # side-by-side test of every method per store; 0 turns it off
+  compare_every_minutes: 60  # side-by-side test of every method, only at stores that pushed back lately (hourly at most); 0 = off
   learn_from_compare: true   # checks go first to the methods the side-by-side tests found reliable
   close_own_on_exit: true     # closing the app also closes your own Chrome and Edge windows started by start-my-chrome/edge
   feature_trial: true        # half the checks run without each feature so you can see whether it helps

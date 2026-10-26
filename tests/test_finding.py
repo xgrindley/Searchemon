@@ -254,5 +254,83 @@ class DiscoveryPlanTests(Tmp):
         mon.close()
 
 
+class InStoreAlertTests(unittest.TestCase):
+    """Since last night CVS shelf finds were all dropped: "Only when pickup works" was on, and CVS sells its
+    Pokemon in store only, so no store ever qualified."""
+
+    def res(self, pickups):
+        from restock.models import StoreStock
+        return StockResult("cvs", "CVS", "1", "Pokemon TCG 30th Anniversary Knockout Collection", "https://www.cvs.com/x",
+                           stores=[StoreStock(str(i), f"CVS {i}", distance=5.0, pickup=p) for i, p in enumerate(pickups)])
+
+    def test_pickup_only_still_alerts_items_no_store_offers_for_pickup(self):
+        from restock.rules import decide
+        d = decide(self.res([False, False, False]), False, ("0", "1", "2"), {"notify": {"pickup_only": True}})
+        self.assertTrue(d.send)
+        self.assertEqual(len(d.store_ids), 3)
+
+    def test_pickup_only_keeps_choosing_pickup_stores_when_some_offer_it(self):
+        from restock.rules import decide
+        d = decide(self.res([True, False]), False, ("0", "1"), {"notify": {"pickup_only": True}})
+        self.assertEqual(d.store_ids, ("0",))
+        d = decide(self.res([True, False]), False, ("1",), {"notify": {"pickup_only": True}})
+        self.assertFalse(d.send)
+        self.assertIn("Only when pickup works", d.why_not)              # says which setting held it back
+
+    def test_side_by_side_never_more_than_hourly_and_never_while_refused(self):
+        from restock.compare import SideBySide
+        sb = SideBySide(tempfile.mkdtemp(), logging.getLogger("t"), mock.Mock(raw={"browser": {"compare_every_minutes": 15}}))
+        self.assertEqual(sb.every_s(), 3600)
+        sb.browser.raw = {"browser": {"compare_every_minutes": 0}}
+        self.assertEqual(sb.every_s(), 0)
+
+    def test_a_moved_cvs_link_is_named_from_the_link_not_the_home_page(self):
+        cfg_dir = tempfile.mkdtemp()
+        path = os.path.join(cfg_dir, "config.yaml")
+        with open(path, "w") as fh:
+            fh.write(CFG)
+        r = CVS(load_config(path), logging.getLogger("t"))
+        r.pause = lambda s: None
+        home = "<html><title>Shop Beauty, Vitamins, Medicine &amp; Everyday Essentials | CVS.com</title></html>"
+        url = "https://www.cvs.com/shop/pok-mon-tcg-30th-anniversary-mini-tin-assorted-designs-prodid-662589"
+        r.fetch_html = mock.Mock(return_value=FetchResult(200, home, url, None))
+        with mock.patch.object(CVS, "in_store_enabled", return_value=False):
+            got = r.check_ids([url], False)[url]
+        self.assertIn("Mini Tin", got.title)
+        shutil.rmtree(cfg_dir, ignore_errors=True)
+
+
+class RememberIgnoredTests(unittest.TestCase):
+    def test_ignoring_holds_at_every_store_after_restart_and_new_links(self):
+        from restock.catalog import Catalog
+        d = tempfile.mkdtemp()
+        raw = load_config_raw()
+        cat = Catalog(d)
+        cat.merge("booksamillion", [StockResult("booksamillion", "Books-A-Million", "u1", "Pokemon TCG Black Bolt Booster Bundle",
+                                                "u1", upc="196214110001")], raw, mark_run=True)
+        cat.merge("gamestop", [StockResult("gamestop", "GameStop", "g1", "Pokemon TCG Black Bolt Booster Bundle", "g1")], raw, mark_run=True)
+        self.assertEqual(cat.set_status("booksamillion:u1", "ignored"), 2)             # both stores' listings
+        cat2 = Catalog(d)                                                                 # the app restarts
+        self.assertEqual(cat2.items["gamestop:g1"]["status"], "ignored")
+        # The store's link changes (or a new store lists it): still ignored, and not announced as new.
+        new = cat2.merge("booksamillion", [StockResult("booksamillion", "Books-A-Million", "u2", "Pokemon TCG Black Bolt Booster Bundle",
+                                                       "u2", upc="196214110001")], raw, mark_run=True)
+        self.assertEqual(new, [])
+        self.assertEqual(cat2.items["booksamillion:u2"]["status"], "ignored")
+        self.assertEqual(cat2.tracked("booksamillion", {}), [])
+        # Tracking it again undoes it everywhere and is remembered too.
+        cat2.set_status("gamestop:g1", "tracking")
+        self.assertTrue(all(v["status"] == "tracking" for v in Catalog(d).items.values()))
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def load_config_raw():
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "config.yaml")
+    with open(p, "w") as fh:
+        fh.write(CFG)
+    return load_config(p).raw
+
+
 if __name__ == "__main__":
     unittest.main()

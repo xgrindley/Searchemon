@@ -537,7 +537,11 @@ class _Handler(BaseHTTPRequestHandler):
                 elif action == "exclude_store":
                     m.set_store_excluded(str(body.get("key")), bool(body.get("excluded", True)))
                 elif action == "product_status":
-                    m.set_product_status(str(body.get("key")), str(body.get("status")))
+                    n = m.set_product_status(str(body.get("key")), str(body.get("status")))
+                    ignored = str(body.get("status")) == "ignored"
+                    return self._json(200, {"ok": True, "changed": n, "message":
+                                            ("Ignored at every store. It stays ignored after restarts." if ignored
+                                             else "Tracking it again at every store.")})
                 elif action == "pause":
                     m.set_paused(bool(body.get("paused")))
                 elif action == "mute":

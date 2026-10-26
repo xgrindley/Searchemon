@@ -1319,10 +1319,10 @@ const views = {
       h("p", { class: "hint", text: "Browser changes take effect after restarting the app." }),
       h("h2", { text: "Phone access" }),
       h("div", { class: "settings-list" },
-        setting("Open this panel from my phone", "Lets devices on your home Wi-Fi reach it. Needs a PIN and an app restart.", sw(cp, "allow_lan", "")),
+        setting("Open this panel from my phone", "Lets devices on your home Wi-Fi reach it. Needs a PIN, then save and restart the app.", sw(cp, "allow_lan", "")),
         setting("PIN", "At least 4 characters.", h("div", { style: "width:180px" }, secret(cp, "pin", ""))),
         setting("Port", "Change only if 8765 is taken. Needs an app restart.", num(cp, "port"))),
-      status && status.lan_url ? h("p", { class: "hint" }, "On your phone, open ", h("b", { text: status.lan_url })) : null,
+      phonePanel((status && status.phone) || null),
       h("h2", { text: "Troubleshooting" }),
       h("div", { class: "settings-list" }, setting("Save raw responses", "Writes what each store sends back to data\\debug, for fixing a broken checker.", sw(cfg.settings, "debug_dump", ""))),
     ];
@@ -1864,6 +1864,22 @@ function drawStrip() {
   }
 }
 
+/* Phone access: what state it is in, every address to try, and the one Windows Firewall command that usually fixes "cannot connect". */
+function phonePanel(p) {
+  if (!p) return null;
+  const colors = { on: "var(--ok)", off: "var(--muted)", needs_pin: "var(--warn)", restart: "var(--warn)" };
+  const copy = async (text) => { try { await navigator.clipboard.writeText(text); toast("Copied"); } catch (e) { toast("Select the text and copy it", true); } };
+  return h("div", { class: "panel", style: "padding:14px 16px;margin:10px 0" },
+    h("p", { style: "margin:0 0 8px;font-weight:600;color:" + (colors[p.state] || "inherit"), text: p.message }),
+    p.urls && p.urls.length ? [h("p", { class: "hint", style: "margin:0 0 4px", text: "On your phone (same Wi-Fi), open one of these. The first is usually right:" }),
+      h("ul", { class: "feed" }, p.urls.map((u) => h("li", {}, h("b", { text: u }), " ", h("button", { class: "btn quiet", type: "button", text: "Copy", onclick: () => copy(u) }))))] : null,
+    p.state === "on" ? h("details", { style: "margin-top:8px" },
+      h("summary", { text: "Phone cannot connect? Windows Firewall is the usual cause" }),
+      h("p", { class: "hint", text: "Windows blocks other devices from reaching a program until you allow it, and the first-run prompt is easy to dismiss. Open PowerShell as administrator (right-click, Run as administrator) and run this once. It opens the port on private networks only (home Wi-Fi), not public ones:" }),
+      h("code", { style: "display:block;white-space:pre-wrap;overflow-wrap:anywhere", text: p.firewall }),
+      h("p", { style: "margin:8px 0" }, h("button", { class: "btn", type: "button", text: "Copy the command", onclick: () => copy(p.firewall) })),
+      h("p", { class: "hint", text: "Also check that the phone is on the same Wi-Fi (not mobile data or a guest network), and that Windows calls this network Private (Settings > Network & internet > Wi-Fi > your network > Private)." })) : null);
+}
 function viewSigNow() { return !status ? "" : JSON.stringify(tab === "methods" ? [status.sessions, status.trials, status.trust, status.history] : tab === "accounts" ? [status.accounts, status.retailers, status.browser] : null); }
 async function poll() {
   try {

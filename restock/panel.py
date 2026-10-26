@@ -46,6 +46,55 @@ def lan_ip() -> str:
         return "127.0.0.1"
 
 
+_HOME_NETS = None
+
+
+def _home_net(ip) -> bool:
+    """True for the three ranges home routers use (RFC 1918): 10.x, 172.16 to 31.x and 192.168.x."""
+    global _HOME_NETS
+    import ipaddress
+    if _HOME_NETS is None:
+        _HOME_NETS = [ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")]
+    return ip.version == 4 and any(ip in n for n in _HOME_NETS)
+
+
+def lan_addresses() -> list[str]:
+    """Every private IPv4 address of this PC (home Wi-Fi first), so the phone link is right even with a VPN, WSL or
+    Hyper-V adapter present. 169.254.x (no network) and 127.x are left out."""
+    found: list[str] = []
+    candidates = [lan_ip()]
+    try:
+        candidates += socket.gethostbyname_ex(socket.gethostname())[2]
+    except OSError:
+        pass
+    try:
+        candidates += [i[4][0] for i in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)]
+    except OSError:
+        pass
+    import ipaddress
+    for c in candidates:
+        try:
+            ip = ipaddress.ip_address(c)
+        except ValueError:
+            continue
+        if _home_net(ip) and c not in found:
+            found.append(c)
+    # 192.168.x is what home routers hand out; put it first, then 10.x, then 172.16 to 31 (often virtual adapters).
+    found.sort(key=lambda x: (0 if x.startswith("192.168.") else 1 if x.startswith("10.") else 2))
+    return found
+
+
+def private_ip_literal(host: str) -> bool:
+    """True for a raw private address such as 192.168.1.20. DNS rebinding needs a hostname, so an address typed as numbers is safe to
+    answer when phone access is on, whichever of this PC's adapters the phone reached."""
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return _home_net(ip)
+
+
 def store_domains(name: str) -> tuple[str, ...]:
     """Web domains behind a store name, for matching block statistics."""
     from .retailers import _KROGER_HOSTS, SITE_CLASSES
@@ -69,6 +118,7 @@ class PanelServer:
         if pcfg.get("allow_lan") and not self.lan:
             monitor.info("Control panel: allow_lan needs a pin of 4+ characters, staying on this PC only")
         self.token = secrets.token_urlsafe(24)
+        self.listening_lan = False
         self.httpd: ThreadingHTTPServer | None = None
 
     @property
@@ -77,10 +127,29 @@ class PanelServer:
 
     @property
     def lan_url(self) -> str | None:
-        return f"http://{lan_ip()}:{self.port}/" if self.lan else None
+        return f"http://{(lan_addresses() or [lan_ip()])[0]}:{self.port}/" if self.lan else None
+
+    def phone_status(self) -> dict:
+        """What the Phone access section shows: is it on, why not, and every address to try."""
+        pcfg = self.monitor.cfg.raw.get("control_panel") or {}
+        asked = bool(pcfg.get("allow_lan"))
+        if not asked:
+            state, why = "off", "Phone access is off. Switch it on, set a PIN, save, and restart the app."
+        elif len(self.pin) < 4:
+            state, why = "needs_pin", "Phone access needs a PIN of at least 4 characters. Set one, save, and restart the app."
+        elif not self.httpd or not self.listening_lan:
+            state, why = "restart", "Saved, but the app has not restarted since. Close and reopen it so the panel listens on your Wi-Fi."
+        else:
+            state, why = "on", "Listening on your home network."
+        addrs = lan_addresses() if state == "on" else []
+        return {"state": state, "message": why, "port": self.port,
+                "urls": [f"http://{a}:{self.port}/" for a in addrs],
+                "firewall": (f'New-NetFirewallRule -DisplayName "Searchemon control panel" -Direction Inbound -Protocol TCP '
+                             f'-LocalPort {self.port} -Profile Private -Action Allow')}
 
     def start(self) -> bool:
         host = "0.0.0.0" if self.lan else "127.0.0.1"
+        self.listening_lan = False
         handler = type("Handler", (_Handler,), {"panel": self})
         try:
             self.httpd = ThreadingHTTPServer((host, self.port), handler)
@@ -88,8 +157,11 @@ class PanelServer:
             self.monitor.info(f"Control panel could not start on port {self.port}: {exc}")
             return False
         self.httpd.daemon_threads = True
+        self.listening_lan = self.lan
         threading.Thread(target=lambda: self.httpd.serve_forever(poll_interval=0.1), daemon=True, name="panel").start()
-        self.monitor.info(f"Control panel: {self.url}" + (f"  (phone: {self.lan_url})" if self.lan else ""))
+        self.monitor.info(f"Control panel: {self.url}" + (f"  (phone: {', '.join(f'http://{a}:{self.port}/' for a in lan_addresses()) or self.lan_url})" if self.lan else ""))
+        if self.lan:
+            self.monitor.info("If the phone cannot open it, Windows Firewall is the usual cause: see Stores & keys > Phone access for the one command that fixes it")
         return True
 
     def stop(self) -> None:
@@ -196,6 +268,7 @@ class PanelServer:
             "activity": activity,
             "muted": sorted(muted),
             "lan_url": self.lan_url,
+            "phone": self.phone_status(),
         }
 
     def test_filter(self, body: dict) -> dict:
@@ -287,10 +360,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _host_ok(self) -> bool:
         # Blocks DNS-rebinding tricks: only answer to our own addresses.
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]").lower()
-        allowed = {"127.0.0.1", "localhost"}
-        if self.panel.lan:
-            allowed.add(lan_ip())
-        return host in allowed
+        if host in ("127.0.0.1", "localhost"):
+            return True
+        return self.panel.lan and (host == lan_ip() or private_ip_literal(host))
 
     def _authed(self) -> bool:
         given = self.headers.get("X-Token") or ""

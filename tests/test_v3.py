@@ -16,9 +16,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # A tiny stand-in for the zipcodes package (the real one ships every US ZIP).
 ZIPS = {
-    "89431": ("39.5400", "-119.7480", "SPARKS", "NV"),
+    "89431": ("39.5400", "-119.7480", "ANYTOWN", "NV"),
     "89502": ("39.4950", "-119.7740", "RENO", "NV"),
-    "89434": ("39.5530", "-119.6620", "SPARKS", "NV"),
+    "89434": ("39.5530", "-119.6620", "ANYTOWN", "NV"),
     "96150": ("38.9170", "-119.9860", "SOUTH LAKE TAHOE", "CA"),
     "10001": ("40.7500", "-73.9970", "NEW YORK", "NY"),
 }
@@ -101,7 +101,7 @@ class GeoTests(Base):
         self.assertTrue(all(a.located for a in cfg.areas))
         d = geo.miles(geo.zip_point("89431"), geo.zip_point("89502"))
         self.assertTrue(2 < d < 5, d)
-        self.assertEqual(geo.zip_place("89431"), "Sparks, NV")
+        self.assertEqual(geo.zip_place("89431"), "Anytown, NV")
         area, dist = geo.nearest_area(geo.zip_point("89502"), cfg.areas)
         self.assertEqual(area.name, "Home")
         area, _ = geo.nearest_area(geo.zip_point("10001"), cfg.areas)
@@ -125,8 +125,8 @@ class GeoTests(Base):
         res = StockResult("target", "Target", "1", "ETB", "u", stores=[
             StoreStock("1", "Reno", qty=4, zip="89502", via_area="Home"),          # 3 mi from Home: kept
             StoreStock("2", "NYC", qty=4, zip="10001", via_area="Home"),           # far: dropped
-            StoreStock("3", "Sparks East", qty=4, zip="89434", via_area="Home"),   # excluded by you
-            StoreStock("4", "Sparks 1 unit", qty=1, zip="89431", via_area="Home"),  # below min qty
+            StoreStock("3", "Anytown East", qty=4, zip="89434", via_area="Home"),   # excluded by you
+            StoreStock("4", "Anytown 1 unit", qty=1, zip="89431", via_area="Home"),  # below min qty
             StoreStock("5", "Tahoe", qty=3, zip="96150", via_area="Tahoe"),         # inside Tahoe area
         ])
         mon.localize(res)
@@ -137,7 +137,7 @@ class GeoTests(Base):
 class PlacesTests(Base):
     OVERPASS = {"elements": [
         {"type": "way", "center": {"lat": 39.5401, "lon": -119.7481},
-         "tags": {"shop": "department_store", "brand": "Target", "name": "Target", "addr:city": "Sparks", "addr:postcode": "89431"}},
+         "tags": {"shop": "department_store", "brand": "Target", "name": "Target", "addr:city": "Anytown", "addr:postcode": "89431"}},
         {"type": "node", "lat": 39.54012, "lon": -119.74812,
          "tags": {"amenity": "pharmacy", "brand": "CVS Pharmacy", "name": "CVS Pharmacy"}},   # counter inside Target
         {"type": "node", "lat": 39.53, "lon": -119.77, "tags": {"amenity": "pharmacy", "brand": "Walmart", "name": "Walmart Pharmacy"}},
@@ -156,7 +156,7 @@ class PlacesTests(Base):
     def test_refresh_merges_chain_finder(self):
         cfg = load_config(self.cfg_path)
         finder = PlaceFinder(cfg.data_dir, mock.Mock())
-        chain_source = lambda areas: [Place("target", "Target Sparks", 39.5402, -119.7482, "1 Main", "Sparks", "89431", "2201", "chain")]
+        chain_source = lambda areas: [Place("target", "Target Anytown", 39.5402, -119.7482, "1 Main", "Anytown", "89431", "2201", "chain")]
         with mock.patch("restock.places.requests.post", return_value=mock.Mock(status_code=200, json=lambda: self.OVERPASS)):
             n = finder.refresh(cfg.areas, [chain_source])
         targets = [p for p in finder.places if p.chain == "target"]
@@ -170,7 +170,7 @@ class PlacesTests(Base):
 def kroger_get(url, params=None, headers=None, **kw):
     if url.endswith("/locations"):
         return {"data": [
-            {"locationId": "70100123", "chain": "SMITHS", "name": "Smith's Sparks", "address": {"addressLine1": "1 A St", "city": "Sparks", "zipCode": "89431"},
+            {"locationId": "70100123", "chain": "SMITHS", "name": "Smith's Anytown", "address": {"addressLine1": "1 A St", "city": "Anytown", "zipCode": "89431"},
              "geolocation": {"latitude": 39.541, "longitude": -119.749}},
             {"locationId": "70100456", "chain": "SMITHS", "name": "Smith's Reno", "address": {"addressLine1": "2 B St", "city": "Reno", "zipCode": "89502"},
              "geolocation": {"latitude": 39.495, "longitude": -119.774}},
@@ -200,7 +200,7 @@ class KrogerTests(Base):
         k.session.post = mock.Mock(return_value=mock.Mock(status_code=200, json=lambda: {"access_token": "t", "expires_in": 1800}))
         with mock.patch.object(Kroger, "get_json", side_effect=kroger_get):
             res = k.check_ids(["0082065012345"], True)["0082065012345"]
-            self.assertEqual([(s.name, s.level, s.pickup) for s in res.stores], [("Smith's Sparks", "low", True)])
+            self.assertEqual([(s.name, s.level, s.pickup) for s in res.stores], [("Smith's Anytown", "low", True)])
             self.assertEqual(res.title, "Pokemon TCG Elite Trainer Box")
             self.assertEqual(k.resolve_upc("820650123456"), "0082065012345")
             self.assertEqual(len(k.search("pokemon trading card game", 10)), 2)
@@ -243,7 +243,7 @@ class PageSiteTests(Base):
         p = {"name": "Pokemon TCG Booster Bundle", "availabilityStatus": "OUT_OF_STOCK", "sellerId": "F55CDC31AB754BB68FE0B39041159D63",
              "priceInfo": {"currentPrice": {"price": 26.94}},
              "fulfillmentOptions": [{"type": "SHIPPING", "availabilityStatus": "OUT_OF_STOCK"},
-                                    {"type": "PICKUP", "availabilityStatus": "IN_STOCK", "storeId": "2149", "storeName": "Sparks Supercenter"}]}
+                                    {"type": "PICKUP", "availabilityStatus": "IN_STOCK", "storeId": "2149", "storeName": "Anytown Supercenter"}]}
         r = Walmart._product_result("1", p, "Walmart")
         self.assertFalse(r.third_party)
         self.assertEqual([(s.store_id, s.pickup) for s in r.stores], [("2149", True)])
@@ -367,7 +367,7 @@ class PanelV3Tests(Base):
         from restock.panel import PanelServer
         mon = Monitor(self.cfg_path)
         mon.catalog.merge("target", [StockResult("target", "Target", "1", "Pokemon TCG Elite Trainer Box", "u")], mon.cfg.raw, True)
-        mon.places.places = [Place("target", "Target Sparks", 39.54, -119.748, "", "Sparks", "89431", "2201", "chain", "Home", 0.1)]
+        mon.places.places = [Place("target", "Target Anytown", 39.54, -119.748, "", "Anytown", "89431", "2201", "chain", "Home", 0.1)]
         panel = PanelServer(mon)
         panel.port = 8796
         self.assertTrue(panel.start())

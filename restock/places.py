@@ -21,7 +21,7 @@ import os
 import re
 import threading
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 
 import requests
 

@@ -1,6 +1,6 @@
 # Learns a store's own data requests from your own browsing, so the monitor can use the same request the store's page uses.
 #
-#   powershell -ExecutionPolicy Bypass -File .\learn-traffic.ps1 -Site gamestop -Zip 89436 -ProductId 123456
+#   powershell -ExecutionPolicy Bypass -File .\learn-traffic.ps1 -Site gamestop -Zip 12345 -ProductId 123456
 #
 # 1. Start your own Chrome first:  powershell -ExecutionPolicy Bypass -File .\start-my-chrome.ps1
 # 2. Run this script, then in that Chrome open the product page and use the store's "check nearby stores"

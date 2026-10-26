@@ -13,7 +13,7 @@ from restock.engine import Monitor  # noqa: E402
 from restock.models import StockResult, StoreStock  # noqa: E402
 from restock.retailers.base import Blocked, Retailer  # noqa: E402
 
-ZIP = "89436"          # Sparks, NV
+ZIP = "12345"          # Anytown, NV
 POINT = (39.6, -119.7)  # fixed, so the tests do not depend on the zipcodes package (another test stubs it)
 
 
@@ -85,7 +85,7 @@ class ScanTests(unittest.TestCase):
         self.mon = make_monitor()
         for patcher in (mock.patch.dict(scan_mod.REGISTRY, {"target": FakeTarget, "cvs": BlockedCVS}),
                         mock.patch.object(scan_mod, "zip_point", lambda z: POINT),
-                        mock.patch.object(scan_mod, "zip_place", lambda z: "Sparks, NV")):
+                        mock.patch.object(scan_mod, "zip_place", lambda z: "Anytown, NV")):
             patcher.start()
             self.addCleanup(patcher.stop)
 

@@ -464,6 +464,13 @@ class Monitor:
                     status = (f"Blocked, retry in {mins // 60} h {mins % 60} min" if mins >= 120
                               else f"Blocked, retry in {max(1, mins)} min")
             except Exception as exc:  # keep the loop alive no matter what
+                if stop.is_set() or "has been closed" in str(exc):
+                    # Settings were saved or the app is closing while a browser check was running. That is not
+                    # the store's fault, so it is not logged as an error and does not count against its rating.
+                    self.log.debug("%s check interrupted: %s", name, exc)
+                    if stop.is_set() or stop.wait(15):
+                        return
+                    continue
                 self.log.error("%s cycle failed: %s", name, traceback.format_exc())
                 self.emit("log", f"{r.display}: error {exc}")
                 h["recent"].append(0)

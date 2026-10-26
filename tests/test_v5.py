@@ -113,9 +113,9 @@ class GameStopAreaTests(unittest.TestCase):
 
 
 CVS_ANSWER = {"response": {"header": {"statusCode": "0000"}}, "atgResponse": [
-    {"City": "SPARKS", "State": "NV", "Zipcode": "89431", "storeAddress": "680 N. MCCARRAN BLVD.", "storeId": "8792",
+    {"City": "ANYTOWN", "State": "NV", "Zipcode": "89431", "storeAddress": "680 N. MCCARRAN BLVD.", "storeId": "8792",
      "dt": "1.22", "Qty": 0, "bohStatus": "Out of Stock", "bopus": {"Qty": 0}},
-    {"City": "SPARKS", "State": "NV", "Zipcode": "89434", "storeAddress": "2878 VISTA BLVD", "storeId": "3948",
+    {"City": "ANYTOWN", "State": "NV", "Zipcode": "89434", "storeAddress": "2878 OAK AVE", "storeId": "3948",
      "dt": "2.93", "Qty": 5, "bohStatus": "In Stock", "bopus": {"Qty": 0}},
     {"City": "TRUCKEE", "State": "CA", "Zipcode": "96161", "storeAddress": "11411 DEERFIELD DR", "storeId": "9174",
      "dt": "28.67", "Qty": 1, "bohStatus": "In Stock", "bopus": {"Qty": 1}},

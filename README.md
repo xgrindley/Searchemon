@@ -1,22 +1,60 @@
-# Pokemon Restock Monitor
+# Searchemon
 
-A Windows app that watches Pokemon TCG stock at 13 retailers, online and on
-the shelves of stores near your ZIP codes, and posts to your Discord restock
-channel when something comes back in stock at or near MSRP. It finds nearby
-stores and Pokemon products on its own, confirms each restock before
-alerting, and learns when your stores usually restock. Checks run from your
-own PC while the app is open.
+**A Windows Pokemon TCG restock monitor that runs quietly on your own PC, finds products and nearby
+stores by itself, and tells your Discord when something is really in stock.**
 
-The full user guide (setup, every setting, reading alerts, troubleshooting)
-is the "Pokemon Restock Monitor: User Guide" document shared with this
-download. This file is the short version.
+No subscription, no cloud service, no account with anyone. Checks run from your computer while the app is
+open, your settings stay in a file next to the app, and the control panel only answers on your PC.
+
+> This is the **test branch** (v3.6). The stable release is on the `main` branch.
+> See [Versions and branches](#versions-and-branches).
+
+![The control panel dashboard](docs/img/dashboard.png)
+
+## Highlights
+
+- **Finds the products for you.** Target, Best Buy, Walmart and Kroger are searched every few hours, and since v3.5 so are
+  CVS, GameStop, Costco, Sam's Club, Walgreens, Barnes & Noble, Books-A-Million and Safeway. Products found at one store are looked up
+  at the others by UPC and by name. You do not paste links first.
+- **Shows stock by store, not just a list of stores.** The Stores near you page lists only the stores that have something in stock
+  right now, nearest first, with a map. Pick an area, drag the radius, click a store to see what it has.
+- **Alerts you can trust.** A restock has to be a sealed card product of a type you want, sold by the store itself, at or near MSRP,
+  inside one of your areas, and still there on a second look a few seconds later.
+- **Learns when your stores restock.** A week grid shows the likeliest windows, and the monitor checks twice as often then.
+- **Works with bot protection instead of fighting it.** It slows down when a store pushes back, rotates real browsers with
+  their own cookies, and asks you only when a person is truly needed.
+- **A second Discord channel for problems.** Sign in lost, a store blocking, a check that needs you: all of it goes to a status
+  channel, so your restock channel stays for restocks.
+- **Looks good.** Dark and light themes in the desktop window, and a "Glass Aurora" control panel that fits any window size, with
+  its own fonts and maps (no outside requests).
+
+## Screenshots
+
+| Stock by store | Your areas on a map |
+|---|---|
+| ![Stores with stock, nearest first](docs/img/stock-map.png) | ![Areas and radius on a map](docs/img/areas-map.png) |
+
+The screenshots use made-up stores and products.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[Your areas<br/>ZIP + radius] --> B[Find stores<br/>store finders + OpenStreetMap]
+    C[Product search<br/>every store's own catalog] --> D[Product list<br/>your product filters]
+    B --> E[Checks<br/>plain requests, then real browsers]
+    D --> E
+    E --> F{Stock appeared?}
+    F -->|confirm after a few seconds| G[Alert rules<br/>type, MSRP, seller, area]
+    G --> H[Discord restock channel]
+    E -->|blocked or sign-in lost| I[Discord status channel]
+    E --> J[History<br/>Restock times, Methods lab]
+```
 
 ## Setup (PowerShell)
 
-1. Install Python 3.13: `winget install -e --id Python.Python.3.13`, or from
-   python.org (tick "Add python.exe to PATH"). Versions 3.11 to 3.14 work;
-   brand-new ones such as 3.15 fail to install the packages. Setup picks a
-   working version if you have several.
+1. Install Python 3.13: `winget install -e --id Python.Python.3.13`, or from python.org (tick "Add python.exe to PATH").
+   Versions 3.11 to 3.14 work; brand-new ones such as 3.15 fail to install the packages. Setup picks a working version if you have several.
 2. Open PowerShell, go into this folder, then run setup:
 
    ```powershell
@@ -26,7 +64,7 @@ download. This file is the short version.
 
 3. Start it (step 4), open the control panel, then:
    - Notifications: paste your channel's webhook URL
-     (Server Settings > Integrations > Webhooks > New Webhook > Copy Webhook URL)
+     (Server Settings > Integrations > Webhooks > New Webhook > Copy Webhook URL). Optional: a second webhook for the status channel
    - Areas & radius: your home ZIP and a radius
    - optional: a free Best Buy API key and a free Kroger client ID and secret
 4. Start it:
@@ -37,112 +75,84 @@ download. This file is the short version.
 
    Click **Test Discord** to confirm the channel gets a message.
 
-Optional: `.\add-to-startup.ps1` opens it when you sign in, and
-`.\build-exe.ps1` builds a standalone `PokeRestock.exe`.
+Optional: `.\add-to-startup.ps1` opens it when you sign in, and `.\build-exe.ps1` builds a standalone `PokeRestock.exe`
+(it checks itself before it is zipped).
 
-## Control panel
+## The control panel
 
-While the app is open, a control panel runs at **http://127.0.0.1:8765**
-(the window has an **Open control panel** button). From there you can:
+While the app is open, a control panel runs at **http://127.0.0.1:8765**. The desktop window leads with an
+**Open control panel** button, because the panel is the fuller view.
 
-- see every listing being watched, with in-stock rows highlighted, recent
-  alerts and each store's status (OK, blocked, error)
-- add, edit, turn off or remove products and keyword searches
-- set the keywords an alert must include or must never include, and the MSRP
-  caps by product type
-- **Test a listing**: paste a product title and price to see whether it would
-  alert and why
-- mute a single listing, pause all alerts (checks keep running), or check now
-- turn retailers on and off, change how often each is checked, set your ZIP
-- set your Discord webhook(s), role ping, and send a test message. Optional extra channels:
-  Online, In-store, and one per area (set on the Your area tab; it gets only that area's stores)
+| Page | What it is for |
+|---|---|
+| Dashboard | Every listing being watched, in-stock rows highlighted, recent alerts, each store's health |
+| Find stock near a ZIP | A scan you start by hand for any ZIP and radius. Tick the stores to ask (Walgreens is online only) |
+| Found products | What the monitor found by searching store catalogs. Ignore or track any of it |
+| Stores near you | Stores with stock right now, a map, area and radius filters, click a store to see what it has |
+| Restock times | A week grid of when each store restocks, learned from what the monitor has seen |
+| Methods lab | Which way of loading pages lasts longest before a store blocks it, with trust ratings for each store |
+| Accounts | Saved store sign-ins, whether they still work, and browser profile cleanup |
+| Notifications | Webhooks, role ping, and what goes to the status channel |
+| Areas & radius | Your areas on a map that updates as you type |
+| Check speed, Product filters, My products, Searches, Stores & keys | Pace, product types and MSRP caps, your own links, keyword searches, store switches and keys |
 
-Save changes and the checks restart with the new settings. The panel only
-answers on this PC. To use it from your phone on home Wi-Fi, turn on
-**Phone access** under Stores & keys, set a PIN, and restart the app.
+It fits narrow windows (the side menu becomes a tab bar), wide tables scroll inside their box, and if the app is closed the page
+says so and reconnects by itself when it is back. To use it from your phone on home Wi-Fi, turn on **Phone access** under
+Stores & keys, set a PIN, and restart the app.
+
+## Stock by store
+
+![Click a store to see what it has](docs/img/stock-map.png)
+
+- **Area**: one area or all of them. The map zooms to what you pick.
+- **Radius**: a slider that can go past the area's own radius.
+- **Filters**: store or chain, a product or store search, pickup available, online listings, and a switch to also list every store
+  with nothing in stock.
+- Each dot is a store with stock and its number is how many products it has. Click a dot or a card to see each product, its price
+  and count, a link, and a flag when the price is over MSRP.
 
 ## When stores push back
 
-Big retailers run bot protection, and a monitor that ignores it gets blocked
-for longer and longer. This one works with it instead:
+Big retailers run bot protection, and a monitor that ignores it gets blocked for longer and longer. This one works with it instead:
 
-1. **Recognizes the block.** It tells a rate limit from a JavaScript check from
-   a CAPTCHA, and names the vendor (Akamai, PerimeterX, Imperva, Cloudflare,
-   DataDome) in the log so you know what happened.
-2. **Slows down on its own.** Each block doubles that store's wait (up to 8x),
-   and it eases back to normal speed after clean checks. The dashboard shows
-   each store's recent success rate and next check time.
-3. **Switches to a real browser.** In `auto` mode, once plain requests are
-   refused, checks for that store move to an Edge window (built into Windows)
-   with its own profile, loading pages the way you would. Many JavaScript
-   checks clear by themselves there.
-4. **Asks you when a person is needed.** If a store wants a press-and-hold or
-   puzzle, the browser window comes on screen, you get a Windows notification
-   and a banner in the control panel, and checks for that store wait (without
-   reloading) until you finish it. The cookies it earns carry the next checks.
+1. **Recognizes the block.** It tells a rate limit from a JavaScript check from a CAPTCHA, and names the vendor (Akamai,
+   PerimeterX, Imperva, Cloudflare, DataDome) in the log.
+2. **Slows down on its own.** Each block doubles that store's wait (up to 8x) and it eases back after clean checks.
+3. **Switches to a real browser.** Once plain requests are refused, checks for that store move to an Edge or Chrome window kept off
+   screen, with its own profile, loading pages the way you would.
+4. **Rotates browsers.** Blocks follow a browser session's cookies, not your connection, so the app runs several profiles and rests
+   a blocked one while the others carry on.
+5. **Uses your own Chrome when a store needs it.** CVS, Sam's Club, GameStop and Dick's refuse automated browsers but accept a normal
+   one. The app starts a separate Chrome (minimized, its own profile, DevTools on this PC only) the first time one of them needs it.
+   Turn that off with `browser.auto_start_own_chrome: false`.
+6. **Asks you when a person is needed.** If a store wants a press-and-hold or puzzle, the browser window comes on screen, you get a
+   Windows notification and a banner, and checks for that store wait until you finish it.
+7. **Cleans up bad cookies.** Accounts has **Clear bot-check cookies** and **Reset profile** for when a browser earned a bad
+   reputation, in both the control panel and the desktop window.
 
-**Several browsers, rotated.** Blocks are usually tied to one browser session (its cookies),
-not your connection. The app runs more than one checking browser, each with its own profile
-(`browser.profiles` in config.yaml: Edge and Chrome by default), and rotates checks across
-them. When a store blocks one, that one rests for that store (as long as the block says, for
-example 12 hours for Dick's) while the others keep checking. Edge or Chrome matters less than
-having separate cookies. Your own Chrome helps most with CVS, Dick's and
-GameStop: run `powershell -ExecutionPolicy Bypass -File .\start-my-chrome.ps1`, leave that Chrome
-open. The app adds it as "my-chrome" automatically, even while running and checks those stores first
-(`browser.own_chrome_sites`).
-Your own Edge works the same way: `powershell -ExecutionPolicy Bypass -File .\start-my-edge.ps1` (port 9223), so the Methods lab can compare the two.
-Methods lab also runs a side-by-side test (`browser.compare_every_minutes`), routes checks to the methods that proved reliable,
-and A/B tests the app's own features (`browser.feature_trial`) so you can see whether they help. `run.ps1 -Update` updates to the newest stable first.
-When a plain data request is refused, it is retried from inside the store's own page (page fetch; `browser.page_fetch`).
-Sign in to a store once and it opens in every profile. Restart the app after changing profiles.
-To learn a store's real data request from your own browsing (no guessing), start your own Chrome, then run
-`powershell -ExecutionPolicy Bypass -File .\learn-traffic.ps1 -Site gamestop -Zip 12345 -ProductId 123456` and use the store's
-"check nearby stores" box. Online alerts go to the online channel and in-store alerts to the in-store channel, each showing only its own side.
-Methods lab opens with a trust report that rates each store Reliable, Flaky or Blocked from the app's own recent checks, and points out official feeds (Best Buy, Kroger) that are not switched on.
+**Methods lab** measures all of this. It shows checks per block for every method, a side-by-side test of the same page through every
+method, trial methods that switch themselves off when they fail, and an A/B test of the app's own features so you can see whether
+they help. The trust report rates each store Reliable, Flaky or Blocked from the app's own recent checks.
 
-**See what works.** More > Block tracker (or `app.py --stats`) shows, per store and method, how
-many checks got through before a block. `app.py --abtest` runs plain requests and every profile
-side by side on the same pages at a gentle pace and prints which was blocked last.
-
-What it deliberately does not do: fake its browser fingerprint, hide that it
-is automated, pay CAPTCHA-solving services, or rotate proxies to dodge bans.
-Those break the stores' terms, get accounts flagged, and are exactly what
-scalper bots do. Polite pacing plus a real browser plus you, once in a while,
-holds up better over time.
+**What it deliberately does not do:** fake its browser fingerprint, hide that it is automated, solve or pay for CAPTCHA solving, or
+rotate proxies to dodge bans. Those break the stores' terms, get accounts flagged, and are exactly what scalper bots do. Polite
+pacing plus a real browser plus you, once in a while, holds up better over time.
 
 ## Know when your stores restock
 
-Every restock the monitor sees while running is logged per store, day and
-hour (`data\history.jsonl`). The **Restock times** view in the control panel
-turns that into a week grid and lists the most likely windows, for example
-"Tue 7 AM to 9 AM" at your nearest Target. With `learn_from_history` on, the
-monitor also checks twice as often during those hours. You can add your own
-busy and quiet hours under Check speed.
+Every restock the monitor sees while running is logged per store, day and hour (`data\history.jsonl`). **Restock times** turns that
+into a week grid and lists the most likely windows, for example "Tue 7 AM to 9 AM" at your nearest Target. With `learn_from_history`
+on, the monitor checks twice as often during those hours, and a newly found sibling product gets extra attention for a while after
+one restocks. Alerts also say whether a store has **order pickup**, so you can buy online and collect instead of hoping the shelf
+still has it.
 
-Alerts also say whether a store has **order pickup** available. When it
-does, buy online right away and pick it up, instead of hoping the shelf still
-has it when you arrive.
+## Product types and alerts
 
-## What it watches
-
-- **Found automatically:** every 6 hours it searches Target, Best Buy, Walmart
-  and Kroger for Pokemon cards, keeps the sealed products, and tracks them.
-  New listings post a blue alert. See the Found products tab.
-- **Your products:** a UPC finds the item at Target, Best Buy, Walmart and
-  Kroger; product links cover Pokemon Center, GameStop, Costco, Sam's Club,
-  Barnes & Noble, Books-A-Million, Amazon, Walgreens, CVS and any other store.
-- **Your searches:** extra keyword searches on the searchable stores.
-
-Stores near your areas are mapped weekly (store finders plus OpenStreetMap)
-on the Stores near you tab.
-
-## How alerts decide
-
-An alert fires when stock appears that was not there on the last check, and
-only if the listing is a sealed card product of a type you want, sold by the
-store itself, priced at or under its MSRP cap (plus wiggle room), at a store
-inside one of your areas, and still there on a second look a few seconds
-later. The same item and store will not re-alert within the quiet period.
+Alerts follow your **Product filters**: each product type (Elite Trainer Box, Booster Bundle, tin, collection box, and so on) can be
+switched on or off for alerts, with its own MSRP cap. An alert fires when stock appears that was not there on the last check, only if
+the listing is a sealed card product of a wanted type, sold by the store itself (not a third-party seller), priced at or under its cap
+plus wiggle room, at a store inside one of your areas, and still there on a second look. The same item and store will not re-alert
+within the quiet period.
 
 ## Store coverage
 
@@ -152,44 +162,70 @@ later. The same item and store will not re-alert within the quiet period.
 | Best Buy | yes | stores with stock, pickup | free API key |
 | Kroger family | no | high/low per store, curbside | free client ID and secret |
 | Walmart | yes | pickup at your chosen store | optional: set store in the checking browser |
+| CVS | yes, finds products by itself | shelf counts per store | your own Chrome (started for you) |
+| GameStop, Costco, Sam's Club, Barnes & Noble, Books-A-Million | yes, find products by themselves | GameStop only | nothing for search; links still work |
+| Walgreens | yes, finds products by itself | no | nothing |
+| Safeway / Albertsons | yes, finds products by itself | for your chosen store | set store in the checking browser |
 | Pokemon Center | yes, plus queue alert | no | product links |
-| GameStop, Costco, Sam's Club, Barnes & Noble, Books-A-Million | yes | no | product links |
 | Amazon | sold by Amazon only | no | product links |
 | Dick's Sporting Goods | yes, found automatically | no | nothing (uses the browser) |
-| Safeway / Albertsons | yes | for your chosen store | set store in the checking browser |
 | Raley's | online listings (untested) | no | product links |
-| Walgreens, CVS | online listings | no | product links |
+| Any other store | by link | no | product links |
 
-Target's data comes from the same lookups target.com makes, not an official
-API. If a store breaks after a site change, turn on "Save raw responses",
-run `app.py --once`, and the raw responses land in `data\debug` for fixing.
+Store searches read each site's own pages, so a site redesign can break one. Turn on "Save raw responses", run `app.py --once`,
+and the raw responses land in `data\debug` for fixing.
+
+## Privacy
+
+- The control panel answers only on this PC. Its fonts and maps are served by the app itself, with no outside requests.
+- The app talks to the stores you switch on, your Discord webhook, OpenStreetMap for store locations, and GitHub when you run
+  `update.ps1`. There is no telemetry and no account.
+- Links the app produces have tracking parameters removed and open with no referrer.
+- `config.yaml` (your webhooks and keys) and `data\` stay on your PC and are in `.gitignore`. Never paste a webhook URL into a file
+  that gets committed.
+- The checking browsers use their own profiles, separate from your everyday Edge and Chrome.
+
+## Runs while you use the PC
+
+Browsers stay off screen and never take focus (sign-in is the only time one comes forward, and only when you ask). The app runs at
+below-normal priority so games and calls get the CPU first (`power: low_priority`). If your PC sleeps when idle and you want checks to
+carry on, set `power: keep_awake: true`. Closing the app hides the window at once and closes every browser together.
 
 ## Files
 
-- `config.yaml`: your settings and webhook (private, never share)
+- `config.yaml`: your settings and webhooks (private, never share)
 - `data\config.backup.yaml`: the previous settings, saved each time the panel saves
 - `data\state.json`: last seen stock per item, used to detect changes
-- `data\resolved.json`: UPC to retailer item id lookups
+- `data\resolved.json`: UPC to store item id lookups
 - `data\restock.log`: activity log (rotates at 1 MB)
-- `data\history.jsonl`: restocks seen, for Restock times (kept 180 days)
+- `data\history.jsonl` and `data\store-history.json`: restocks and daily check history (kept 180 days)
 - `data\catalog.json`: products found automatically
 - `data\places.json`: stores near your areas
 - `data\block-stats.json`: the block tracker numbers
-- `data\browser-profile` (and `browser-profiles\<name>`): the checking browsers' own profiles and cookies
-  (separate from your normal Edge; delete the folder to reset it)
+- `data\browser-profile` and `browser-profiles\<name>`: the checking browsers' own profiles and cookies (delete a folder to reset it)
+- `data\my-chrome`: the profile for the Chrome the app starts for CVS, Sam's Club, GameStop and Dick's
 
-## Versions and rollback
+## Versions and branches
+
+| Branch | What it is |
+|---|---|
+| `main` | The stable release. Only changes when a build is declared stable |
+| `test` | The current test build (this one) |
+| `build/vX.Y`, `release/vN.0` | Frozen copies of single builds, for going back to one |
+
+Stable releases count up whole numbers (v3.0), test builds count up from them (v3.1 to v3.6). [RELEASING.md](RELEASING.md) has the
+rules, [CHANGELOG.md](CHANGELOG.md) lists every change with how to test it, [NOTES.md](NOTES.md) is the rolling project memory, and
+[RESOURCES.md](RESOURCES.md) lists the tools reviewed and why each was used or not.
 
 ```powershell
 .\versions.ps1 save "before trying X"   # snapshot of the program files
 .\versions.ps1 stable                   # mark the newest snapshot as the known-good one
 .\versions.ps1 list
 .\versions.ps1 restore                  # back to the stable one (or: restore <name>)
+.\update.ps1                            # newest stable release; -Channel test for the newest test build
 ```
 
-Snapshots hold program files only; `config.yaml` and `data` are never touched, and restore
-saves your current files first. `CHANGELOG.md` lists changes, `NOTES.md` is the rolling project
-memory, `RESOURCES.md` lists the tools reviewed and why each was used or not.
+Snapshots hold program files only; `config.yaml` and `data` are never touched.
 
 ## Commands
 
@@ -198,6 +234,13 @@ memory, `RESOURCES.md` lists the tools reviewed and why each was used or not.
 .\.venv\Scripts\python.exe app.py --headless     # console only
 .\.venv\Scripts\python.exe app.py --once         # one pass, print results
 .\.venv\Scripts\python.exe app.py --test-discord
-.\.venv\Scripts\python.exe app.py --abtest     # compare checking methods
-.\.venv\Scripts\python.exe app.py --stats      # checks-before-block table
+.\.venv\Scripts\python.exe app.py --abtest       # compare checking methods
+.\.venv\Scripts\python.exe app.py --stats        # checks-before-block table
+.\.venv\Scripts\python.exe app.py --selftest     # health check of the program and its libraries
+.\.venv\Scripts\python.exe -m unittest discover -s tests   # the test suite (269 tests)
 ```
+
+## Built with
+
+Python 3.13, tkinter for the desktop window, a small built-in web server for the control panel (plain HTML, CSS and JavaScript, no
+framework), Playwright and Patchright for the real-browser checks, curl_cffi and h2 for plain requests, and PyInstaller for the exe.

@@ -50,7 +50,7 @@ def run(resource_dir: str, out_dir: str | None = None) -> bool:
         add(found, name)
     try:
         import zipcodes
-        add(bool(zipcodes.matching("89434")), "ZIP code data (89434)")
+        add(bool(zipcodes.matching("10001")), "ZIP code data (10001)")
     except Exception as exc:
         ok = False
         add(False, "ZIP code data", str(exc)[:60])

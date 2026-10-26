@@ -17,7 +17,7 @@ from restock.retailers.base import FetchResult  # noqa: E402
 CONFIG = """
 discord:
   webhooks: {default: "https://discord.com/api/webhooks/1/abc"}
-location: {zip: "89434", radius_miles: 25}
+location: {zip: "10001", radius_miles: 25}
 settings: {windows_toast: false, alert_on_startup: true, confirm_restocks: false}
 discovery: {enabled: true, places: false, retailers: [target], queries: [pokemon tcg]}
 retailers:

@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ZIPS = {
     "89431": ("39.5400", "-119.7480", "ANYTOWN", "NV"),
     "89502": ("39.4950", "-119.7740", "RENO", "NV"),
-    "89434": ("39.5530", "-119.6620", "ANYTOWN", "NV"),
+    "10001": ("39.5530", "-119.6620", "ANYTOWN", "NV"),
     "96150": ("38.9170", "-119.9860", "SOUTH LAKE TAHOE", "CA"),
     "10001": ("40.7500", "-73.9970", "NEW YORK", "NY"),
 }
@@ -125,7 +125,7 @@ class GeoTests(Base):
         res = StockResult("target", "Target", "1", "ETB", "u", stores=[
             StoreStock("1", "Reno", qty=4, zip="89502", via_area="Home"),          # 3 mi from Home: kept
             StoreStock("2", "NYC", qty=4, zip="10001", via_area="Home"),           # far: dropped
-            StoreStock("3", "Anytown East", qty=4, zip="89434", via_area="Home"),   # excluded by you
+            StoreStock("3", "Anytown East", qty=4, zip="10001", via_area="Home"),   # excluded by you
             StoreStock("4", "Anytown 1 unit", qty=1, zip="89431", via_area="Home"),  # below min qty
             StoreStock("5", "Tahoe", qty=3, zip="96150", via_area="Tahoe"),         # inside Tahoe area
         ])

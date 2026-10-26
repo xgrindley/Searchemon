@@ -1,6 +1,9 @@
 # Changelog
 
 ## v4.1 (test build, in progress)
+- **Books and stickers no longer alert.** Pokemon books, sticker books, coloring and activity books, handbooks and notebooks are
+  skipped (the Epic Sticker Collection paperback at Sam's Club was passing as a collection box). Anything an older version already
+  saved in the product list that is no longer accepted is removed on start. The Tech Sticker Collection card product still alerts.
 - **MSRP in Discord alerts.** Every in-stock alert now has an MSRP field next to Price, with how the price compares, for example
   `$17.99 (at MSRP)` or `$59.99 ($20.00 over)`. It uses the product's own MSRP when you set one, otherwise the MSRP of its product type
   (your Product types settings win over the built-in list), otherwise a matching title price rule. New listing alerts show it too.

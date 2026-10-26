@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.0 (2026-10-26, stable release)
+- Declared stable by the owner. It is exactly test build v2.10 (saved as build/v2.10), with the version number
+  changed to 3.0. Everything listed under v2.10 to v2.1 below is in it: the trial methods, Method control with
+  auto-stop, the ZIP stock scan with "search every product", the rolling store history, the CVS in-store-only fix
+  and Target block detection.
+- Install it with `.\update.ps1` (no channel name). Test builds continue from v3.1.
+
 ## v2.10 (2026-10-26, test build, includes v2.9)
 - **Search every product** switch in Find stock near a ZIP (on by default). With it on, the scan asks every store that is
   switched on (the hand-picked list is ignored), and searches each store's own catalog for Pokemon products at that moment, so

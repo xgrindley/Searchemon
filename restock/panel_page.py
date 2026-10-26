@@ -254,6 +254,33 @@ input[type=range] { accent-color: var(--act); width: 160px; }
 .listing.in { background: var(--ok-bg); }
 @media (max-width: 900px) { .listing { grid-template-columns: 1fr auto; } .listing .hide-s { display: none; } .place-row { grid-template-columns: 1fr auto; } .place-row .hide-s { display: none; } }
 
+/* ---- stock by store ---- */
+.stockbar .stockrow { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+.stockbar select { width: auto; max-width: 100%; min-width: 150px; }
+.stockbar input[type=search] { min-width: 0; max-width: 100%; width: auto; }
+.stockbar .card-body { display: block; }
+.stockbar .stockrow + .stockrow { margin-top: 10px; }
+.stockbar input[type=search] { flex: 1 1 200px; }
+.stockbar input[type=range] { flex: 1 1 160px; max-width: 320px; }
+.stocksum { margin: 10px 0; }
+.sstores { display: grid; gap: 8px; margin-bottom: 20px; }
+.sstore { border: 1px solid var(--line); border-radius: var(--r-m); background: var(--raised); overflow: hidden; }
+.sstore.sel { border-color: var(--ok-strong); box-shadow: 0 0 0 1px var(--ok-strong); }
+.sstore-head { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border: 0; background: none; text-align: left; cursor: pointer; color: inherit; flex-wrap: wrap; }
+.sstore-head:hover { background: rgba(255,255,255,.05); }
+.sname { display: flex; flex-direction: column; min-width: 0; flex: 1 1 220px; overflow-wrap: anywhere; }
+.sbadges { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.chev { font-size: 12.5px; color: var(--act); font-weight: 600; }
+.sstore-peek { padding: 0 14px 12px; overflow-wrap: anywhere; }
+.sstore-body { border-top: 1px solid var(--line-soft); }
+.sprod { display: flex; justify-content: space-between; gap: 14px; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); align-items: baseline; }
+.sprod:last-child { border-bottom: 0; }
+.sprod .t { min-width: 0; overflow-wrap: anywhere; }
+.sprod .t .hint { display: block; }
+.sprice { white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; }
+.sprice.over { color: var(--warn); }
+.stockdot:focus-visible circle { stroke: var(--ink); stroke-width: 3; }
+
 /* save bar */
 .savebar { position: fixed; left: 200px; right: 0; bottom: 0; display: none; justify-content: flex-end; align-items: center; gap: 10px; padding: 12px 28px; background: var(--raised); border-top: 2px solid var(--act); z-index: 10; }
 .savebar.show { display: flex; }
@@ -748,7 +775,7 @@ const views = {
     setTimeout(loadPlaces);
     return [
       h("h1", { text: "Stores near you" }),
-      h("p", { class: "lede", text: "Stores around your areas that sell Pokemon cards, found from each chain's store finder and OpenStreetMap. Green stores get live shelf checks; blue ones are covered through their website; grey ones are listed so you know they exist." }),
+      h("p", { class: "lede", text: "Stores that have Pokemon cards in stock right now, from the latest checks. Pick an area and a radius, then click a store on the map or in the list to see exactly what it has. Tick the last box to also list every store near you." }),
       h("div", { id: "places-body" }, h("div", { class: "panel empty", text: "Loading stores" })),
     ];
   },
@@ -1516,7 +1543,7 @@ function mapView(areas, places, chains, opts = {}) {
   const inside = (p) => areas.some((a) => { const [ax, ay] = xy(a.lat, a.lon), [sx, sy] = xy(p.lat, p.lon); return Math.hypot(ax - sx, ay - sy) <= a.radius; });
   const color = { live: "var(--ok-strong)", online: "var(--act)", listed: "var(--faint)" };
   const byChain = Object.fromEntries((chains || []).map((c) => [c.key, c]));
-  (places || []).forEach((p) => {
+  (opts.hidePlaces ? [] : (places || [])).forEach((p) => {
     if (p.lat === null || p.lat === undefined || p.lon === null || p.lon === undefined) return;
     const [x, y] = P(p.lat, p.lon); if (x < -4 || x > W + 4 || y < -4 || y > H + 4) return;
     const cov = (byChain[p.chain] || {}).coverage || "listed", out = !inside(p);
@@ -1524,17 +1551,28 @@ function mapView(areas, places, chains, opts = {}) {
     dot.append(svgEl("title")); dot.firstChild.textContent = p.name + (p.distance !== null && p.distance !== undefined ? ", " + p.distance + " mi" : "") + (p.excluded ? " (skipped)" : out ? " (outside your areas)" : "");
     svg.append(dot);
   });
+  (opts.markers || []).forEach((m) => {   // stores with stock: big, clickable, on top of everything but the area centers
+    const [x, y] = P(m.lat, m.lon); if (x < -4 || x > W + 4 || y < -4 || y > H + 4) return;
+    const g = svgEl("g", { class: "stockdot" + (m.selected ? " sel" : ""), tabindex: "0", role: "button", "aria-label": m.label, style: "cursor:pointer" });
+    g.append(svgEl("circle", { cx: x, cy: y, r: m.selected ? 13 : 10, fill: "var(--ok-strong)", stroke: m.selected ? "var(--ink)" : "var(--bg)", "stroke-width": m.selected ? "3" : "2" }));
+    const t = svgEl("text", { x, y: y + 4, "text-anchor": "middle", "font-size": "11", "font-weight": "700", fill: "var(--bg)", style: "pointer-events:none" });
+    t.textContent = String(m.count); g.append(t);
+    const tt = svgEl("title"); tt.textContent = m.label; g.append(tt);
+    g.addEventListener("click", () => m.onclick && m.onclick());
+    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); m.onclick && m.onclick(); } });
+    svg.append(g);
+  });
   const placed = [];
   areas.forEach((a, i) => {   // centers and labels last so nothing covers them
     const [px, py] = centers[i], col = AREA_COLORS[i % AREA_COLORS.length];
-    svg.append(svgEl("circle", { cx: px, cy: py, r: 6.5, fill: col, stroke: "var(--bg)", "stroke-width": "2.5" }));
+    svg.append(svgEl("circle", { cx: px, cy: py, r: 6.5, fill: col, stroke: "var(--bg)", "stroke-width": "2.5", style: "pointer-events:none" }));
     const label = (a.name || "Area") + (a.zip ? " " + a.zip : "") + " · " + a.radius + " mi";
     const right = px < W * 0.62, tw = label.length * 7.4;
     let ty = Math.max(16, py - 12);
     const clash = (y) => placed.some((q) => Math.abs(q.y - y) < 16 && !(right ? px + 12 > q.x1 : px - 12 - tw > q.x1 || px - 12 < q.x0) && (right ? px + 12 + tw > q.x0 : true) && (right ? px + 12 < q.x1 : true));
     for (let n = 0; n < 6 && clash(ty); n++) ty += 16;        // two areas close together: stack their labels
     placed.push({ y: ty, x0: right ? px + 12 : px - 12 - tw, x1: right ? px + 12 + tw : px - 12 });
-    const t = svgEl("text", { x: right ? px + 12 : px - 12, y: ty, "text-anchor": right ? "start" : "end", "font-size": "13", "font-weight": "600", fill: "var(--ink)", stroke: "var(--bg)", "stroke-width": "4", "paint-order": "stroke", "stroke-linejoin": "round" });
+    const t = svgEl("text", { x: right ? px + 12 : px - 12, y: ty, "text-anchor": right ? "start" : "end", "font-size": "13", "font-weight": "600", fill: "var(--ink)", stroke: "var(--bg)", "stroke-width": "4", "paint-order": "stroke", "stroke-linejoin": "round", style: "pointer-events:none" });
     t.textContent = label; svg.append(t);
   });
   // scale bar and north arrow
@@ -1545,8 +1583,9 @@ function mapView(areas, places, chains, opts = {}) {
   const nt = svgEl("text", { x: W - 24, y: 52, "text-anchor": "middle", "font-size": "12", "font-weight": "600", fill: "var(--ink)" }); nt.textContent = "N"; svg.append(nt);
   const legend = h("div", { class: "legend" },
     areas.map((a, i) => h("span", {}, h("i", { style: "background:" + AREA_COLORS[i % AREA_COLORS.length] }), (a.name || "Area") + " circle")),
+    opts.markers ? h("span", {}, h("i", { style: "background:var(--ok-strong)" }), "Store with stock (number = products)") : [
     h("span", {}, h("i", { style: "background:var(--ok-strong)" }), COVERAGE.live), h("span", {}, h("i", { style: "background:var(--act)" }), COVERAGE.online),
-    h("span", {}, h("i", { style: "background:var(--faint)" }), COVERAGE.listed),
+    h("span", {}, h("i", { style: "background:var(--faint)" }), COVERAGE.listed)],
     opts.maxMiles ? h("span", {}, "Dashed ring: alert distance " + opts.maxMiles + " mi") : null);
   return h("div", { class: "panel radar-wrap" }, svg, legend);
 }
@@ -1579,6 +1618,107 @@ function drawAreaMap() {
   box.replaceChildren(...kids);
 }
 
+/* ---------- Stores near you: what is in stock, by store ---------- */
+const stockView = Object.assign({ area: "", radius: 0, chain: "", q: "", pickup: false, online: true, showAll: false }, store.get("restock-stockview", {}));
+let stockSel = "", stockSig = "";
+function saveStockView() { store.set("restock-stockview", { area: stockView.area, radius: stockView.radius, chain: stockView.chain, pickup: stockView.pickup, online: stockView.online, showAll: stockView.showAll }); }
+
+/* Every store with something in stock right now, from the monitor's latest checks, filtered by the chosen area and radius. */
+function stockStores() {
+  const d = placesData || { areas: [] };
+  const areas = d.areas || [];
+  const chosen = stockView.area ? areas.filter((a) => a.name === stockView.area) : areas;
+  const cap = Number(stockView.radius) || 0;
+  const q = stockView.q.trim().toLowerCase();
+  const stores = new Map(), online = [];
+  ((status && status.items) || []).forEach((it) => {
+    if (!it.in_stock || it.note || it.muted) return;
+    const pts = it.store_points || [];
+    if (!pts.length) { if (it.online && stockView.online && (!stockView.chain || it.retailer === stockView.chain) && (!q || it.title.toLowerCase().includes(q) || it.retailer_name.toLowerCase().includes(q))) online.push(it); return; }
+    pts.forEach((sp) => {
+      if (stockView.chain && (sp.chain || it.retailer) !== stockView.chain && it.retailer !== stockView.chain) return;
+      if (stockView.pickup && !sp.pickup) return;
+      // distance from the chosen area's centre (or the nearest area when "All areas")
+      let dist = null;
+      if (sp.point) chosen.forEach((a) => { if (a.lat === null || a.lat === undefined) return; const m = milesBetween([a.lat, a.lon], sp.point); if (dist === null || m < dist) dist = m; });
+      if (dist === null && sp.distance !== null && sp.distance !== undefined && (!stockView.area || sp.area === stockView.area || !sp.area)) dist = sp.distance;
+      if (dist === null) { if (stockView.area && sp.area && sp.area !== stockView.area) return; }
+      const within = chosen.length ? chosen.some((a) => { const m = sp.point && a.lat !== null && a.lat !== undefined ? milesBetween([a.lat, a.lon], sp.point) : (sp.area === a.name || !sp.area ? sp.distance : null); return m !== null && m !== undefined && m <= (cap || a.radius); }) : true;
+      if (!within) return;
+      const key = (sp.chain || it.retailer) + ":" + (sp.id || sp.name);
+      let s = stores.get(key);
+      if (!s) { s = { key, name: sp.name || sp.label, address: sp.address || "", retailer: sp.chain || it.retailer, retailer_name: it.retailer_name, point: sp.point, dist, area: sp.area, pickup: false, products: [] }; stores.set(key, s); }
+      s.pickup = s.pickup || !!sp.pickup;
+      if (dist !== null && (s.dist === null || dist < s.dist)) s.dist = dist;
+      s.products.push({ title: it.title, url: it.url, price: it.price, msrp: it.msrp, qty: sp.qty, low: sp.low, pickup: sp.pickup, stock: sp.stock || "in stock", type: it.type });
+    });
+  });
+  let list = [...stores.values()];
+  if (q) list = list.filter((s) => s.name.toLowerCase().includes(q) || s.retailer_name.toLowerCase().includes(q) || s.products.some((p) => p.title.toLowerCase().includes(q)));
+  list.sort((a, b) => (a.dist === null) - (b.dist === null) || (a.dist || 0) - (b.dist || 0) || a.name.localeCompare(b.name));
+  return { stores: list, online, areas, chosen };
+}
+
+function stockSection(d, chains) {
+  const r = stockStores(), areas = d.areas || [];
+  const maxR = Math.max(5, ...((stockView.area ? areas.filter((a) => a.name === stockView.area) : areas).map((a) => a.radius)), 5);
+  const radiusNow = Number(stockView.radius) || 0;
+  const rLabel = () => radiusNow ? radiusNow + " mi" : "area radius";
+  const redraw = () => { saveStockView(); drawPlaces(); };
+  const areaSel = h("select", { "aria-label": "Area", onchange: (e) => { stockView.area = e.target.value; stockView.radius = 0; stockSel = ""; redraw(); } },
+    h("option", { value: "", text: areas.length > 1 ? "All areas" : (areas[0] ? areas[0].name : "Area") }),
+    areas.length > 1 ? areas.map((a) => h("option", { value: a.name, text: a.name + " (" + a.zip + ", " + a.radius + " mi)", selected: stockView.area === a.name })) : null);
+  const radVal = h("span", { class: "radius-val", text: rLabel() });
+  const rad = h("input", { type: "range", min: "1", max: String(Math.max(maxR, 100)), step: "1", value: String(radiusNow || maxR), "aria-label": "Radius in miles",
+    oninput: (e) => { stockView.radius = Number(e.target.value); radVal.textContent = stockView.radius + " mi"; },
+    onchange: () => { stockSel = ""; redraw(); } });
+  const reset = h("button", { class: "btn quiet", type: "button", text: "Use area radius", onclick: () => { stockView.radius = 0; redraw(); } });
+  const chainKeys = [...new Set([...(r.stores.map((s) => s.retailer)), ...((status && status.items) || []).filter((i) => i.in_stock && !i.note).map((i) => i.retailer)])].sort();
+  const chainSel = h("select", { "aria-label": "Store", onchange: (e) => { stockView.chain = e.target.value; redraw(); } },
+    h("option", { value: "", text: "All stores" }), chainKeys.map((k) => h("option", { value: k, text: RETAILERS[k] || (chains[k] || {}).name || k, selected: stockView.chain === k })));
+  const q = h("input", { type: "search", placeholder: "Find a product or store", value: stockView.q, "aria-label": "Find a product or store",
+    oninput: (e) => { stockView.q = e.target.value; clearTimeout(q._t); q._t = setTimeout(() => { drawPlaces(); const el = document.querySelector("#stock-q"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 250); } });
+  q.id = "stock-q";
+  const chk = (label, key, extra) => h("label", { class: "switch" }, h("input", { type: "checkbox", checked: !!stockView[key], onchange: (e) => { stockView[key] = e.target.checked; stockSel = ""; if (extra) extra(); redraw(); } }), label);
+  const bar = h("div", { class: "card stockbar" }, h("div", { class: "card-body" },
+    h("div", { class: "wide stockrow" }, h("b", { text: "Area" }), areaSel, h("b", { text: "Within" }), rad, radVal, radiusNow ? reset : null),
+    h("div", { class: "wide stockrow" }, chainSel, q, chk("Pickup available", "pickup"), chk("Include online listings", "online"), chk("Also list stores with nothing in stock", "showAll"))));
+
+  const total = r.stores.length, products = new Set(r.stores.flatMap((s) => s.products.map((p) => p.title))).size;
+  const summary = h("p", { class: "lede stocksum", text: total ? total + " store" + (total === 1 ? "" : "s") + " with stock right now, " + products + " different product" + (products === 1 ? "" : "s")
+    + (r.online.length ? ", plus " + r.online.length + " online" : "") + ". Click a store on the map or in the list to see what it has."
+    : (status && status.items && status.items.length ? "Nothing is in stock at a store in range right now. Widen the radius, pick all areas, or tick the box below to see every store." : "No checks have finished yet. Start monitoring and stores with stock appear here by themselves.") });
+
+  // map: the chosen area(s) drawn at the chosen radius, with a dot for each store that has stock
+  const mapAreas = r.chosen.filter((a) => a.lat !== null && a.lat !== undefined).map((a) => ({ name: a.name, zip: a.zip, lat: a.lat, lon: a.lon, radius: radiusNow || a.radius }));
+  const markers = r.stores.filter((s) => s.point).map((s) => ({ lat: s.point[0], lon: s.point[1], count: s.products.length, selected: stockSel === s.key,
+    label: s.name + ": " + s.products.length + " product" + (s.products.length === 1 ? "" : "s") + (s.dist !== null ? ", " + s.dist.toFixed(1) + " mi" : ""),
+    onclick: () => { stockSel = stockSel === s.key ? "" : s.key; drawPlaces(); const t = [...document.querySelectorAll(".sstore")].find((x) => x.dataset.skey === s.key); if (t && stockSel) t.scrollIntoView({ block: "nearest", behavior: "smooth" }); } }));
+  const map = mapView(mapAreas, d.places, d.chains, { markers, hidePlaces: !stockView.showAll });
+
+  const money2 = (v) => v ? "$" + Number(v).toFixed(2) : "";
+  const card = (s) => {
+    const open = stockSel === s.key;
+    const first = s.products[0];
+    const head = h("button", { class: "sstore-head", type: "button", "aria-expanded": String(open), onclick: () => { stockSel = open ? "" : s.key; drawPlaces(); } },
+      h("span", { class: "sname" }, h("b", { text: s.name }), h("span", { class: "hint", text: [s.address, s.retailer_name].filter(Boolean).join(" , ").replace(" , ", ", ") })),
+      h("span", { class: "sbadges" },
+        s.pickup ? h("span", { class: "badge live", text: "Pickup" }) : null,
+        h("span", { class: "badge live", text: s.products.length + " in stock" }),
+        h("span", { class: "hint", text: s.dist !== null ? s.dist.toFixed(1) + " mi" + (r.chosen.length > 1 && s.area ? " from " + s.area : "") : "" }),
+        h("span", { class: "chev", text: open ? "Hide" : "Show" })));
+    const body = open ? h("div", { class: "sstore-body" }, s.products.map((p) => h("div", { class: "sprod" },
+      h("div", { class: "t" }, extLink(p.url, p.title), h("span", { class: "hint", text: (p.type ? p.type + ", " : "") + p.stock + (p.low ? " (low)" : "") })),
+      h("span", { class: "sprice" + (p.msrp && p.price && p.price > p.msrp * 1.05 ? " over" : ""), text: money2(p.price) + (p.msrp && p.price && p.price > p.msrp * 1.05 ? " (over MSRP)" : "") })))) :
+      h("div", { class: "sstore-peek hint", text: first.title + (s.products.length > 1 ? "  and " + (s.products.length - 1) + " more" : "") });
+    return h("div", { class: "sstore" + (open ? " sel" : ""), "data-skey": s.key }, head, body);
+  };
+  const online = r.online.length ? [h("h2", { text: "In stock online (" + r.online.length + ")" }), h("div", { class: "panel", style: "overflow:hidden" }, r.online.slice(0, 40).map((it) => h("div", { class: "sprod" },
+    h("div", { class: "t" }, extLink(it.url, it.title), h("span", { class: "hint", text: it.retailer_name + ", " + it.status })), h("span", { class: "sprice", text: money2(it.price) }))))] : null;
+  return [bar, summary, map || (areas.length ? h("div", { class: "panel empty", text: "The map needs your area's ZIP lookup (it works offline once installed)." }) : null),
+    total ? [h("h2", { text: "Stores with stock, nearest first" }), h("div", { class: "sstores" }, r.stores.map(card))] : null, online];
+}
+
 function drawPlaces() {
   const body = $("places-body"); if (!body || !placesData) return;
   const d = placesData, chains = Object.fromEntries((d.chains || []).map((c) => [c.key, c]));
@@ -1589,7 +1729,7 @@ function drawPlaces() {
   const notes = [];
   if (!d.geocoder) notes.push(h("div", { class: "verdict no", style: "margin-bottom:12px", text: "ZIP lookup is not installed, so the map and OpenStreetMap search are off. Run setup.ps1 again to add it." }));
   if (d.error) notes.push(h("p", { class: "hint", text: "Some sources didn't answer: " + d.error }));
-  if (!d.places.length) { body.replaceChildren(head, ...notes, h("div", { class: "panel empty", text: d.updated ? "No stores found in your areas. Try a larger radius." : "Store list not built yet. It builds a minute after the app starts, or press Find stores again." })); return; }
+  const noPlaces = !d.places.length;
   const byChain = {};
   d.places.forEach((p) => (byChain[p.chain] = byChain[p.chain] || []).push(p));
   const order = Object.keys(byChain).sort((a, b) => ({ live: 0, online: 1, listed: 2 }[(chains[a] || {}).coverage] - { live: 0, online: 1, listed: 2 }[(chains[b] || {}).coverage]) || (byChain[a][0].distance ?? 999) - (byChain[b][0].distance ?? 999));
@@ -1603,8 +1743,12 @@ function drawPlaces() {
         c.coverage === "live" && p.store_id ? h("button", { class: "btn quiet", type: "button", text: p.excluded ? "Check this store" : "Skip this store",
           onclick: async () => { try { await api("/api/action", { action: "exclude_store", key: p.key, excluded: !p.excluded }); loadPlaces(); } catch (e) { toast(e.message, true); } } }) : h("span", {}))))];
   });
-  body.replaceChildren(head, ...notes, radar(d) || h("span"), ...sections.flat());
+  const stockPart = stockSection(d, chains);
+  body.replaceChildren(head, ...notes, ...stockPart.flat(Infinity).filter(Boolean),
+    ...(stockView.showAll ? [h("h2", { text: "Every store near you" }), noPlaces ? h("div", { class: "panel empty", text: d.updated ? "No stores found in your areas. Try a larger radius." : "Store list not built yet. It builds a minute after the app starts, or press Find stores again." }) : null, ...sections.flat()] : []));
+  stockSig = stockSignature();
 }
+function stockSignature() { return JSON.stringify(((status && status.items) || []).filter((i) => i.in_stock && !i.note).map((i) => [i.key, (i.store_points || []).map((s) => s.id || s.name)])); }
 
 function drawFound() {
   const body = $("found-body"); if (!body || !catalogData) return;
@@ -1725,6 +1869,7 @@ async function poll() {
   try {
     status = await api("/api/status"); drawStrip();
     if (tab === "dash") drawDash();
+    if (tab === "places" && placesData && stockSignature() !== stockSig && !(document.activeElement && document.activeElement.id === "stock-q")) drawPlaces();
     if (tab === "methods" || tab === "accounts") {
       // Rebuild only when this tab's own numbers changed, and never while the person is selecting text or typing,
       // so a refresh does not wipe a selection, a half-typed field or the scroll position.

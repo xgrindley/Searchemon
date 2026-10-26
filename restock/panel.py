@@ -348,7 +348,7 @@ class _Handler(BaseHTTPRequestHandler):
                     threading.Thread(target=_safe(m, m.refresh_places), daemon=True).start()
                 elif action == "scan_start":
                     ok, msg = m.scan.start(body.get("zip"), body.get("radius"), body.get("stores"),
-                                           bool(body.get("online")))
+                                           bool(body.get("online")), bool(body.get("everything")))
                     return self._json(200, {"ok": ok, "message": msg})
                 elif action == "trial_toggle":
                     ok, msg = m.trials.set_active(str(body.get("key")), bool(body.get("on")))

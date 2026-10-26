@@ -49,6 +49,21 @@ class FakeTarget(Retailer):
                                price=59.99, online=True, online_status="IN_STOCK", stores=stores_around(pt)) for i in ids}
 
 
+class SearchTarget(FakeTarget):
+    asked: list = []
+
+    def search(self, query, limit):
+        mk = lambda i, t: StockResult("target", "Target", i, t, f"https://www.target.com/p/-/A-{i}")
+        return [mk("900", "Pokemon Trading Card Game Scarlet & Violet Elite Trainer Box"),
+                mk("901", "Pokemon Trading Card Game Booster Bundle"),
+                mk("902", "Garden Hose 50 ft")]                      # not a card product
+
+    def check_ids(self, ids, in_store):
+        SearchTarget.asked.append(list(ids))
+        return {i: StockResult("target", "Target", i, "Elite Trainer Box", f"https://www.target.com/p/-/A-{i}",
+                               price=49.99, stores=stores_around(POINT)) for i in ids}
+
+
 class BlockedCVS(Retailer):
     name, display, supports_in_store = "cvs", "CVS", True
 
@@ -56,8 +71,8 @@ class BlockedCVS(Retailer):
         raise Blocked("CVS refused the request", 600)
 
 
-def run_scan(mon, radius=15, stores=None, online=False, wait=10):
-    ok, msg = mon.scan.start(ZIP, radius, stores, online)
+def run_scan(mon, radius=15, stores=None, online=False, wait=10, everything=False):
+    ok, msg = mon.scan.start(ZIP, radius, stores, online, everything)
     assert ok, msg
     end = time.time() + wait
     while mon.scan.running and time.time() < end:
@@ -134,6 +149,38 @@ class ScanTests(unittest.TestCase):
     def test_radius_is_capped(self):
         snap = run_scan(self.mon, radius=5000, stores=["target"])
         self.assertEqual(snap["radius"], float(scan_mod.MAX_RADIUS))
+
+    def test_search_every_product_finds_products_you_never_added(self):
+        SearchTarget.asked = []
+        with mock.patch.dict(scan_mod.REGISTRY, {"target": SearchTarget}):
+            snap = run_scan(self.mon, stores=["target"], everything=True)
+        asked = {i for chunk in SearchTarget.asked for i in chunk}
+        self.assertTrue({"900", "901"} <= asked)         # found by the live search, nothing added by hand
+        self.assertNotIn("902", asked)                   # a garden hose is not a card product
+        self.assertTrue(snap["everything"])
+        self.assertTrue(snap["rows"])
+
+    def test_search_every_product_uses_every_store_that_is_on(self):
+        with mock.patch.dict(scan_mod.REGISTRY, {"target": SearchTarget}):
+            snap = run_scan(self.mon, stores=["cvs"], everything=True)    # the hand-picked list is ignored
+        on = set(self.mon.cfg.enabled_retailers()) & set(scan_mod.SCAN_STORES)
+        self.assertEqual(set(snap["stores"]), on)         # every store that is on, however many were ticked
+
+    def test_search_every_product_skips_types_you_turned_alerts_off_for(self):
+        SearchTarget.asked = []
+        self.mon.cfg.raw["product_types"] = {"booster_bundle": {"alert": False}}
+        with mock.patch.dict(scan_mod.REGISTRY, {"target": SearchTarget}):
+            run_scan(self.mon, stores=["target"], everything=True)
+        asked = {i for chunk in SearchTarget.asked for i in chunk}
+        self.assertNotIn("901", asked)                   # the Booster Bundle type is turned off
+        self.assertIn("900", asked)
+
+    def test_off_keeps_the_old_behaviour(self):
+        SearchTarget.asked = []
+        with mock.patch.dict(scan_mod.REGISTRY, {"target": SearchTarget}):
+            run_scan(self.mon, stores=["target"], everything=False)
+        asked = {i for chunk in SearchTarget.asked for i in chunk}
+        self.assertNotIn("900", asked)
 
     def test_nothing_is_written_to_disk(self):
         data = os.path.join(os.path.dirname(self.mon.config_path), "data")

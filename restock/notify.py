@@ -25,6 +25,20 @@ RETAILER_COLORS = {
 EMBED_BUDGET = 5600   # Discord rejects an embed over 6000 characters in total
 
 
+def msrp_text(price: float | None, msrp: float) -> str:
+    """'$17.99' plus how the price compares, e.g. '$17.99 (at MSRP)' or '$17.99 ($10.00 over)'."""
+    text = f"${float(msrp):.2f}"
+    if price:
+        diff = round(float(price) - float(msrp), 2)
+        if abs(diff) < 0.01:
+            text += " (at MSRP)"
+        elif diff > 0:
+            text += f" (${diff:.2f} over)"
+        else:
+            text += f" (${-diff:.2f} under)"
+    return text
+
+
 def embed_size_so_far(title: str, desc: str, fields: list[dict], footer_len: int = 0) -> int:
     return len(title) + 12 + len(desc) + footer_len + sum(len(f["name"]) + len(f["value"]) for f in fields)
 
@@ -203,10 +217,10 @@ class DiscordNotifier:
         if res.type_label:
             fields.append({"name": "Product", "value": res.type_label, "inline": True})
         if res.price is not None:
-            price = f"${res.price:.2f}"
-            if res.msrp:
-                price += f" (MSRP ${res.msrp:.2f})"
-            fields.append({"name": "Price", "value": price, "inline": True})
+            fields.append({"name": "Price", "value": f"${res.price:.2f}", "inline": True})
+        msrp = res.ref_msrp or res.msrp
+        if msrp:
+            fields.append({"name": "MSRP", "value": msrp_text(res.price, msrp), "inline": True})
         if res.online:
             fields.append({"name": "Online", "value": res.online_status or "In stock", "inline": True})
         store_fields = self._store_fields(res, set(new_store_ids)) if res.stores else []
@@ -294,6 +308,8 @@ class DiscordNotifier:
                   {"name": "Product", "value": item.get("type_label") or "Pokemon product", "inline": True}]
         if item.get("price"):
             fields.append({"name": "Price", "value": f"${item['price']:.2f}", "inline": True})
+        if item.get("msrp"):
+            fields.append({"name": "MSRP", "value": msrp_text(item.get("price"), item["msrp"]), "inline": True})
         embed = {"title": f"New listing: {item['title']}"[:256], "url": clean_url(item["url"]), "color": BLUE,
                  "description": "Just appeared in the store's catalog. It may not be buyable yet; "
                                 "the monitor now tracks it and alerts when it is in stock.",

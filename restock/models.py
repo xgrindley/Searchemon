@@ -67,6 +67,7 @@ class StockResult:
     confirmed: bool = False           # re-checked before alerting
     watch_name: str | None = None
     msrp: float | None = None
+    ref_msrp: float | None = None     # MSRP to show in alerts (own MSRP, else the product type's)
     note: str = ""
 
     @property

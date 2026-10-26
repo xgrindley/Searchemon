@@ -1,7 +1,9 @@
 # Changelog
 
 ## v4.1 (test build, in progress)
-- Test builds continue here after the v4.0 stable release. Nothing new yet.
+- **MSRP in Discord alerts.** Every in-stock alert now has an MSRP field next to Price, with how the price compares, for example
+  `$17.99 (at MSRP)` or `$59.99 ($20.00 over)`. It uses the product's own MSRP when you set one, otherwise the MSRP of its product type
+  (your Product types settings win over the built-in list), otherwise a matching title price rule. New listing alerts show it too.
 
 ## v4.0 (2026-10-26, stable release)
 - Declared stable by the owner. It is exactly test build v3.6 (saved as build/v3.6), with the version number changed to 4.0.

@@ -46,6 +46,20 @@ def price_limit(result: StockResult, cfg: Config, search_max: float | None = Non
     return None
 
 
+def display_msrp(result: StockResult, cfg: Config) -> float | None:
+    """The MSRP to show in an alert: the product's own, else its product type's
+    (your Product types setting wins over the built-in list), else a title price rule."""
+    if result.msrp:
+        return float(result.msrp)
+    annotate(result, cfg)
+    if result.type_key:
+        msrp = type_settings(cfg.raw).get(result.type_key, {}).get("msrp")
+        if msrp not in (None, ""):
+            return float(msrp)
+    rule = cfg.price_limit_for(result.title)
+    return float(rule) if rule else None
+
+
 def passes(result: StockResult, cfg: Config, keywords: KeywordFilter | None = None,
            search_max: float | None = None, check_type: bool = True) -> tuple[bool, str]:
     settings = cfg.settings

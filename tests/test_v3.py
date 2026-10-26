@@ -319,6 +319,42 @@ class AccuracyTests(Base):
         self.assertIn("Confirmed on a second check.", self.posts[0]["embeds"][0]["description"])
         self.assertEqual(self.posts[0]["embeds"][0]["fields"][1]["value"], "Elite Trainer Box")
 
+    def _field(self, post, name):
+        return next((f["value"] for f in post["embeds"][0]["fields"] if f["name"] == name), None)
+
+    def test_alert_shows_msrp_from_product_type(self):
+        again = StockResult("target", "Target", "1", "Pokemon TCG Elite Trainer Box", "u", price=49.99, online=True, online_status="In Stock")
+        mon, r = self._monitor([{"1": again}])
+        first = StockResult("target", "Target", "1", "Pokemon TCG Elite Trainer Box", "u", price=49.99, online=True, online_status="In Stock")
+        mon.handle(first, None, None, r)
+        msrp = self._field(self.posts[0], "MSRP")
+        self.assertIsNotNone(msrp)
+        self.assertTrue(msrp.startswith("$"))
+        self.assertEqual(self._field(self.posts[0], "Price"), "$49.99")
+
+    def test_alert_msrp_uses_your_type_setting_and_shows_difference(self):
+        mon, r = self._monitor([])
+        mon.cfg.raw["settings"]["confirm_restocks"] = False
+        mon.cfg.raw["product_types"] = {"etb": {"msrp": 45.00}}
+        mon.cfg.settings["msrp_tolerance_pct"] = 20
+        res = StockResult("target", "Target", "1", "Pokemon TCG Elite Trainer Box", "u", price=49.99, online=True)
+        mon.handle(res, None, None, r)
+        self.assertEqual(self._field(self.posts[0], "MSRP"), "$45.00 ($4.99 over)")
+
+    def test_alert_msrp_prefers_products_own(self):
+        mon, r = self._monitor([])
+        mon.cfg.raw["settings"]["confirm_restocks"] = False
+        res = StockResult("target", "Target", "1", "Pokemon TCG Elite Trainer Box", "u", price=49.99, online=True, msrp=49.99)
+        mon.handle(res, None, None, r)
+        self.assertEqual(self._field(self.posts[0], "MSRP"), "$49.99 (at MSRP)")
+
+    def test_msrp_text_cases(self):
+        from restock.notify import msrp_text
+        self.assertEqual(msrp_text(17.99, 17.99), "$17.99 (at MSRP)")
+        self.assertEqual(msrp_text(79.99, 59.99), "$59.99 ($20.00 over)")
+        self.assertEqual(msrp_text(4.00, 4.99), "$4.99 ($0.99 under)")
+        self.assertEqual(msrp_text(None, 4.99), "$4.99")
+
     def test_type_switch_and_type_msrp(self):
         mon, r = self._monitor([])
         mon.cfg.raw["settings"]["confirm_restocks"] = False

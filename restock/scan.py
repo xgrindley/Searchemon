@@ -19,7 +19,7 @@ from .models import StockResult
 from .retailers import REGISTRY, route_url
 from .retailers.base import Blocked
 from .tcg import classify, type_settings
-from .util import clean_url, normalize_upc
+from .util import clean_url
 
 SCAN_STORES = ("target", "bestbuy", "kroger", "gamestop", "cvs")   # the stores that publish shelf stock
 MAX_PRODUCTS = 30            # products asked about per store in one scan (your products only mode)

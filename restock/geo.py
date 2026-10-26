@@ -56,7 +56,7 @@ def zip_point(zip_code: str) -> tuple[float, float] | None:
 
 
 def zip_place(zip_code: str) -> str:
-    """'Sparks, NV' style label for a ZIP, when known."""
+    """'Anytown, NV' style label for a ZIP, when known."""
     try:
         import zipcodes  # type: ignore
         rows = zipcodes.matching(clean_zip(zip_code))

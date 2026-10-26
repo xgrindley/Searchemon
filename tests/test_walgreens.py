@@ -14,7 +14,7 @@ from restock.retailers.pages import Walgreens, parse_walgreens_stores  # noqa: E
 NESTED = {"results": [
     {"store": {"storeNumber": "3459", "name": "Walgreens", "address": {"street": "100 Main St", "city": "Reno", "zip": "89502-1234"}},
      "latitude": "39.52", "longitude": "-119.80", "distance": "1.2"},
-    {"store": {"storeNumber": "1111", "address": {"street": "9 Elm", "city": "Sparks", "zip": "89431"}},
+    {"store": {"storeNumber": "1111", "address": {"street": "9 Elm", "city": "Anytown", "zip": "89431"}},
      "latitude": 39.54, "longitude": -119.75},
     {"store": {"storeNumber": "2222"}},                      # no position: skipped
 ]}
@@ -35,7 +35,7 @@ class WalgreensTests(unittest.TestCase):
     def make(self, key="K123"):
         raw = {"retailers": {"walgreens": {"enabled": True, "api_key": key}}, "settings": {"link_delay_seconds": 0}}
         d = tempfile.mkdtemp()
-        areas = [Area("Home", "89436", 10, 39.6, -119.7)]
+        areas = [Area("Home", "12345", 10, 39.6, -119.7)]
         cfg = Config(path=os.path.join(d, "config.yaml"), raw=raw, watchlist=[], searches=[], keywords=KeywordFilter(),
                      price_rules=[], areas=areas)
         w = Walgreens(cfg, logging.getLogger("wag"))

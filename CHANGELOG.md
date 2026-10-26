@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.1 (2026-10-26, test build, follows stable v3.0)
+Due diligence pass.
+- **Quiet interruptions:** when you save settings or close the app while a browser check is running, the check is dropped
+  quietly. Before, it logged a long error (browser has been closed) and counted as a failed check against that store, which
+  also dragged down its trust rating. Your log showed 57 of these (Walmart, Pokemon Center, CVS).
+- **Privacy clean-up of the repository:** your Windows user name, home ZIP, area names and a real local store address were in
+  example text and tests in the public repo. They are replaced with neutral examples (12345, Anytown). The older commits
+  on GitHub still contain them; removing them from history needs a history rewrite, which is your call.
+- Removed two unused imports.
+- Checked and found fine: no webhook URLs, API keys or private keys are committed (the PEM blocks in tests are throwaway
+  fixtures); the control panel checks the Host header, needs a session token or PIN and only listens on this PC unless you
+  switch on allow_lan with a PIN.
+- Seen in your log, not changed: Kroger is switched on without a client ID and secret (it pauses every cycle; switch it off in
+  Stores & keys or add the free keys), and Target is blocked by PerimeterX (see v2.10).
+
+To test v3.1 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+`VERSION` should print 3.1. Close the running app first.
+
 ## v3.0 (2026-10-26, stable release)
 - Declared stable by the owner. It is exactly test build v2.10 (saved as build/v2.10), with the version number
   changed to 3.0. Everything listed under v2.10 to v2.1 below is in it: the trial methods, Method control with
@@ -84,7 +107,7 @@ powershell -ExecutionPolicy Bypass -File .\run.ps1
 ## v2.7 (2026-10-26, test build, includes v2.6)
 - Stores & speed: the labels in "Free keys for more shelf checks" are wider, so "Walmart.io private key file" is no
   longer cut off, and the key file box is about twice as wide so a full path such as
-  C:\Users\Grindley\Documents\poke-restock\walmart-private.pem shows without scrolling. The saved value was never cut off.
+  %USERPROFILE%\Documents\poke-restock\walmart-private.pem shows without scrolling. The saved value was never cut off.
 
 To test v2.7 (PowerShell):
 ```
@@ -178,7 +201,7 @@ To test v2.3 (PowerShell):
 cd "$HOME\Documents\poke-restock"
 Get-Content .\VERSION
 powershell -ExecutionPolicy Bypass -File .\start-my-chrome.ps1
-powershell -ExecutionPolicy Bypass -File .\learn-traffic.ps1 -Site gamestop -Zip 89436 -ProductId 123456
+powershell -ExecutionPolicy Bypass -File .\learn-traffic.ps1 -Site gamestop -Zip 12345 -ProductId 123456
 powershell -ExecutionPolicy Bypass -File .\run.ps1
 ```
 - Trust report: the top of Methods lab now rates every store Reliable (90% or more of recent real checks
@@ -188,7 +211,7 @@ powershell -ExecutionPolicy Bypass -File .\run.ps1
 - Official feeds: Best Buy and Kroger have official developer APIs that use no bot checks. A store that is on
   but has no key shows "Needs setup", and a store that is off but could use its feed is listed under the table.
   Target already uses its own data feed. Other stores publish no feed, so they stay on page checks.
-- Learn from your own browsing (idea from Klura): `learn-traffic.ps1 -Site gamestop -Zip 89436 -ProductId <id>`
+- Learn from your own browsing (idea from Klura): `learn-traffic.ps1 -Site gamestop -Zip 12345 -ProductId <id>`
   listens, through your own Chrome's DevTools port on this PC, to the data requests the store's page makes while
   you use its own "check nearby stores" box. It keeps only JSON answers, no cookies or headers, with token-like
   values blanked, ranks the ones that look like stock or store answers, and saves the replayable ones as

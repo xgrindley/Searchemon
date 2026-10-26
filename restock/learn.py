@@ -11,7 +11,7 @@ request body and the JSON answer are kept, and values of keys that look like tok
 replaced with "REDACTED". Everything stays in data\\learned on this PC. Nothing is sent anywhere.
 It records only what your own page already did while you browsed normally; it does not change or send requests.
 
-    python -m restock.learn --site gamestop --zip 89436 --pid 123456 --seconds 180 --save
+    python -m restock.learn --site gamestop --zip 12345 --pid 123456 --seconds 180 --save
 """
 from __future__ import annotations
 

@@ -78,3 +78,33 @@ class MonitorRestoresHealth(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InterruptedChecks(unittest.TestCase):
+    def test_a_closed_browser_is_not_a_store_failure(self):
+        import threading
+        tmp = tempfile.mkdtemp()
+        cfg = os.path.join(tmp, "config.yaml")
+        with open(cfg, "w") as fh:
+            fh.write("discord: {webhooks: {default: ''}}\nareas: []\nwatchlist: []\n")
+        mon = Monitor(cfg)
+
+        class Fake:
+            name, display, last_via = "fake", "Fake", "direct"
+            rcfg = {"interval_seconds": 60}
+            calls = 0
+
+            def using_browser(self):
+                return False
+
+        fake = Fake()
+        mon.retailers = {"fake": fake}
+        mon.run_cycle = lambda r: (_ for _ in ()).throw(Exception("Page.goto: Target page, context or browser has been closed"))
+        stop = threading.Event()
+        t = threading.Thread(target=mon._loop, args=("fake", 0, stop, threading.Event()), daemon=True)
+        with self.assertNoLogs(mon.log, level="ERROR"):
+            t.start()
+            time.sleep(0.3)
+            stop.set()
+            t.join(3)
+        self.assertEqual(mon.store_history.recent("fake"), [])

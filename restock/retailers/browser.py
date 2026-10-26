@@ -637,6 +637,18 @@ class BrowserPool:
         return [{"profile": p, "site": d, "minutes": int((t - now) / 60) + 1}
                 for (p, d), t in self.rest.items() if t > now]
 
+    def ensure_stealth(self) -> None:
+        """Create the separate stealth profile the first time it is wanted (no restart needed)."""
+        with self._attach_lock:
+            if any(getattr(w, "stealth", False) for w in self.workers) or not patchright_installed():
+                return
+            folder = os.path.join(self._data_dir, "browser-profiles", "stealth")
+            worker = BrowserWorker(self._raw, self._data_dir, self.log, self._on_human, self._on_verified,
+                                   name="stealth", channel="chrome", profile_dir=folder, stealth=True)
+            worker.on_reopen = self.on_reopen
+            self.workers.append(worker)
+            self.log.info("The stealth browser profile was added")
+
     # ---- your own Chrome ---------------------------------------------------------------
     def _own_chrome_sites(self) -> list[str]:
         mine = [str(x).lower() for x in (self.bcfg.get("own_chrome_sites") or [])]

@@ -187,8 +187,8 @@ class Retailer:
             TRIALS.skip(self.name, arm, str(exc))
             return None
         except Exception as exc:  # network trouble on the trial path: not a block, so not counted
-            self.log.debug("%s: trial '%s' network error %s", self.display, arm.key, exc.__class__.__name__)
-            TRIALS.skip(self.name, arm, exc.__class__.__name__, minutes=1)
+            self.log.debug("%s: trial '%s' failed to load (%s)", self.display, arm.key, exc.__class__.__name__)
+            TRIALS.fail(self.name, arm, exc.__class__.__name__)
             return None
         status, text, headers, final = resp
         info = classify(status, text, headers)
@@ -200,6 +200,7 @@ class Retailer:
         if not ok:
             self.log.info("%s: trial method '%s' was blocked (%s); using the normal method this time",
                           self.display, arm.key, info.message(self.display))
+            time.sleep(random.uniform(3, 8))     # do not hit a store that just refused us with an instant second request
             return None
         self.last_via = "direct"
         return FetchResult(status, text, final, info)
@@ -225,8 +226,9 @@ class Retailer:
                 TRIALS.mark_unavailable(arm.key, msg)
                 TRIALS.skip(self.name, arm, msg)
                 return None
+            pool.ensure_stealth()
             if not any(getattr(w, "stealth", False) and w.usable for w in pool.workers):
-                TRIALS.skip(self.name, arm, "stealth profile not started yet; restart the app after switching it on")
+                TRIALS.skip(self.name, arm, "the stealth browser could not start (see the log)")
                 return None
         if pick == "own" and not any(getattr(w, "cdp_url", "") and w.usable for w in pool.workers):
             TRIALS.skip(self.name, arm, "your own Chrome is not running")
@@ -238,6 +240,7 @@ class Retailer:
                 raise
             TRIALS.note(self.name, arm, False, "blocked")
             self.log.info("%s: trial method '%s' was blocked; using the normal method this time", self.display, arm.key)
+            time.sleep(random.uniform(3, 8))
             return None
         TRIALS.note(self.name, arm, True)
         return res

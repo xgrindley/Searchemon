@@ -1,5 +1,33 @@
 # Changelog
 
+## v2.9 (2026-10-26, test build, includes v2.8)
+- **Method control** in the Methods lab, right under "Can I trust each store?": one row per trial method with a Turn on / Turn off
+  button and quick numbers (checks in all, % blocked in all, attempts since it was switched on with a failure bar, and a
+  "Best so far" badge). **Keep only the best 3** and **Turn off all trials** are one-press buttons. Changes apply at once.
+- **Auto-stop:** a trial method that is on is switched off by itself once it has had MORE than 25 attempts and 50% or more of
+  them failed or were blocked. Errors (a page that would not load) count as failed. The numbers are settings
+  (trials: stop_after, stop_fail_pct, auto_stop) and are editable in the Methods lab. The normal methods are never stopped.
+- **Summary:** a banner lists anything that was stopped automatically, each row says when and how many failed, and a short
+  "What happened" list shows the last switches. Turning a stopped method back on gives it a fresh count.
+- **Remembered:** the on/off choices, the attempt counts and the stopped list are saved in data\trial-state.json, so after a
+  restart everything is as you left it. Once you use a button, that saved list wins over config.yaml.
+- Turning on the stealth browser now starts its profile straight away, no restart needed.
+- A trial method that is blocked no longer sends the normal retry instantly: it waits a few seconds first, so one block does
+  not turn into two quick requests at the same store.
+- The trial method descriptions were running together; each line now sits on its own row.
+- **CVS fix:** items CVS marks "Item for in store purchase only" were being read as in stock online (the page data reports
+  the store it picked from your location). They now count as in store only: no "online restock" alert, and the alert lists
+  the stores that really have them with the quantity at each and the address. Stores showing 0 are left out.
+- Tests: tests\test_methodcontrol.py (the 25 attempt / 50% rule, buttons, best 3, restart), tests\test_cvs.py.
+
+To test v2.9 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+`VERSION` should print 2.9. Close the running app first. Open the control panel, **Methods lab**, and look under "Can I trust each store?" for **Method control**. Turn a method off, close the app, start it again, and it should still be off.
+
 ## v2.8 (2026-10-26, test build, includes v2.7)
 - New tab in the control panel: **Find stock near a ZIP**. Type a ZIP, drag the radius (1 to 100 miles), pick which stores to
   ask, and press **Scan now**. The app asks Target, Best Buy, Kroger, GameStop and CVS which of their stores in that circle

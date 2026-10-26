@@ -114,7 +114,7 @@ class Monitor:
             self.trials = TrialPlan(self.cfg.raw, self.cfg.data_dir, self.log, self.tracker)
             set_trials(self.trials)
         else:
-            self.trials.raw = self.cfg.raw
+            self.trials.attach(self.cfg.raw)
         if self.browser is None:
             # The checking browsers (one per profile) are kept across settings reloads.
             # Each only launches the first time a site actually needs it.

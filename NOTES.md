@@ -2,7 +2,7 @@
 
 Read this first when picking the project back up. Newest entries at the top of each section.
 
-## State (v2.0 stable; working on test build v2.8)
+## State (v2.0 stable; working on test build v2.9)
 - Repo: github.com/xgrindley/Searchemon (public). main = the latest stable release only (v2.0, declared 2026-10-25), test = current work (next test build is v2.9). See RELEASING.md.
 - Version scheme: stable v1.0, v2.0, v3.0...; tests count up from the release (v2.1, v2.2, v2.3, v2.4, v2.5...). v1.0 was v0.6 promoted, v2.0 is v1.2 promoted.
 - Windows app, Python 3.13 venv, tkinter window + local control panel at 127.0.0.1:8765.
@@ -27,6 +27,12 @@ Read this first when picking the project back up. Newest entries at the top of e
   (direct, or the profile name). Trace: data\trial-log.jsonl. Panel: Methods lab, "Trial methods".
 - Not covered: API stores (Target, Best Buy, Kroger) go through Retailer.get, not fetch_html.
 - Needs a live check on the PC: httpx[http2] install (setup.ps1), browser-own with start-my-chrome.ps1 running.
+
+## Method control (v2.9)
+- trials.py keeps data/trial-state.json: active list, per-method attempt counters (since switched on), stopped records, last 30 events.
+- Auto-stop: attempts > stop_after (25) and fails/attempts >= stop_fail_pct (50). Only trial arms; controls are never counted.
+- After the first button press the saved active list overrides config.yaml (TrialPlan.attach).
+- CVS: "in store purchase only" text overrides the page's InStock data (online=False, status "In store only").
 
 ## ZIP scan (v2.8)
 - restock/scan.py ZipScan: manual only (panel tab "Find stock near a ZIP", /api/scan, actions scan_start and scan_cancel).

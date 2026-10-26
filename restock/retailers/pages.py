@@ -198,7 +198,8 @@ class WebPage(Retailer):
                 price=info["price"],
                 upc=normalize_upc(info["upc"]) or None,
                 online=status == "in",
-                online_status=("Pre-order" if info.get("preorder") and status == "in" else
+                online_status=("In store only" if info.get("store_only") else
+                               "Pre-order" if info.get("preorder") and status == "in" else
                                {"in": "In stock", "out": "Out of stock"}.get(status, "Unknown (no stock data on page)")),
                 image=info["image"],
                 third_party=self.third_party(info.get("seller")),
@@ -631,6 +632,17 @@ class CVS(WebPage):
 
     supports_in_store = True
     _warned_stores = False
+
+    def parse(self, html: str, url: str) -> dict:
+        """CVS marks many Pokemon products 'Item for in store purchase only' while the page data still says
+        InStock (for the store the page picked from your location). Those are not for sale online: only the
+        shelf counts at stores count."""
+        info = super().parse(html, url)
+        text = normalize_text(page_text(html))
+        if "in store purchase only" in text or "not available for shipping" in text:
+            info["status"] = "out"
+            info["store_only"] = True
+        return info
 
     def store_stock(self, pid: str, referer: str) -> list:
         allowed = {str(x) for x in self.rcfg.get("store_ids") or [] if str(x).strip()}

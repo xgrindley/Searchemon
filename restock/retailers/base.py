@@ -84,6 +84,11 @@ class Retailer:
         })
 
     # ---- override these -------------------------------------------------
+    def setup_needed(self) -> str:
+        """A short plain-words note when this store cannot be checked until you add something (a free developer
+        key, for example). Empty when it is ready. Such a store is skipped quietly instead of being counted as blocked."""
+        return ""
+
     def resolve_upc(self, upc: str) -> str | None:
         return None
 
@@ -330,10 +335,12 @@ class Retailer:
         return self._via_browser(url, post=payload, referer=referer)
 
     def _via_browser(self, url: str, post: dict | None = None, referer: str = "",
-                     pick: str = "", label: str = "") -> FetchResult:
+                     pick: str = "", label: str = "", wait_re: str = "") -> FetchResult:
         try:
             if post is None:
                 extra = {"pick": pick, "label": label} if pick else {}
+                if wait_re:
+                    extra["wait_re"] = wait_re
                 res = self.browser.fetch(url, **extra)  # type: ignore[union-attr]
             else:
                 res = self.browser.fetch(url, post=post, referer=referer)  # type: ignore[union-attr]

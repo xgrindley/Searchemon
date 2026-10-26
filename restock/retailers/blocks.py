@@ -27,7 +27,9 @@ _STRONG = (
                     "checking your browser before accessing", "<title>just a moment...")),
     ("DataDome", ("captcha-delivery.com", "geo.captcha-delivery")),
     ("Amazon", ("/errors/validatecaptcha", "api-services-support@amazon.com", "enter the characters you see below")),
-    ("Akamai", ("errors.edgesuite.net", "sec-if-cpt-container", "akamai bot manager")),
+    # Akamai's "Challenge Validation" page (a short proof-of-work a real browser passes by itself; Walgreens uses it).
+    ("Akamai", ("errors.edgesuite.net", "sec-if-cpt-container", "akamai bot manager", "sec-cpt-if", "cp_clge_done",
+                "<title>challenge validation")),
     ("Generic", ("robot or human", "are you a human", "verify you are human", "verify you are a human",
                  "unusual traffic from your", "please enable js and disable any ad blocker")),
 )

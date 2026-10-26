@@ -381,7 +381,8 @@ class DiscoveryTests(Base):
                      StockResult("target", "Target", "12", "Pokemon Plush Pikachu", "u", price=19.99, online_status="UNCHECKED")],
                     [StockResult("target", "Target", "11", "Pokemon TCG Elite Trainer Box", "u", price=49.99, online_status="UNCHECKED"),
                      StockResult("target", "Target", "13", "Pokemon TCG Ultra Premium Collection", "u", price=119.99, online_status="UNCHECKED")]]
-        r.search = mock.Mock(side_effect=lambda q, n: listings.pop(0))
+        # Each refresh asks several searches; every search in a refresh sees the same store listing.
+        r.search = mock.Mock(side_effect=lambda q, n: list(listings[0]))
         stock = {"11": True, "13": False}
         r.check_ids = mock.Mock(side_effect=lambda ids, in_store: {
             i: StockResult("target", "Target", i, {"11": "Pokemon TCG Elite Trainer Box", "13": "Pokemon TCG Ultra Premium Collection"}[i],
@@ -390,6 +391,7 @@ class DiscoveryTests(Base):
         self.assertEqual(sorted(mon.catalog.items), ["target:11"])
         self.assertEqual([p["embeds"][0]["title"] for p in self.posts], ["IN STOCK: Pokemon TCG Elite Trainer Box"])
         mon.catalog.runs["target"] -= 7 * 3600     # next catalog search is due
+        listings.pop(0)
         mon.run_cycle(r)
         self.assertIn("New listing: Pokemon TCG Ultra Premium Collection", [p["embeds"][0]["title"] for p in self.posts])
 

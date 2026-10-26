@@ -387,8 +387,8 @@ class OwnChromeJoinTests(unittest.TestCase):
         self.assertIn("start-my-chrome.ps1", res.block.message("CVS"))
         res = p.fetch("https://www.cvs.com/x")      # both resting now
         self.assertIn("start-my-chrome.ps1", res.block.message("CVS"))
-        other = self.pool(FakeWorker("a", True), port=0).fetch("https://www.target.com/x")
-        self.assertNotIn("start-my-chrome", other.block.message("Target"))
+        other = self.pool(FakeWorker("a", True), port=0).fetch("https://www.walmart.com/x")
+        self.assertNotIn("start-my-chrome", other.block.message("Walmart"))
 
     def test_dead_own_chrome_is_skipped_and_forgotten(self):
         class Dead(FakeWorker):

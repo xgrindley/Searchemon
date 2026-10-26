@@ -210,7 +210,12 @@ class App:
         bar = ttk.Frame(self.root, padding=(12, 8))
         bar.pack(fill="x")
         self.state_var = tk.StringVar(value="Starting...")
-        ttk.Label(bar, textvariable=self.state_var, style="State.TLabel").pack(side="left")
+        # The control panel is the fuller, better-looking view, so it leads the bar and is the highlighted button.
+        ttk.Button(bar, text="Open control panel", style="Accent.TButton", command=self.open_panel).pack(side="left", padx=(0, 8))
+        hint = ttk.Label(bar, text="Click here for the better, more advanced GUI", style="State.TLabel", cursor="hand2")
+        hint.pack(side="left", padx=(0, 18))
+        hint.bind("<Button-1>", lambda _e: self.open_panel())
+        ttk.Label(bar, textvariable=self.state_var, style="TLabel").pack(side="left")
         more = ttk.Menubutton(bar, text="More")
         menu = tk.Menu(more, tearoff=False)
         menu.add_command(label="Full control panel (products, filters, searches)", command=self.open_panel)
@@ -229,7 +234,6 @@ class App:
         menu.add_command(label="Edit settings file (advanced)", command=self.edit_config)
         more["menu"] = menu
         more.pack(side="right", padx=3)
-        ttk.Button(bar, text="Control panel", command=self.open_panel).pack(side="right", padx=3)
         self.pause_btn = ttk.Button(bar, text="Pause alerts", command=self.toggle_pause)
         self.pause_btn.pack(side="right", padx=3)
         ttk.Button(bar, text="Check now", command=self.check_now).pack(side="right", padx=3)

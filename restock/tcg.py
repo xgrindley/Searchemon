@@ -89,6 +89,8 @@ SOFT_EXCLUDE = (
     (re.compile(r"\bcode cards?\b|\bonline codes?\b|\bdigital\b|\bdownload\b"), "code card or digital"),
     (re.compile(r"\bt ?shirt\b|\bhoodie\b|\bbackpack\b|\blunch\b|\bcostume\b|\bpuzzle\b|\bbook\b|\bguide\b|\bcalendar\b|\bsticker book\b"), "merchandise"),
     (re.compile(r"\bholo rare\b|\bpromo card\b"), "single card"),
+    (re.compile(r"\bpaperback\b|\bhardcover\b|\bhardback\b|\bboard book\b|\bstickers?\b|\bcoloring\b|\bcolouring\b|\bactivity\b"
+                r"|\bhandbook\b|\bencyclopedia\b|\bstorybook\b|\bnovel\b|\bmanga\b|\bcomic\b|\bnotebook\b|\bjournal\b"), "book, sticker or stationery"),
 )
 NON_ENGLISH = re.compile(r"\bjapanese\b|\bjapan\b|\bkorean\b|\bchinese\b|\bsimplified\b|\btraditional chinese\b|\bthai\b|\bindonesian\b")
 PREORDER = re.compile(r"\bpre ?order\b|\bpresale\b|\bcoming soon\b")

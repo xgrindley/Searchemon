@@ -28,6 +28,18 @@ class Catalog:
         self.items: dict[str, dict] = saved.get("items", {})
         self.runs: dict[str, float] = saved.get("runs", {})
         self.cursor: dict[str, int] = {}
+        if self.purge_non_tcg():
+            self.save()
+
+    def purge_non_tcg(self) -> int:
+        """Drop saved listings the classifier no longer accepts (for example a sticker book that an
+        older version tracked as a collection box). Returns how many were removed."""
+        with self.lock:
+            drop = [k for k, v in self.items.items()
+                    if not classify(str(v.get("title") or ""), allow_non_english=True).is_tcg]
+            for k in drop:
+                del self.items[k]
+        return len(drop)
 
     def save(self) -> None:
         with self.lock:

@@ -203,6 +203,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--act); outline: n
 /* human-check banner: amber, because it needs the person */
 .banner { display: none; margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--warn); background: var(--warn-bg); color: var(--warn); border-radius: var(--r-m); align-items: center; gap: 12px; flex-wrap: wrap; }
 .banner.show { display: flex; }
+.banner.offline { border-color: var(--bad); background: var(--bad-bg); color: var(--bad); }
 .banner span { flex: 1 1 280px; }
 .tile .meta { display: block; font-size: 12px; color: var(--faint); margin-top: 2px; }
 .tile.warn .meta { color: var(--warn); }
@@ -382,6 +383,7 @@ table.matrix td.none { color: var(--faint); }
         <button class="btn" id="b-run">Stop</button>
       </div>
     </div>
+    <div class="banner offline" id="offline" role="alert"><span>Lost contact with the app. It may have been closed or restarted. Open it again and this page reconnects by itself.</span></div>
     <div class="banner" id="banner" role="alert"><span id="banner-t"></span><button class="btn" id="b-showbrowser">Show browser window</button></div>
     <section id="view"></section>
   </main>
@@ -453,17 +455,26 @@ function extLink(url, text) { return h("a", { href: url, target: "_blank", rel: 
 
 /* ---------- API ---------- */
 async function api(path, body) {
-  const res = await fetch(path, {
-    method: body === undefined ? "GET" : "POST",
-    headers: { "X-Token": token, "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    referrerPolicy: "no-referrer",
-  });
+  let res;
+  try {
+    res = await fetch(path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { "X-Token": token, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      referrerPolicy: "no-referrer",
+    });
+  } catch (e) {
+    // The browser could not reach the app at all: it was closed, is restarting, or the PC went to sleep.
+    setOffline(true);
+    throw new Error("Lost contact with the app. It may have been closed or restarted. Open it again; this page reconnects by itself.");
+  }
+  setOffline(false);
   if (res.status === 401) { askPin(); throw new Error("PIN required"); }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || ("Request failed (" + res.status + ")"));
   return data;
 }
+function setOffline(on) { const el = $("offline"); if (el) el.classList.toggle("show", on); }
 function askPin() { const d = $("pin"); if (!d.open) d.showModal(); }
 $("pin-form").addEventListener("submit", () => { token = $("pin-in").value.trim(); sessionStorage.setItem("restock-pin", token); boot(); });
 

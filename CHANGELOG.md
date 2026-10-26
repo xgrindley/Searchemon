@@ -13,6 +13,7 @@
   windows and becomes a tab bar for small ones, rows and settings wrap, and the top strip no longer overflows or shows text through it.
   Methods lab and Accounts no longer rebuild every 5 seconds: they refresh only when their numbers change, and never while you are
   selecting text or typing, so the page stays still and responds faster.
+- **Clear message when the app is gone.** "Failed to fetch" is replaced by "Lost contact with the app" plus a red bar, and the page reconnects by itself once the app runs again.
 - **Faster, safe close.** Closing the app hides the window at once, tells every browser to close together instead of one after
   another, and the store loops share one short wait (before: up to 5 seconds each). Saves still run, and a browser mid-page finishes
   and closes cleanly.

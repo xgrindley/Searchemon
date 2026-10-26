@@ -550,6 +550,11 @@ function methodControl(tri, rows) {
         h("button", { class: "btn" + (a.on ? "" : " primary"), type: "button", text: a.on ? "Turn off" : "Turn on",
           "aria-label": (a.on ? "Turn off " : "Turn on ") + a.label, onclick: () => trialAct({ action: "trial_toggle", key: a.key, on: !a.on }) }));
     })),
+    h("h3", { text: "How checks are shared out right now" }),
+    (tri.balance || []).length ? h("div", { class: "panel" }, h("ul", { class: "feed" }, tri.balance.map((b) =>
+      h("li", {}, h("b", { text: (RETAILERS[b.store] || b.store) + ": " }),
+        b.arms.map((a) => a.label + " " + a.share + "%" + (a.rate === null ? " (still learning)" : " (" + a.rate + "% loaded recently)")).join("  |  "))))) :
+      h("div", { class: "panel empty", text: tri.auto_balance ? "Still learning. Once a method has had about 6 recent checks at a store, the ones that work get more of that store's checks and the ones that fail get fewer." : "Auto-balance is off, so every method gets equal turns." }),
     h("h3", { text: "What happened" }),
     (tri.events || []).length ? h("div", { class: "panel" }, h("ul", { class: "feed" }, tri.events.slice().reverse().map((e) => {
       const arm = arms.find((a) => a.key === e.arm);
@@ -581,6 +586,7 @@ function trialPanel(tri) {
       setting("Checks per turn", "How many checks a method gets before the next one takes over.",
         h("input", { type: "number", min: "5", max: "200", value: String(t.slice_checks || 20), "aria-label": "Checks per turn",
           oninput: (e) => { t.slice_checks = Math.max(5, Number(e.target.value) || 20); touch(); } })),
+      setting("Auto-balance checks", "Give methods that are working longer turns at each store and failing ones shorter turns (never below a quarter of a normal turn, so they can recover).", sw(t, "auto_balance", "")),
       setting("Stop failing methods by themselves", "Switch a method off once it has failed or been blocked too often.", sw(t, "auto_stop", "")),
       setting("Stop after more than (attempts)", "A method is only judged after this many attempts since it was switched on.",
         h("input", { type: "number", min: "5", max: "500", value: String(t.stop_after || 25), "aria-label": "Attempts before judging",

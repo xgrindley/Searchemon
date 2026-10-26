@@ -135,3 +135,76 @@ class SavedStateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AutoBalanceTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def lineup(self, p, store="cvs"):
+        return [a for a in (BY_KEY["direct"], BY_KEY["direct-h2"])]
+
+    def turn(self, p, store, key):
+        arms = self.lineup(p, store)
+        return p._turn_length(store, arms, BY_KEY[key])
+
+    def test_everyone_gets_a_normal_turn_until_there_is_data(self):
+        p, _ = make(self.tmp, slice_checks=20)
+        self.assertEqual((self.turn(p, "cvs", "direct"), self.turn(p, "cvs", "direct-h2")), (20, 20))
+        feed(p, "direct-h2", [True] * 3, store="cvs")                     # still under 6 checks
+        self.assertEqual(self.turn(p, "cvs", "direct-h2"), 20)
+
+    def test_the_method_that_works_gets_longer_turns_than_the_one_that_fails(self):
+        p, _ = make(self.tmp, slice_checks=20)
+        feed(p, "direct", [True] * 4 + [False] * 8, store="cvs")          # normal method mostly blocked here
+        feed(p, "direct-h2", [True] * 12, store="cvs")
+        good, bad = self.turn(p, "cvs", "direct-h2"), self.turn(p, "cvs", "direct")
+        self.assertGreater(good, 20)
+        self.assertLess(bad, 20)
+        self.assertGreaterEqual(bad, 5)                                   # never below min_share (25%) of a normal turn
+
+    def test_it_is_per_store(self):
+        p, _ = make(self.tmp, slice_checks=20)
+        feed(p, "direct-h2", [False] * 8, store="cvs")
+        feed(p, "direct", [True] * 8, store="cvs")
+        feed(p, "direct-h2", [True] * 8, store="target")
+        feed(p, "direct", [True] * 8, store="target")
+        self.assertLess(self.turn(p, "cvs", "direct-h2"), self.turn(p, "target", "direct-h2"))
+
+    def test_a_failing_method_can_recover(self):
+        p, _ = make(self.tmp, slice_checks=20)
+        feed(p, "direct", [True] * 10, store="cvs")
+        feed(p, "direct-h2", [False] * 8, store="cvs")
+        low = self.turn(p, "cvs", "direct-h2")
+        feed(p, "direct-h2", [True] * 30, store="cvs")                    # old failures fade
+        self.assertGreater(self.turn(p, "cvs", "direct-h2"), low)
+
+    def test_switch_off_restores_equal_turns(self):
+        p, _ = make(self.tmp, slice_checks=20, auto_balance=False)
+        feed(p, "direct", [False] * 10, store="cvs")
+        feed(p, "direct-h2", [True] * 10, store="cvs")
+        self.assertEqual((self.turn(p, "cvs", "direct"), self.turn(p, "cvs", "direct-h2")), (20, 20))
+
+    def test_rotation_uses_the_longer_turn(self):
+        p, _ = make(self.tmp, slice_checks=4)
+        feed(p, "direct", [False] * 8, store="cvs")
+        feed(p, "direct-h2", [True] * 8, store="cvs")
+        p.state["cvs"] = {"idx": 0, "used": 0, "rest": {}, "current": ""}
+        seq = []
+        for _ in range(12):
+            arm = p.arm_for("cvs", "direct")
+            seq.append(arm.key)
+            p.note("cvs", arm, True)
+        self.assertGreater(seq.count("direct-h2"), seq.count("direct"))   # most checks go to what works
+
+    def test_numbers_survive_restart_and_show_in_the_view(self):
+        p, _ = make(self.tmp)
+        feed(p, "direct", [False] * 8, store="cvs")
+        feed(p, "direct-h2", [True] * 8, store="cvs")
+        p._save()
+        p2, _ = make(self.tmp)
+        view = {v["store"]: v for v in p2.snapshot()["balance"]}["cvs"]
+        shares = {a["key"]: a["share"] for a in view["arms"]}
+        self.assertGreater(shares["direct-h2"], shares["direct"])
+        self.assertEqual(sum(shares.values()), 100)
+        self.assertEqual(view["arms"][0]["key"], "direct-h2")

@@ -29,6 +29,8 @@ TRACE_FILE = "trial-log.jsonl"
 STATE_FILE = "trial-state.json"
 KEEP_EVENTS = 30
 MIN_FOR_BEST = 10          # checks a method needs before it can be called one of the best
+MIN_BALANCE = 6            # recent checks at a store before auto-balance trusts a method's numbers
+DECAY = 0.97               # older results count a little less each check (about the last 30 checks matter most)
 TRACE_KEEP_LINES = 500
 TRACE_MAX_BYTES = 400_000
 
@@ -95,6 +97,10 @@ DEFAULTS = {
     "auto_stop": True,
     "stop_after": 25,
     "stop_fail_pct": 50,
+    # Auto-balance: at each store, methods that have been working get longer turns and methods that have been
+    # failing get shorter ones (never fewer than min_share of a normal turn, so they can recover and be re-judged).
+    "auto_balance": True,
+    "min_share": 0.25,
 }
 
 
@@ -114,6 +120,7 @@ class TrialPlan:
         self.saved.setdefault("window", {})
         self.saved.setdefault("stopped", {})
         self.saved.setdefault("events", [])
+        self.saved.setdefault("balance", {})
         self.attach(raw_cfg)
 
     def attach(self, raw_cfg: dict) -> None:
@@ -162,6 +169,39 @@ class TrialPlan:
                 arms.append(a)
         return arms
 
+    # ---- auto-balance -------------------------------------------------------------
+    def _rate(self, store: str, key: str) -> tuple[float | None, float]:
+        """(recent success rate, recent weight of evidence) for a method at a store, or (None, n) when too few checks."""
+        ok, bad = self.saved["balance"].get(store, {}).get(key, (0.0, 0.0))
+        n = ok + bad
+        return ((ok + 1) / (n + 2) if n >= MIN_BALANCE else None), n
+
+    def _weights(self, store: str, arms: list[Arm]) -> dict[str, float]:
+        """How long a turn each method gets, as a multiple of a normal turn. Everyone is 1.0 until there is
+        enough to go on; after that the better a method has been doing against the best one here, the longer."""
+        floor = max(0.05, min(1.0, float(self.cfg.get("min_share") or 0.25)))
+        scores = {a.key: self._rate(store, a.key)[0] for a in arms}
+        known = [v for v in scores.values() if v is not None]
+        if not self.cfg.get("auto_balance", True) or not known:
+            return {a.key: 1.0 for a in arms}
+        top = max(known)
+        out = {}
+        for a in arms:
+            sc = scores[a.key]
+            out[a.key] = 1.0 if sc is None else floor + (2.0 - floor) * ((sc / top) ** 3 if top > 0 else 0)
+        return out
+
+    def _turn_length(self, store: str, arms: list[Arm], arm: Arm) -> int:
+        base = int(self.cfg.get("slice_checks") or 20)
+        return max(1, round(base * self._weights(store, arms)[arm.key]))
+
+    def _balance_note(self, store: str, key: str, ok: bool) -> None:
+        row = self.saved["balance"].setdefault(store, {}).setdefault(key, [0.0, 0.0])
+        row[0] *= DECAY
+        row[1] *= DECAY
+        row[0 if ok else 1] += 1.0
+        self._save_soon()
+
     def arm_for(self, store: str, family: str) -> Arm | None:
         """The arm to use for this store's next check, or None to just run the normal way."""
         if not (self.enabled and self._covers(store)):
@@ -172,10 +212,11 @@ class TrialPlan:
             if len(arms) < 2:
                 return None            # nothing to compare against right now
             st = self.state[store]
-            if st["used"] >= int(self.cfg.get("slice_checks") or 20):
+            arm = arms[st["idx"] % len(arms)]
+            if st["used"] >= self._turn_length(store, arms, arm):
                 st["idx"] += 1
                 st["used"] = 0
-            arm = arms[st["idx"] % len(arms)]
+                arm = arms[st["idx"] % len(arms)]
             if st["current"] != arm.key:
                 st["current"] = arm.key
                 self._trace(store, arm.key, "switch")
@@ -192,6 +233,7 @@ class TrialPlan:
                 st["idx"] += 1
                 st["used"] = 0
                 self._trace(store, arm.key, "blocked", kind)
+            self._balance_note(store, arm.key, ok)
             if not arm.control:
                 self._count(arm, ok, kind)
         if self.tracker and not arm.control:
@@ -208,6 +250,7 @@ class TrialPlan:
             st["idx"] += 1
             st["used"] = 0
             self._trace(store, arm.key, "failed", why)
+            self._balance_note(store, arm.key, False)
             self._count(arm, False, why)
 
     def _count(self, arm: Arm, ok: bool, kind: str) -> None:
@@ -231,8 +274,6 @@ class TrialPlan:
                 self.log.info("Trial method '%s' was stopped automatically: %d of %d attempts failed or were blocked (%d%%). "
                               "Switch it back on in the Methods lab if you want to try it again.",
                               arm.key, w["fails"], w["attempts"], pct)
-        else:
-            self._save_soon()
 
     def _save_soon(self) -> None:
         """Counters change on every check, so write them out every 10 attempts, not every time."""
@@ -339,6 +380,22 @@ class TrialPlan:
         except OSError:
             pass
 
+    def _balance_view(self) -> list[dict]:
+        """For each store that has numbers: how the checks are being shared out right now."""
+        out = []
+        with self.lock:
+            for store, rows in sorted(self.saved["balance"].items()):
+                arms = [BY_KEY[k] for k in rows if k in BY_KEY and (BY_KEY[k].control or k in self.active_keys())]
+                if len(arms) < 2:
+                    continue
+                w = self._weights(store, arms)
+                total = sum(w.values()) or 1.0
+                out.append({"store": store, "arms": [
+                    {"key": a.key, "label": a.label, "share": round(100 * w[a.key] / total),
+                     "rate": None if self._rate(store, a.key)[0] is None else round(100 * self._rate(store, a.key)[0]),
+                     "n": round(self._rate(store, a.key)[1])} for a in sorted(arms, key=lambda x: -w[x.key])]})
+        return out
+
     # ---- view for the control panel ------------------------------------------------
     def snapshot(self) -> dict:
         now = time.time()
@@ -352,7 +409,10 @@ class TrialPlan:
             events = list(self.saved["events"])
             best = self.best_keys(3)
         c = self.cfg
+        bal = self._balance_view()
         return {
+            "auto_balance": bool(c.get("auto_balance", True)),
+            "balance": bal,
             "enabled": self.enabled,
             "slice_checks": int(self.cfg.get("slice_checks") or 20),
             "auto_stop": bool(c.get("auto_stop", True)),

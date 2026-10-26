@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.2 (2026-10-26, test build, includes v3.1)
+- **The whole picture** (Methods lab, under the trust table): every store, every day, kept for 180 days in
+  data\store-history.json (compact, under 200 KB). Per store: checks, % loaded, average check time, products found, alerts
+  sent, and a 30 day bar strip (taller = more checks, amber and red = failures). A second table does the same for each
+  checking method over 14 days. The 40 recent checks and hourly numbers from v2.10 are still there. Nothing is lost when you
+  close the app, and files from v2.10 load fine.
+- **Clearer "no products" messages:** a store with no automatic search yet (Costco, Sam's Club, Barnes & Noble, Books-A-Million,
+  Amazon, Raley's, Walgreens, GameStop, CVS) now says so and points to My products, instead of "nothing to check". A store
+  that is searched but came back empty says it searched, and the Whole picture table shows "none found yet" or the catalog size.
+- **A store that found nothing is searched again after every restart** (it used to wait up to 30 minutes), so a fix such as
+  the Target block detection shows up right away.
+- Tests: more in tests\test_history.py.
+
+To test v3.2 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+`VERSION` should print 3.2. Close the running app first. Open **Methods lab**: the new "The whole picture" tables are under "Can I trust each store?".
+
 ## v3.1 (2026-10-26, test build, follows stable v3.0)
 Due diligence pass.
 - **Quiet interruptions:** when you save settings or close the app while a browser check is running, the check is dropped

@@ -151,6 +151,14 @@ class PanelServer:
             "version_label": version_label(),
             "retailers": retailer_rows,
             "trust": trust,
+            "history": {
+                "stores": [{"name": n, "display": r.display, "days": m.store_history.days(n, 30),
+                            "totals": m.store_history.totals(n),
+                            "tracked": len(m.catalog.tracked(n, type_settings(m.cfg.raw))),
+                            "search": bool(r.supports_search)}
+                           for n, r in m.retailers.items()],
+                "methods": m.store_history.method_days(14),
+            },
             "human_checks": list(m.human_checks.values()),
             "browser": {
                 "installed": playwright_installed(),

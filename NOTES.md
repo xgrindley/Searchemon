@@ -2,7 +2,7 @@
 
 Read this first when picking the project back up. Newest entries at the top of each section.
 
-## State (v2.0 stable; working on test build v2.9)
+## State (v2.0 stable; working on test build v2.10)
 - Repo: github.com/xgrindley/Searchemon (public). main = the latest stable release only (v2.0, declared 2026-10-25), test = current work (next test build is v2.9). See RELEASING.md.
 - Version scheme: stable v1.0, v2.0, v3.0...; tests count up from the release (v2.1, v2.2, v2.3, v2.4, v2.5...). v1.0 was v0.6 promoted, v2.0 is v1.2 promoted.
 - Windows app, Python 3.13 venv, tkinter window + local control panel at 127.0.0.1:8765.
@@ -34,7 +34,8 @@ Read this first when picking the project back up. Newest entries at the top of e
 - After the first button press the saved active list overrides config.yaml (TrialPlan.attach).
 - CVS: "in store purchase only" text overrides the page's InStock data (online=False, status "In store only").
 
-## ZIP scan (v2.8)
+## ZIP scan (v2.8, v2.10)
+- v2.10: "everything" mode = all enabled SCAN_STORES + live r.search() with the discovery queries (in memory, catalog untouched), cap 150, honours product type alert flags.
 - restock/scan.py ZipScan: manual only (panel tab "Find stock near a ZIP", /api/scan, actions scan_start and scan_cancel).
   Builds fresh retailer objects with a temporary Area for the ZIP and radius, asks Target, Best Buy, Kroger, GameStop, CVS.
   Results are held in memory only.

@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.10 (2026-10-26, test build, includes v2.9)
+- **Search every product** switch in Find stock near a ZIP (on by default). With it on, the scan asks every store that is
+  switched on (the hand-picked list is ignored), and searches each store's own catalog for Pokemon products at that moment, so
+  you do not have to add links or products first. Up to 150 products per store (30 with the switch off). Product types you
+  turned alerts off for are skipped, and non-card items and third-party sellers are filtered out the same way discovery does.
+- A store with no catalog search (GameStop, CVS) uses your products plus what discovery already found, and its row says so.
+- Still manual only, still no Discord alerts, and the search results are held in memory only: your saved catalog and settings
+  are not changed.
+- Tests: four new ones in tests\test_scan.py.
+
+To test v2.10 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+`VERSION` should print 2.10. Close the running app first. Open **Find stock near a ZIP**, type a ZIP, leave **Search every product at every store that is on** ticked and press Scan now. Untick it to go back to your own products only.
+
 ## v2.9 (2026-10-26, test build, includes v2.8)
 - **Method control** in the Methods lab, right under "Can I trust each store?": one row per trial method with a Turn on / Turn off
   button and quick numbers (checks in all, % blocked in all, attempts since it was switched on with a failure bar, and a

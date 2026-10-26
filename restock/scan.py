@@ -18,11 +18,12 @@ from .geo import Area, clean_zip, miles, nearest_area, place_point, zip_place, z
 from .models import StockResult
 from .retailers import REGISTRY, route_url
 from .retailers.base import Blocked
-from .tcg import type_settings
+from .tcg import classify, type_settings
 from .util import clean_url, normalize_upc
 
 SCAN_STORES = ("target", "bestbuy", "kroger", "gamestop", "cvs")   # the stores that publish shelf stock
-MAX_PRODUCTS = 30            # products asked about per store in one scan
+MAX_PRODUCTS = 30            # products asked about per store in one scan (your products only mode)
+MAX_ALL = 150                # products asked about per store when "search every product" is on
 CHUNK = 10                   # product ids per request batch
 MAX_RADIUS = 100
 
@@ -40,7 +41,7 @@ class ZipScan:
     def running(self) -> bool:
         return bool(self.thread and self.thread.is_alive())
 
-    def start(self, zip_code, radius, stores=None, include_online: bool = False) -> tuple[bool, str]:
+    def start(self, zip_code, radius, stores=None, include_online: bool = False, everything: bool = False) -> tuple[bool, str]:
         z = clean_zip(zip_code)
         if not z:
             return False, "Enter a 5 digit ZIP code."
@@ -54,17 +55,21 @@ class ZipScan:
         radius = max(1.0, min(float(MAX_RADIUS), radius))
         if self.running:
             return False, "A scan is already running."
-        wanted = [s for s in (stores or SCAN_STORES) if s in SCAN_STORES] or list(SCAN_STORES)
+        if everything:        # every store that is switched on, not a hand-picked list
+            on = set(self.mon.cfg.enabled_retailers())
+            wanted = [s for s in SCAN_STORES if s in on] or list(SCAN_STORES)
+        else:
+            wanted = [s for s in (stores or SCAN_STORES) if s in SCAN_STORES] or list(SCAN_STORES)
         self.cancel_flag.clear()
         with self.lock:
             self.job = {
-                "zip": z, "place": zip_place(z), "radius": radius, "online": bool(include_online),
+                "zip": z, "place": zip_place(z), "radius": radius, "online": bool(include_online), "everything": bool(everything),
                 "started": time.time(), "finished": 0, "state": "running", "cancelled": False,
                 "stores": {s: {"name": REGISTRY[s].display, "status": "Waiting", "products": 0, "found": 0, "state": "wait"}
                            for s in wanted},
                 "rows": [],
             }
-        self.thread = threading.Thread(target=self._run, args=(z, point, radius, wanted, bool(include_online)),
+        self.thread = threading.Thread(target=self._run, args=(z, point, radius, wanted, bool(include_online), bool(everything)),
                                        name="zip-scan", daemon=True)
         self.thread.start()
         return True, "Scan started."
@@ -87,7 +92,8 @@ class ZipScan:
             if self.job.get("stores", {}).get(store) is not None:
                 self.job["stores"][store].update(kw)
 
-    def _run(self, z: str, point: tuple[float, float], radius: float, stores: list[str], online: bool) -> None:
+    def _run(self, z: str, point: tuple[float, float], radius: float, stores: list[str], online: bool,
+             everything: bool = False) -> None:
         mon = self.mon
         try:
             area = Area("Scan", z, radius, point[0], point[1])
@@ -95,7 +101,7 @@ class ZipScan:
             raw["location"] = {"zip": z, "radius_miles": radius}
             raw["settings"]["in_store"] = True
             cfg = dataclasses.replace(mon.cfg, raw=raw, areas=[area])
-            workers = [threading.Thread(target=self._one, args=(s, cfg, area, online), daemon=True) for s in stores]
+            workers = [threading.Thread(target=self._one, args=(s, cfg, area, online, everything), daemon=True) for s in stores]
             for w in workers:
                 w.start()
             for w in workers:
@@ -109,9 +115,40 @@ class ZipScan:
                 self.job["finished"] = time.time()
                 self.job["rows"].sort(key=lambda r: (r["distance"] is None, r["distance"] or 0, r["store"]))
 
-    def _ids(self, r, cfg) -> dict[str, dict]:
-        """Product ids to ask this store about: your watchlist first, then what discovery found."""
+    def _search_all(self, r, out: dict, cap: int) -> str:
+        """Search the store's own catalog for Pokemon products right now (same queries as discovery), so nothing
+        has to be added by hand. Kept in memory only; the saved catalog is not changed. Returns a note if the
+        store has no search."""
         mon = self.mon
+        d = mon.cfg.raw.get("discovery") or {}
+        types = type_settings(mon.cfg.raw)
+        allow = bool((mon.cfg.raw.get("settings") or {}).get("allow_non_english"))
+        limit = max(int(mon.cfg.settings.get("max_search_results") or 24), 48)
+        searched = False
+        for q in d.get("queries") or ["pokemon trading card game"]:
+            if self.cancel_flag.is_set() or len(out) >= cap:
+                break
+            try:
+                found = r.search(q, limit)
+            except Blocked:
+                raise
+            except Exception as exc:
+                mon.log.info("ZIP scan, %s search '%s': %s", r.name, q, exc)
+                continue
+            searched = searched or bool(found)
+            for res in found:
+                c = classify(res.title, allow_non_english=allow)
+                if not c.is_tcg or res.third_party or not types.get(c.type_key, {}).get("alert", True):
+                    continue
+                if res.product_id and len(out) < cap:
+                    out.setdefault(res.product_id, {"name": res.title, "msrp": c.msrp})
+        return "" if searched else "no store-wide search, used the products already known"
+
+    def _ids(self, r, cfg, everything: bool = False) -> tuple[dict[str, dict], str]:
+        """Product ids to ask this store about: your watchlist first, then what discovery found. With
+        'everything', also a live search of the store, so products you never added are covered."""
+        mon = self.mon
+        cap = MAX_ALL if everything else MAX_PRODUCTS
         out: dict[str, dict] = {}
         for w in mon.cfg.watchlist:
             if not w.enabled or not w.wants(r.name):
@@ -133,12 +170,13 @@ class ZipScan:
         items = sorted(mon.catalog.tracked(r.name, type_settings(mon.cfg.raw)),
                        key=lambda v: (-(v.get("last_in_stock") or 0) // 3600, v.get("priority", 9), v.get("title", "")))
         for item in items:
-            if len(out) >= MAX_PRODUCTS:
+            if len(out) >= cap:
                 break
             out.setdefault(item["id"], {"name": item.get("title", ""), "msrp": item.get("msrp")})
-        return dict(list(out.items())[:MAX_PRODUCTS])
+        note = self._search_all(r, out, cap) if everything else ""
+        return dict(list(out.items())[:cap]), note
 
-    def _one(self, name: str, cfg, area: Area, online: bool) -> None:
+    def _one(self, name: str, cfg, area: Area, online: bool, everything: bool = False) -> None:
         mon = self.mon
         if name not in mon.cfg.enabled_retailers():
             self._set(name, status="Turned off in Stores & keys" if name != "bestbuy" else "Needs a Best Buy API key",
@@ -146,12 +184,12 @@ class ZipScan:
             return
         try:
             r = REGISTRY[name](cfg, mon.log, mon.browser)
-            ids = self._ids(r, cfg)
+            ids, note = self._ids(r, cfg, everything)
             if not ids:
                 self._set(name, status="No products to look for yet. Add some in My products or wait for discovery.",
                           state="skip")
                 return
-            self._set(name, status=f"Checking {len(ids)} products", products=len(ids), state="run")
+            self._set(name, status=f"Checking {len(ids)} products" + (f" ({note})" if note else ""), products=len(ids), state="run")
             keys = list(ids)
             found = 0
             for i in range(0, len(keys), CHUNK):

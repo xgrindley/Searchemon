@@ -548,9 +548,9 @@ function trialPanel(tri) {
 
 
 /* ---------- find stock near a ZIP (started by hand) ---------- */
-const scanState = Object.assign({ zip: "", radius: 15, online: false, stores: null }, store.get("restock-scan", {}));
+const scanState = Object.assign({ zip: "", radius: 15, online: false, stores: null, everything: true }, store.get("restock-scan", {}));
 let scanData = null, scanTimer = null;
-function saveScan() { store.set("restock-scan", { zip: scanState.zip, radius: scanState.radius, online: scanState.online, stores: scanState.stores }); }
+function saveScan() { store.set("restock-scan", { zip: scanState.zip, radius: scanState.radius, online: scanState.online, stores: scanState.stores, everything: scanState.everything }); }
 async function scanLoad() {
   clearTimeout(scanTimer); scanTimer = null;
   try { scanData = await api("/api/scan"); } catch (e) { return; }
@@ -559,7 +559,7 @@ async function scanLoad() {
 }
 async function scanStart() {
   try {
-    const r = await api("/api/action", { action: "scan_start", zip: scanState.zip, radius: scanState.radius, online: scanState.online,
+    const r = await api("/api/action", { action: "scan_start", zip: scanState.zip, radius: scanState.radius, online: scanState.online, everything: scanState.everything,
       stores: scanState.stores || (scanData && scanData.available) || undefined });
     if (!r.ok) { toast(r.message, true); return; }
     toast("Scanning near " + scanState.zip);
@@ -825,16 +825,23 @@ const views = {
     const chips = h("div", { class: "checks" }, avail.map((k) => h("label", { class: "chip" },
       h("input", { type: "checkbox", checked: scanState.stores.includes(k), onchange: (e) => {
         scanState.stores = e.target.checked ? [...new Set([...scanState.stores, k])] : scanState.stores.filter((x) => x !== k); saveScan(); } }), names[k] || k)));
+    const all = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: scanState.everything, onchange: (e) => { scanState.everything = e.target.checked; saveScan(); drawScan(); } }),
+      "Search every product at every store that is on");
     const onl = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: scanState.online, onchange: (e) => { scanState.online = e.target.checked; saveScan(); } }), "Also list online stock");
     return [
       h("h1", { text: "Find stock near a ZIP" }),
       h("p", { class: "lede", text: "Type a ZIP, choose how far to look, and press Scan now. The app asks each store that shares shelf stock which of its stores nearby have your products. It only runs when you press the button, sends no Discord alerts, and does not change your areas." }),
       h("div", { class: "zipbar on" }, h("b", { text: "Near" }), zip, h("span", { text: "within" }), rad, radVal),
-      h("div", { class: "card" }, h("div", { class: "card-body" }, h("div", { class: "wide" }, h("p", { style: "margin:0 0 6px", class: "hint", text: "Stores to ask" }), chips, onl))),
+      h("div", { class: "card" }, h("div", { class: "card-body" }, h("div", { class: "wide" }, all,
+        h("p", { style: "margin:8px 0 6px", class: "hint", text: scanState.everything
+          ? "On: asks every store you have switched on, and searches each store's own catalog for Pokemon products right now, so you do not need to add links first. Product types you turned alerts off for are skipped."
+          : "Off: only the stores ticked below, and only My products plus what discovery already found." }),
+        scanState.everything ? null : [h("p", { style: "margin:0 0 6px", class: "hint", text: "Stores to ask" }), chips],
+        h("div", { style: "margin-top:8px" }, onl)))),
       h("p", {}, h("button", { class: "btn primary", id: "scan-go", type: "button", text: "Scan now", disabled: scanState.zip.length !== 5, onclick: scanStart }),
         " ", h("button", { class: "btn quiet", id: "scan-stop", type: "button", text: "Stop", style: "display:none", onclick: scanCancel })),
       h("div", { id: "scan-out" }),
-      h("p", { class: "hint", text: "Uses the products in My products plus what discovery has found, up to 30 per store. Walmart and the other sites do not share shelf stock, so they are not part of this scan." }),
+      h("p", { class: "hint", text: "With the switch on, up to 150 products per store are checked (a store with no search uses what discovery already found); with it off, up to 30. Walmart and the other sites do not share shelf stock, so they are not part of this scan." }),
     ];
   },
 

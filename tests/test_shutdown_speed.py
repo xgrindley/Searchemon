@@ -48,3 +48,18 @@ class PowerSettings(unittest.TestCase):
         self.assertEqual(power.read_settings(path), {"low_priority": True, "keep_awake": False})
         self.assertEqual(power.read_settings(os.path.join(tmp, "missing.yaml")), {})
         self.assertIsInstance(power.apply({"low_priority": True}), list)
+
+
+class OwnChrome(unittest.TestCase):
+    def test_command_keeps_devtools_local_and_uses_its_own_profile(self):
+        from restock import ownchrome
+        cmd = ownchrome.command("chrome.exe", 9222, "C:\\data\\my-chrome")
+        self.assertIn("--remote-debugging-port=9222", cmd)
+        self.assertIn("--remote-debugging-address=127.0.0.1", cmd)
+        self.assertIn("--user-data-dir=C:\\data\\my-chrome", cmd)
+        self.assertIn("--start-minimized", cmd)
+
+    def test_does_nothing_off_windows(self):
+        from restock import ownchrome
+        if os.name != "nt":
+            self.assertFalse(ownchrome.start(9222, tempfile.mkdtemp()))

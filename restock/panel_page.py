@@ -678,7 +678,7 @@ function drawScan() {
   const out = $("scan-out"), d = scanData;
   if (!out) return;
   const btn = $("scan-go");
-  if (btn) { btn.disabled = !!(d && d.running) || scanState.zip.length !== 5; btn.textContent = d && d.running ? "Scanning..." : "Scan now"; }
+  if (btn) { btn.disabled = !!(d && d.running) || scanState.zip.length !== 5 || !scanState.stores.length; btn.textContent = d && d.running ? "Scanning..." : "Scan now"; }
   const stop = $("scan-stop"); if (stop) stop.style.display = d && d.running ? "" : "none";
   if (!d || !d.state) { out.replaceChildren(h("div", { class: "panel empty", text: "Nothing scanned yet. Enter a ZIP, set a radius and press Scan now." })); return; }
   const stores = Object.entries(d.stores || {});
@@ -922,20 +922,25 @@ const views = {
 
   scan() {
     setTimeout(scanLoad, 0);
-    const avail = (scanData && scanData.available) || ["target", "bestbuy", "kroger", "gamestop", "cvs"];
-    const names = (scanData && scanData.names) || { target: "Target", bestbuy: "Best Buy", kroger: "Kroger family", gamestop: "GameStop", cvs: "CVS" };
-    scanState.stores = (scanState.stores || avail).filter((x) => avail.includes(x));
+    const avail = (scanData && scanData.available) || ["target", "bestbuy", "kroger", "gamestop", "cvs", "walgreens"];
+    const names = (scanData && scanData.names) || { target: "Target", bestbuy: "Best Buy", kroger: "Kroger family", gamestop: "GameStop", cvs: "CVS", walgreens: "Walgreens" };
+    const onlineOnly = (scanData && scanData.online_only) || ["walgreens"];
+    const isOn = new Set(((status && status.retailers) || []).map((r) => r.name));
+    // First visit: start with every store that is switched on. After that, the ticks are yours and are remembered.
+    scanState.stores = (scanState.stores || avail.filter((k) => !status || isOn.has(k))).filter((x) => avail.includes(x));
     const zip = h("input", { type: "text", inputmode: "numeric", maxlength: "5", placeholder: "ZIP code", "aria-label": "ZIP code", value: scanState.zip,
       oninput: (e) => { scanState.zip = e.target.value.replace(/\D/g, "").slice(0, 5); e.target.value = scanState.zip; saveScan(); drawScan(); },
       onkeydown: (e) => { if (e.key === "Enter" && scanState.zip.length === 5) scanStart(); } });
     const radVal = h("span", { class: "radius-val", text: scanState.radius + " mi" });
     const rad = h("input", { type: "range", min: "1", max: "100", step: "1", value: String(scanState.radius), "aria-label": "Search radius in miles",
       oninput: (e) => { scanState.radius = Number(e.target.value); radVal.textContent = scanState.radius + " mi"; saveScan(); } });
-    const chips = h("div", { class: "checks" }, avail.map((k) => h("label", { class: "chip" },
+    const chips = h("div", { class: "checks" }, avail.map((k) => h("label", { class: "chip", title: onlineOnly.includes(k) ? "Publishes no shelf stock: only the online listing is checked" : "" },
       h("input", { type: "checkbox", checked: scanState.stores.includes(k), onchange: (e) => {
-        scanState.stores = e.target.checked ? [...new Set([...scanState.stores, k])] : scanState.stores.filter((x) => x !== k); saveScan(); } }), names[k] || k)));
+        scanState.stores = e.target.checked ? [...new Set([...scanState.stores, k])] : scanState.stores.filter((x) => x !== k); saveScan(); } }),
+      (names[k] || k) + (onlineOnly.includes(k) ? " (online only)" : "") + (status && !isOn.has(k) ? " (off in Stores & keys)" : ""))));
+    const pickAll = (on) => { scanState.stores = on ? avail.slice() : []; saveScan(); render(); };
     const all = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: scanState.everything, onchange: (e) => { scanState.everything = e.target.checked; saveScan(); drawScan(); } }),
-      "Search every product at every store that is on");
+      "Search every product at the stores ticked below");
     const onl = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: scanState.online, onchange: (e) => { scanState.online = e.target.checked; saveScan(); } }), "Also list online stock");
     return [
       h("h1", { text: "Find stock near a ZIP" }),
@@ -943,11 +948,16 @@ const views = {
       h("div", { class: "zipbar on" }, h("b", { text: "Near" }), zip, h("span", { text: "within" }), rad, radVal),
       h("div", { class: "card" }, h("div", { class: "card-body" }, h("div", { class: "wide" }, all,
         h("p", { style: "margin:8px 0 6px", class: "hint", text: scanState.everything
-          ? "On: asks every store you have switched on, and searches each store's own catalog for Pokemon products right now, so you do not need to add links first. Product types you turned alerts off for are skipped."
-          : "Off: only the stores ticked below, and only My products plus what discovery already found." }),
-        scanState.everything ? null : [h("p", { style: "margin:0 0 6px", class: "hint", text: "Stores to ask" }), chips],
+          ? "On: asks the stores ticked below, and searches each store's own catalog for Pokemon products right now, so you do not need to add links first. Product types you turned alerts off for are skipped."
+          : "Off: only My products plus what discovery already found." }),
+        h("div", { style: "display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin:10px 0 6px" },
+          h("b", { text: "Stores to scan" }),
+          h("button", { class: "btn quiet", type: "button", text: "All", onclick: () => pickAll(true) }),
+          h("button", { class: "btn quiet", type: "button", text: "None", onclick: () => pickAll(false) }),
+          h("span", { class: "hint", text: scanState.stores.length + " of " + avail.length + " selected" })),
+        chips,
         h("div", { style: "margin-top:8px" }, onl)))),
-      h("p", {}, h("button", { class: "btn primary", id: "scan-go", type: "button", text: "Scan now", disabled: scanState.zip.length !== 5, onclick: scanStart }),
+      h("p", {}, h("button", { class: "btn primary", id: "scan-go", type: "button", text: "Scan now", disabled: scanState.zip.length !== 5 || !scanState.stores.length, onclick: scanStart }),
         " ", h("button", { class: "btn quiet", id: "scan-stop", type: "button", text: "Stop", style: "display:none", onclick: scanCancel })),
       h("div", { id: "scan-out" }),
       h("p", { class: "hint", text: "With the switch on, up to 150 products per store are checked (a store with no search uses what discovery already found); with it off, up to 30. Walmart and the other sites do not share shelf stock, so they are not part of this scan." }),

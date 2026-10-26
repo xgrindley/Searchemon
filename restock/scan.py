@@ -1,7 +1,7 @@
 """Find stock near a ZIP: a scan you start by hand.
 
 Type a ZIP and a radius and press Scan. The app asks each store that publishes shelf stock
-(Target, Best Buy, Kroger, GameStop, CVS) which stores around that ZIP have your products,
+(Target, Best Buy, Kroger, GameStop, CVS; Walgreens online only) which stores around that ZIP have your products,
 and lists them nearest first. It runs once per press, never on a timer, sends no Discord
 alerts, and keeps the results in memory only (nothing is written to disk).
 
@@ -21,7 +21,8 @@ from .retailers.base import Blocked
 from .tcg import classify, type_settings
 from .util import clean_url
 
-SCAN_STORES = ("target", "bestbuy", "kroger", "gamestop", "cvs")   # the stores that publish shelf stock
+SCAN_STORES = ("target", "bestbuy", "kroger", "gamestop", "cvs", "walgreens")   # stores a scan can ask
+ONLINE_ONLY = ("walgreens",)  # no shelf stock is published: the scan can only report the online listing
 MAX_PRODUCTS = 30            # products asked about per store in one scan (your products only mode)
 MAX_ALL = 150                # products asked about per store when "search every product" is on
 CHUNK = 10                   # product ids per request batch
@@ -55,11 +56,13 @@ class ZipScan:
         radius = max(1.0, min(float(MAX_RADIUS), radius))
         if self.running:
             return False, "A scan is already running."
-        if everything:        # every store that is switched on, not a hand-picked list
+        # The stores ticked on the scan page. With none sent (older callers), every store that is switched on.
+        picked = [s for s in (stores or []) if s in SCAN_STORES]
+        if picked:
+            wanted = picked
+        else:
             on = set(self.mon.cfg.enabled_retailers())
             wanted = [s for s in SCAN_STORES if s in on] or list(SCAN_STORES)
-        else:
-            wanted = [s for s in (stores or SCAN_STORES) if s in SCAN_STORES] or list(SCAN_STORES)
         self.cancel_flag.clear()
         with self.lock:
             self.job = {
@@ -84,6 +87,7 @@ class ZipScan:
         job["max_radius"] = MAX_RADIUS
         job["available"] = list(SCAN_STORES)
         job["names"] = {s: REGISTRY[s].display for s in SCAN_STORES}
+        job["online_only"] = list(ONLINE_ONLY)
         return job
 
     # ---- the scan ------------------------------------------------------------------
@@ -184,6 +188,8 @@ class ZipScan:
             return
         try:
             r = REGISTRY[name](cfg, mon.log, mon.browser)
+            if name in ONLINE_ONLY:
+                online = True          # online is all such a store can report, so it is never left out
             ids, note = self._ids(r, cfg, everything)
             if not ids:
                 self._set(name, status="No products to look for yet. Add some in My products or wait for discovery.",
@@ -200,10 +206,20 @@ class ZipScan:
                 for ident, res in results.items():
                     found += self._rows(res, ids.get(ident) or {}, area, cfg, online)
                 self._set(name, found=found)
+            if name in ONLINE_ONLY:
+                with self.lock:
+                    online_n = sum(1 for r2 in self.job.get("rows", []) if r2["retailer"] == name and r2["online"])
+                self._set(name, status=(f"Done: {online_n} in stock online" if online_n else "Done: nothing in stock online")
+                          + " (this store publishes no shelf stock)", state="ok" if online_n else "none", found=online_n)
+                return
             self._set(name, status=f"Done: {found} store listing(s) with stock" if found else "Done: nothing in stock in range",
                       state="ok" if found else "none")
         except Blocked as exc:
-            self._set(name, status=f"Blocked: {exc}", state="bad")
+            if "own Chrome" in str(exc):
+                self._set(name, status="Needs your own Chrome. The app starts it by itself (minimized); scan again in a minute, "
+                                       "or run start-my-chrome.ps1.", state="skip")
+            else:
+                self._set(name, status=f"Blocked: {exc}", state="bad")
         except Exception as exc:
             mon.log.info("ZIP scan, %s: %s", name, exc)
             self._set(name, status=f"Could not check: {str(exc)[:120]}", state="bad")

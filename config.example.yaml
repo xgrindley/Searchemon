@@ -146,8 +146,9 @@ browser:
     # - {name: my-chrome, cdp_url: "http://127.0.0.1:9222"}
   # Your own Chrome. Run start-my-chrome.ps1: the app notices Chrome on this port (even while it is
   # running) and uses it first for the stores below. Set the port to 0 to turn this off.
+  auto_start_own_chrome: true  # the app starts that Chrome (minimized) itself when a store needs it
   own_chrome_port: 9222
-  own_chrome_sites: [cvs.com, dickssportinggoods.com, gamestop.com]
+  own_chrome_sites: [cvs.com, dickssportinggoods.com, gamestop.com, samsclub.com]
   own_edge_port: 9223        # start-my-edge.ps1; 0 turns it off
   compare_every_minutes: 15  # side-by-side test of every method per store; 0 turns it off
   learn_from_compare: true   # checks go first to the methods the side-by-side tests found reliable

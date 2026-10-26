@@ -160,11 +160,42 @@ class ScanTests(unittest.TestCase):
         self.assertTrue(snap["everything"])
         self.assertTrue(snap["rows"])
 
-    def test_search_every_product_uses_every_store_that_is_on(self):
+    def test_the_stores_you_tick_are_the_stores_scanned_even_with_search_every_product(self):
         with mock.patch.dict(scan_mod.REGISTRY, {"target": SearchTarget}):
-            snap = run_scan(self.mon, stores=["cvs"], everything=True)    # the hand-picked list is ignored
+            snap = run_scan(self.mon, stores=["cvs"], everything=True)
+        self.assertEqual(set(snap["stores"]), {"cvs"})
+
+    def test_with_nothing_ticked_every_store_that_is_on_is_used(self):
+        with mock.patch.dict(scan_mod.REGISTRY, {"target": SearchTarget}):
+            snap = run_scan(self.mon, stores=[], everything=True)
         on = set(self.mon.cfg.enabled_retailers()) & set(scan_mod.SCAN_STORES)
-        self.assertEqual(set(snap["stores"]), on)         # every store that is on, however many were ticked
+        self.assertEqual(set(snap["stores"]), on)
+
+    def test_walgreens_can_be_picked_and_reports_online_stock_only(self):
+        class FakeWag(Retailer):
+            name, display = "walgreens", "Walgreens"
+            def check_ids(self, ids, in_store):
+                return {i: StockResult("walgreens", "Walgreens", i, "Pokemon ETB", "https://www.walgreens.com/x", price=49.99,
+                                       online=True, online_status="In stock") for i in ids}
+        self.mon.cfg.watchlist[0].ids["walgreens"] = "prod1"
+        with mock.patch.dict(scan_mod.REGISTRY, {"walgreens": FakeWag}), \
+                mock.patch.object(type(self.mon.cfg), "enabled_retailers", lambda c: ["walgreens", "target", "cvs"]):
+            snap = run_scan(self.mon, stores=["walgreens"], online=False)       # online is forced on for it
+        self.assertIn("walgreens", snap["available"])
+        self.assertEqual(snap["online_only"], ["walgreens"])
+        self.assertTrue(any(r["retailer"] == "walgreens" and r["online"] for r in snap["rows"]))
+        self.assertIn("no shelf stock", snap["stores"]["walgreens"]["status"])
+
+    def test_cvs_needing_your_own_chrome_is_not_shown_as_blocked(self):
+        class NeedsOwn(Retailer):
+            name, display, supports_in_store = "cvs", "CVS", True
+            def check_ids(self, ids, in_store):
+                raise Blocked("CVS is rate limiting. This store usually allows your own Chrome. Start it", 600)
+        with mock.patch.dict(scan_mod.REGISTRY, {"cvs": NeedsOwn}):
+            snap = run_scan(self.mon, stores=["cvs"])
+        st = snap["stores"]["cvs"]
+        self.assertEqual(st["state"], "skip")
+        self.assertNotIn("Blocked", st["status"])
 
     def test_search_every_product_skips_types_you_turned_alerts_off_for(self):
         SearchTarget.asked = []

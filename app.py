@@ -79,6 +79,8 @@ def main() -> None:
         from restock.selftest import run as selftest
         sys.exit(0 if selftest(resource_dir(), base_dir()) else 1)
     ensure_config(args.config)
+    from restock import power
+    power.apply(power.read_settings(args.config))
 
     if not (args.headless or args.once or args.resolve or args.test_discord
             or args.abtest or args.stats):

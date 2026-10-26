@@ -105,6 +105,7 @@ class App:
             raise SystemExit(1)
         self._style()
         self._build()
+        self._paint()                   # now that every widget exists
         self.panel = None
         if (self.monitor.cfg.raw.get("control_panel") or {}).get("enabled", True):
             self.panel = PanelServer(self.monitor)
@@ -132,31 +133,36 @@ class App:
 
     def _style(self) -> None:
         from tkinter import font as tkfont
+        from . import theme
         have = set(tkfont.families())
-        ui = next((f for f in ("Segoe UI Variable Text", "Segoe UI", "Calibri", "Helvetica") if f in have), "TkDefaultFont")
-        head = next((f for f in ("Segoe UI Variable Display", "Segoe UI Semibold", ui) if f in have), ui)
+        self.ui_font = next((f for f in ("Segoe UI Variable Text", "Segoe UI", "Calibri", "Helvetica") if f in have), "TkDefaultFont")
+        self.head_font = next((f for f in ("Segoe UI Variable Display", "Segoe UI Semibold", self.ui_font) if f in have), self.ui_font)
         self.mono = next((f for f in ("Cascadia Mono", "Cascadia Code", "Consolas", "Courier New") if f in have), "TkFixedFont")
         for name, size in (("TkDefaultFont", 10), ("TkTextFont", 10), ("TkMenuFont", 10), ("TkHeadingFont", 10)):
             try:
-                tkfont.nametofont(name).configure(family=ui, size=size)
+                tkfont.nametofont(name).configure(family=self.ui_font, size=size)
             except tk.TclError:
                 pass
-        style = ttk.Style()
-        if "vista" in style.theme_names():
-            style.theme_use("vista")
-        elif "clam" in style.theme_names():
-            style.theme_use("clam")
-        ink, muted, accent = "#1f1b3a", "#5b5778", "#6d4fd6"
-        style.configure("Treeview", rowheight=28, font=(ui, 10))
-        style.configure("Treeview.Heading", font=(ui, 9, "bold"), padding=(6, 5))
-        style.configure("TNotebook.Tab", padding=(14, 7), font=(ui, 10))
-        style.configure("TButton", padding=(10, 5))
-        style.configure("H.TLabel", font=(head, 13, "bold"), foreground=ink)
-        style.configure("Sub.TLabel", foreground=muted, font=(ui, 9))
-        style.configure("State.TLabel", font=(head, 12, "bold"), foreground=accent)
-        style.configure("Banner.TFrame", background="#fff4ce")
-        style.configure("Banner.TLabel", background="#fff4ce", font=(ui, 10))
-        style.configure("Accent.TButton", font=(ui, 10, "bold"), padding=(14, 6))
+        self.theme_mode = theme.load_mode(self.monitor.cfg.data_dir)
+        self.theme_style = ttk.Style()
+        self._paint()
+
+    def _paint(self) -> None:
+        """Apply the chosen theme (dark, light or match Windows) to every widget, now and later."""
+        from . import theme
+        p = theme.palette_for(self.theme_mode)
+        self.palette = p
+        theme.apply(self.root, self.theme_style, p, self.ui_font, self.head_font)
+        theme.recolor(self.root, p, self.mono)
+        if hasattr(self, "table"):
+            self.table.tag_configure("instock", background=p.ok_bg, foreground=p.ok)
+            self.table.tag_configure("ignored", foreground=p.faint)
+
+    def set_theme(self, mode: str) -> None:
+        from . import theme
+        self.theme_mode = mode
+        theme.save_mode(self.monitor.cfg.data_dir, mode)
+        self._paint()
 
     def _section(self, parent, title: str, hint: str = "") -> ttk.Frame:
         ttk.Label(parent, text=title, style="H.TLabel").pack(anchor="w", pady=(14, 2))
@@ -214,6 +220,11 @@ class App:
         menu.add_command(label="Browser cleanup (Reset profile, in Stores & speed)",
                          command=lambda: self.tabs.select(self.tab_stores))
         menu.add_separator()
+        look = tk.Menu(menu, tearoff=False)
+        for label, mode in (("Dark", "dark"), ("Light", "light"), ("Match Windows", "system")):
+            look.add_command(label=label, command=lambda m=mode: self.set_theme(m))
+        menu.add_cascade(label="Appearance", menu=look)
+        menu.add_separator()
         menu.add_command(label="Reload settings from file", command=self.reload)
         menu.add_command(label="Edit settings file (advanced)", command=self.edit_config)
         more["menu"] = menu
@@ -224,6 +235,9 @@ class App:
         ttk.Button(bar, text="Check now", command=self.check_now).pack(side="right", padx=3)
         self.run_btn = ttk.Button(bar, text="Stop", command=self.toggle_run)
         self.run_btn.pack(side="right", padx=3)
+
+        from .theme import GradientBar
+        GradientBar(self.root, height=3).pack(fill="x", pady=(0, 6))
 
         self.banner = ttk.Frame(self.root, style="Banner.TFrame", padding=(12, 8))
         self.banner_text = tk.StringVar()
@@ -262,8 +276,8 @@ class App:
                                   ("source", "Matched", 170), ("checked", "Checked", 80)):
             self.table.heading(col, text=label)
             self.table.column(col, width=width, stretch=col == "title")
-        self.table.tag_configure("instock", background="#d4f5e2", foreground="#0b5a2b")
-        self.table.tag_configure("ignored", foreground="#8a8a8a")
+        self.table.tag_configure("instock")
+        self.table.tag_configure("ignored")
         self.table.bind("<Double-1>", self.open_selected)
         scroll = ttk.Scrollbar(top, orient="vertical", command=self.table.yview)
         self.table.configure(yscrollcommand=scroll.set)
@@ -274,7 +288,7 @@ class App:
         ttk.Label(bottom, text="Activity (double-click a product to open it)").pack(anchor="w")
         self.log = tk.Text(bottom, height=10, wrap="word", font=(self.mono, 9), state="disabled", padx=8, pady=6, relief="flat", borderwidth=1)
         self.log.pack(fill="both", expand=True)
-        self.log.tag_configure("alert", foreground="#0a7a32", font=(self.mono, 9, "bold"))
+        self.log.tag_configure("alert", font=(self.mono, 9, "bold"))
         panes.add(bottom, weight=1)
 
     def _build_discord(self, tab) -> None:
@@ -312,10 +326,14 @@ class App:
         box = self._section(p, "Separate channels (optional)",
                             "Leave these blank to use the main webhook above. Online restocks go to the Online "
                             "channel, shelf stock near you goes to the In-store channel, and each area on the "
-                            "Your area tab can have its own channel too. Anything with no match uses the main one.")
+                            "Your area tab can have its own channel too. Anything with no match uses the main one. The Status channel "
+                            "is different: it gets everything that is not stock (a sign-in is needed, a store keeps blocking, "
+                            "a check needs you) and never gets stock alerts. Blank means no status messages.")
         v["webhook_online"] = tk.StringVar()
         v["webhook_in_store"] = tk.StringVar()
-        for key, label in (("webhook_online", "Online restocks"), ("webhook_in_store", "In-store stock")):
+        v["webhook_status"] = tk.StringVar()
+        for key, label in (("webhook_online", "Online restocks"), ("webhook_in_store", "In-store stock"),
+                           ("webhook_status", "Status (not stock)")):
             row = ttk.Frame(box)
             row.pack(fill="x", pady=3)
             ttk.Label(row, text=label, width=22).pack(side="left")
@@ -544,6 +562,7 @@ class App:
         v["webhook"].set(((d.get("webhooks") or {}).get("default")) or "")
         v["webhook_online"].set(((d.get("webhooks") or {}).get("online")) or "")
         v["webhook_in_store"].set(((d.get("webhooks") or {}).get("in_store")) or "")
+        v["webhook_status"].set(((d.get("webhooks") or {}).get("status")) or "")
         v["username"].set(d.get("username") or "Restock Monitor")
         v["role"].set(str(d.get("mention_role_id") or ""))
         v["user"].set(str(d.get("mention_user_id") or ""))
@@ -621,6 +640,7 @@ class App:
         hooks["default"] = v["webhook"].get().strip()
         hooks["online"] = v["webhook_online"].get().strip()
         hooks["in_store"] = v["webhook_in_store"].get().strip()
+        hooks["status"] = v["webhook_status"].get().strip()
         d["webhooks"] = hooks
         d["username"] = v["username"].get().strip() or "Restock Monitor"
         d["mention_role_id"] = "".join(ch for ch in v["role"].get() if ch.isdigit())
@@ -721,6 +741,8 @@ class App:
             text.configure(state="disabled")
         refresh()
         ttk.Button(win, text="Refresh", command=refresh).pack(pady=8)
+        from . import theme
+        theme.recolor(win, self.palette, self.mono)
 
     # ---- area editing ----------------------------------------------------------------
     def _area_selected(self, _event=None) -> None:
@@ -921,6 +943,10 @@ class App:
                 messagebox.showerror("Not saved", str(exc))
         self.state_var.set("Stopping...")
         self.root.update_idletasks()
+        try:
+            self.root.withdraw()                    # the window goes at once; the browsers close behind it
+        except Exception:
+            pass
         self.monitor.close()
         if self.panel:
             self.panel.stop()

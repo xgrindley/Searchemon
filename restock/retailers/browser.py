@@ -940,12 +940,17 @@ class BrowserPool:
                 out[w.name] = rep
         return out
 
+    def begin_stop(self) -> None:
+        """Tell every browser to close now, without waiting for them. Queued checks are dropped; a check that
+        is already loading finishes first, then the browser closes itself cleanly."""
+        self.stopping = True
+        for w in list(self.workers):
+            w.request_stop()
+
     def stop(self) -> None:
         """Close every browser the app opened or joined. All of them are told at once, so closing the
         app does not wait for each one in turn."""
-        self.stopping = True
-        for w in self.workers:
-            w.request_stop()
+        self.begin_stop()
         deadline = time.time() + 15
         for w in self.workers:
             if w.thread and w.thread.is_alive():

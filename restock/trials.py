@@ -136,7 +136,14 @@ class TrialPlan:
         except OSError:
             pass
 
+    on_event = None          # set by the engine: called with (kind, arm key, detail) for an automatic stop
+
     def _event(self, kind: str, key: str, detail: str = "") -> None:
+        if kind == "auto_stop" and self.on_event:
+            try:
+                self.on_event(kind, key, detail)
+            except Exception:
+                pass
         self.saved["events"] = (self.saved["events"] + [{"t": round(time.time()), "kind": kind, "arm": key,
                                                           "detail": detail}])[-KEEP_EVENTS:]
 

@@ -81,6 +81,7 @@ class AccountTracker:
         """report: {profile: {site: classify()-result}}. Returns plain-words changes worth logging."""
         now = now or time.time()
         notes = []
+        self.last_lost = []
         with self.lock:
             for profile, sites in report.items():
                 for site, info in sites.items():
@@ -100,6 +101,7 @@ class AccountTracker:
                         if was in ("signed_in", "confirmed"):
                             row["lost"] = round(now)
                             row["since"] = 0
+                            self.last_lost.append((site, profile))
                             notes.append(f"{site}: the sign-in saved in the {profile} browser is gone (expired or signed out)")
                     if was not in ("signed_in", "confirmed") and row["state"] in ("signed_in", "confirmed"):
                         notes.append(f"{site}: signed in and saved in the {profile} browser")

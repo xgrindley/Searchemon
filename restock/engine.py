@@ -98,6 +98,8 @@ class Monitor:
         self.cfg: Config = load_config(self.config_path)
         self.store_history = StoreHistory(self.cfg.data_dir)
         self._discovery_tried: set[str] = set()
+        self._status_sent: dict[tuple[str, str], float] = {}
+        self._status_lock = threading.Lock()
         self.accounts = AccountTracker(self.cfg.data_dir)
         self._accounts_lock = threading.Lock()
         self.log = make_logger(self.cfg.data_dir, self.console)
@@ -120,6 +122,7 @@ class Monitor:
         if self.trials is None:
             self.trials = TrialPlan(self.cfg.raw, self.cfg.data_dir, self.log, self.tracker)
             set_trials(self.trials)
+            self.trials.on_event = self._trial_event
         else:
             self.trials.attach(self.cfg.raw)
         if self.browser is None:
@@ -243,7 +246,10 @@ class Monitor:
         self.info(f"{site} wants a quick human check. Finish it in {where}.")
         self.toaster.message(f"{site} needs a quick check",
                              "Finish the check in the browser window and restock checks continue.")
-        if (self.cfg.raw.get("browser") or {}).get("notify_discord") and self.notifier.enabled:
+        self.status("human", domain, f"Verification needed: {site}",
+                    f"{site} wants a quick human check before the monitor can keep checking it. "
+                    f"Finish it in {where} on your PC; checks resume by themselves afterwards.", ping=True)
+        if not self.notifier.status_enabled and (self.cfg.raw.get("browser") or {}).get("notify_discord") and self.notifier.enabled:
             self.notifier.note(f"{site} wants a human check before the monitor can keep checking it. "
                                "Finish it in the browser window on your PC.")
         self.emit("human_check", domain, url)
@@ -269,6 +275,34 @@ class Monitor:
         if self.browser:
             threading.Thread(target=run, daemon=True).start()
 
+    # ---- status channel (everything that is not stock) --------------------------------
+    STATUS_KINDS = ("blocked", "recovered", "human", "signin", "autostop", "browser")
+
+    def status(self, kind: str, key: str, title: str, text: str, ping: bool = False) -> None:
+        """Post to the status webhook if one is set, this kind is switched on, and the same message about the same
+        thing has not been sent within the cooldown. Posting runs in its own thread so a slow Discord never delays checks."""
+        d = self.cfg.raw.get("discord") or {}
+        if not self.notifier.status_enabled or not (d.get("status_kinds") or {}).get(kind, True):
+            return
+        now = time.time()
+        cooldown = float(d.get("status_cooldown_minutes") or 60) * 60
+        with self._status_lock:
+            if now - self._status_sent.get((kind, key), 0) < cooldown:
+                return
+            self._status_sent[(kind, key)] = now
+        threading.Thread(target=lambda: self.notifier.status(title, text, kind, ping), daemon=True).start()
+
+    def _trial_event(self, kind: str, arm: str, detail: str) -> None:
+        self.status("autostop", arm, f"Method switched off: {arm}",
+                    f"The trial method '{arm}' was stopped automatically: {detail}. "
+                    "Switch it back on in the Methods lab if you want to try it again.")
+
+    def _check_browser_problems(self) -> None:
+        for w in list(getattr(self.browser, "workers", []) or []):
+            if getattr(w, "failed", ""):
+                self.status("browser", w.name, f"Checking browser '{w.name}' has a problem",
+                            f"{w.failed}\nStores that need a browser will be skipped until it starts.")
+
     def scan_accounts(self) -> None:
         """Look at the cookies the checking browsers have saved and update which accounts are signed in."""
         if not (self.browser and self.browser.usable) or not self._accounts_lock.acquire(blocking=False):
@@ -276,6 +310,10 @@ class Monitor:
         try:
             for note in self.accounts.update(self.browser.cookie_report()):
                 self.info(note)
+            for site, profile in getattr(self.accounts, "last_lost", []):
+                self.status("signin", f"{site}:{profile}", f"Sign in needed: {site}",
+                            f"The saved {site} sign-in in the '{profile}' browser is gone (expired or signed out). "
+                            "Open the control panel, Accounts, and press Sign in for that store.", ping=True)
         except Exception as exc:
             self.log.debug("Account check failed: %s", exc)
         finally:
@@ -286,6 +324,7 @@ class Monitor:
             return
         while not stop.is_set():
             self.scan_accounts()
+            self._check_browser_problems()
             stop.wait(180)
 
     def profile_clear_bot(self, profile: str, site: str | None = None) -> tuple[bool, str]:
@@ -332,8 +371,8 @@ class Monitor:
             self._closed = True
         self.store_history.save()
         if self.browser:
-            self.browser.stopping = True            # no new browsers join while the app is closing
-        self.stop()
+            self.browser.begin_stop()               # no new browsers join; every browser starts closing now
+        self.stop(wait=3.0)                          # ...while the checking loops wind down alongside
         if self.browser:
             self.browser.stop()
         if self.tracker:
@@ -370,13 +409,17 @@ class Monitor:
             self.threads.append(t)
             self.info(f"Monitoring started: {', '.join(r.display for r in self.retailers.values()) or 'no retailers enabled'}")
 
-    def stop(self) -> None:
+    def stop(self, wait: float = 5.0) -> None:
+        """Stop the checking loops. They are all told at once and share one waiting budget (not `wait` each),
+        so many stores no longer add up. A loop still in a slow web request is a daemon thread that finishes
+        on its own and checks the stop signal afterwards, so nothing is cut off mid-write."""
         with self.run_lock:
             self.stop_event.set()
             for ev in self.wake.values():
                 ev.set()
+            deadline = time.time() + wait
             for t in self.threads:
-                t.join(timeout=5)
+                t.join(timeout=max(0.05, deadline - time.time()))
             self.threads = []
             self.state.save()
         self.info("Monitoring stopped")
@@ -491,6 +534,11 @@ class Monitor:
                 count = self.run_cycle(r)
                 backoff = 0.0
                 h["recent"].append(1)
+                if h.get("block_notified"):
+                    h["block_notified"] = False
+                    self.status("recovered", name, f"Back to normal: {r.display}",
+                                f"{r.display} is loading again after being blocked.")
+                h["block_streak"] = 0
                 self.store_history.record(name, True, ms=(time.time() - started) * 1000, products=count)
                 h["slow"] = max(1.0, h["slow"] * 0.8)   # ease back toward normal speed
                 h["last_ok"] = time.time()
@@ -504,6 +552,7 @@ class Monitor:
                     h["recent"].append(0)
                     self.store_history.record(name, False, str(exc), ms=(time.time() - started) * 1000)
                     h["blocks"] += 1
+                    h["block_streak"] = h.get("block_streak", 0) + 1
                     h["last_block"] = str(exc)
                     h["slow"] = min(MAX_SLOWDOWN, h["slow"] * 2)  # back off harder each time
                     # Normal blocks back off up to 30 min; a hard ban asks for longer and gets it.
@@ -511,6 +560,12 @@ class Monitor:
                     backoff *= random.uniform(0.8, 1.2)
                     self.info(f"{exc}. Pausing {r.display} for {int(backoff // 60)} min.")
                     mins = int(backoff // 60)
+                    if h["block_streak"] >= int((self.cfg.raw.get("discord") or {}).get("status_block_after") or 3):
+                        h["block_notified"] = True
+                        self.status("blocked", name, f"{r.display} is blocking the monitor",
+                                    f"{h['block_streak']} checks in a row were blocked: {exc}\n"
+                                    f"Pausing it for about {max(1, mins)} min. If it keeps happening, open the control panel, "
+                                    "Accounts > Browser profiles, and press Clear bot-check cookies for the browser it uses.")
                     status = (f"Blocked, retry in {mins // 60} h {mins % 60} min" if mins >= 120
                               else f"Blocked, retry in {max(1, mins)} min")
             except Exception as exc:  # keep the loop alive no matter what

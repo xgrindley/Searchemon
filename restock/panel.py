@@ -88,7 +88,7 @@ class PanelServer:
             self.monitor.info(f"Control panel could not start on port {self.port}: {exc}")
             return False
         self.httpd.daemon_threads = True
-        threading.Thread(target=self.httpd.serve_forever, daemon=True, name="panel").start()
+        threading.Thread(target=lambda: self.httpd.serve_forever(poll_interval=0.1), daemon=True, name="panel").start()
         self.monitor.info(f"Control panel: {self.url}" + (f"  (phone: {self.lan_url})" if self.lan else ""))
         return True
 

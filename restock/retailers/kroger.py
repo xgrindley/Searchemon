@@ -55,6 +55,11 @@ class Kroger(Retailer):
         self._locations_at = 0.0
 
     # ---- auth -----------------------------------------------------------------
+    def setup_needed(self) -> str:
+        if not (str(self.rcfg.get("client_id") or "").strip() and str(self.rcfg.get("client_secret") or "").strip()):
+            return "Needs a free Kroger key (developer.kroger.com). Add it in Stores, or switch Kroger off."
+        return ""
+
     def token(self) -> str:
         cid, secret = str(self.rcfg.get("client_id") or ""), str(self.rcfg.get("client_secret") or "")
         if not (cid and secret):

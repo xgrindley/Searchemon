@@ -279,7 +279,7 @@ class TrialPlan:
             self._trace("-", arm.key, "auto_stopped", f"{w['fails']}/{w['attempts']}")
             if self.log:
                 self.log.info("Trial method '%s' was stopped automatically: %d of %d attempts failed or were blocked (%d%%). "
-                              "Switch it back on in the Methods lab if you want to try it again.",
+                              "Switch it back on under Advanced > Connection methods if you want to try it again.",
                               arm.key, w["fails"], w["attempts"], pct)
 
     def _save_soon(self) -> None:

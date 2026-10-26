@@ -95,6 +95,45 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 .empty { padding: 28px 16px; color: var(--muted); text-align: center; }
 
 /* retailer tiles: grey unless abnormal */
+/* Section tabs (pages that share a menu item) */
+.subtabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0 14px; padding: 4px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--panel); width: fit-content; max-width: 100%; }
+.subtabs button { border: 0; background: none; color: var(--muted); padding: 6px 12px; border-radius: 9px; cursor: pointer; font-weight: 500; white-space: nowrap; }
+.subtabs button:hover { color: var(--ink); background: var(--line-soft); }
+.subtabs button.on { background: var(--raised); color: var(--ink); box-shadow: inset 0 -2px 0 var(--act); }
+nav.rail .count.warn { color: var(--warn); font-weight: 600; }
+/* Home: setup steps */
+.steps { padding: 14px 16px; margin: 0 0 18px; }
+.steps h2 { margin: 0 0 8px; }
+.steps ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.steps li { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.steps li .mark { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12px; font-weight: 700; border: 1px solid var(--line); flex: none; }
+.steps li.done .mark { background: var(--ok-bg); border-color: var(--ok-strong); color: var(--ok); }
+.steps li.done .what { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--faint); }
+.steps li .what { flex: 1 1 220px; }
+/* Home: what is in stock now */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.scard { padding: 12px 14px; border: 1px solid var(--ok-strong); background: var(--ok-bg); border-radius: var(--r-s); display: grid; gap: 4px; min-width: 0; }
+.scard .store { font-size: 12px; color: var(--ok); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.scard a { font-weight: 600; overflow-wrap: anywhere; }
+.scard .price { font-variant-numeric: tabular-nums; }
+.scard .where { font-size: 13px; color: var(--muted); }
+.calm { padding: 16px; display: flex; gap: 12px; align-items: center; }
+.calm .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--faint); flex: none; }
+/* Home: store health */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 13px; max-width: 100%; }
+.chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.chip.ok i { background: var(--ok-strong); }
+.chip.warn { border-color: var(--warn); } .chip.warn i { background: var(--warn); }
+.chip.bad { border-color: var(--bad); } .chip.bad i { background: var(--bad); }
+.chip.setup i { background: none; border: 1px dashed var(--muted); }
+.chip .btn { padding: 0 4px; font-size: 12px; line-height: 1.2; border: 0; min-height: 0; }
+.chip small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+details.more { margin-top: 10px; }
+details.more > summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0; width: fit-content; }
+details.more > summary:hover { color: var(--ink); }
+.summary-line { margin: 0 0 10px; color: var(--muted); }
+.summary-line b { color: var(--ink); }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
 .tile { padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--panel); transition: border-color .15s, transform .15s; }
 .tile:hover { border-color: var(--muted); transform: translateY(-1px); }
@@ -383,22 +422,13 @@ table.matrix td.none { color: var(--faint); }
 <div class="frame">
   <nav class="rail" aria-label="Sections">
     <div class="brand"><span>Searchemon<small id="hostline">Running on this PC</small><small id="verline"></small></span></div>
-    <div class="navlabel">Monitor</div>
-    <button data-tab="dash" aria-current="page">Dashboard</button>
-    <button data-tab="scan">Find stock near a ZIP</button>
-    <button data-tab="found">Found products <span class="count" id="c-found"></span></button>
-    <button data-tab="places">Stores near you <span class="count" id="c-places"></span></button>
-    <button data-tab="times">Restock times</button>
-    <button data-tab="methods">Methods lab</button>
-    <button data-tab="accounts">Accounts <span class="count" id="c-accounts"></span></button>
-    <div class="navlabel">Set up</div>
-    <button data-tab="notify">Notifications</button>
-    <button data-tab="areas">Areas &amp; radius</button>
-    <button data-tab="speed">Check speed</button>
-    <button data-tab="filters">Product filters</button>
-    <button data-tab="watch">My products <span class="count" id="c-watch"></span></button>
-    <button data-tab="search">Searches <span class="count" id="c-search"></span></button>
-    <button data-tab="retail">Stores &amp; keys</button>
+    <button data-group="home" aria-current="page">Home <span class="count" id="c-home"></span></button>
+    <button data-group="near">Stock near me <span class="count" id="c-near"></span></button>
+    <button data-group="products">Products <span class="count" id="c-products"></span></button>
+    <button data-group="alerts">Discord alerts</button>
+    <button data-group="areas">My areas</button>
+    <button data-group="stores">Stores <span class="count" id="c-stores"></span></button>
+    <button data-group="advanced">Advanced</button>
   </nav>
   <main>
     <div class="strip">
@@ -407,7 +437,7 @@ table.matrix td.none { color: var(--faint); }
         <span class="state" id="state"><i></i><span>Connecting</span></span>
         <button class="btn" id="b-check">Check now</button>
         <button class="btn" id="b-pause">Pause alerts</button>
-        <button class="btn" id="b-run">Stop</button>
+        <button class="btn" id="b-run">Stop checking</button>
       </div>
     </div>
     <div class="banner offline" id="offline" role="alert"><span>Lost contact with the app. It may have been closed or restarted. Open it again and this page reconnects by itself.</span></div>
@@ -476,7 +506,7 @@ function h(tag, attrs, ...kids) {
 }
 const $ = (id) => document.getElementById(id);
 const money = (n) => (n === null || n === undefined || n === "") ? "" : "$" + Number(n).toFixed(2);
-function ago(t) { if (!t || !status) return ""; const s = Math.max(0, Math.round(status.now - t)); return s < 60 ? s + "s ago" : s < 3600 ? Math.round(s / 60) + "m ago" : Math.round(s / 3600) + "h ago"; }
+function ago(t) { if (!t || !status) return ""; const s = Math.max(0, Math.round(status.now - t)); return s < 60 ? "just now" : s < 3600 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago"; }
 function toast(msg, err) { const t = $("toast"); t.textContent = msg; t.className = "toast show" + (err ? " err" : ""); clearTimeout(t._t); t._t = setTimeout(() => t.className = "toast", 3200); }
 function extLink(url, text) { return h("a", { href: url, target: "_blank", rel: "noreferrer noopener", text }); }
 
@@ -509,11 +539,43 @@ $("pin-form").addEventListener("submit", () => { token = $("pin-in").value.trim(
 const dirty = () => cfg && JSON.stringify(cfg) !== savedJSON;
 function touch() { $("savebar").classList.toggle("show", dirty()); counts(); }
 function counts() {
-  if (!cfg) return;
-  $("c-watch").textContent = (cfg.watchlist || []).length || "";
-  $("c-search").textContent = (cfg.searches || []).length || "";
-  if (status) { $("c-found").textContent = status.catalog_total || ""; $("c-places").textContent = status.places_total || "";
-    $("c-accounts").textContent = (status.accounts || []).filter((a) => a.state === "signed_in").length || ""; }
+  if (!cfg || !status) return;
+  const live = status.items.filter((i) => i.in_stock && !i.note).length;
+  const set = (id, v, warn) => { const el = $(id); if (el) { el.textContent = v || ""; el.classList.toggle("warn", !!warn && !!v); } };
+  set("c-home", live, false);
+  set("c-near", "", false);
+  set("c-products", status.catalog_total + (cfg.watchlist || []).length, false);
+  set("c-stores", (status.retailers || []).filter((r) => storeState(r.status).cls !== "ok" && storeState(r.status).cls !== "").length, true);
+}
+/* The menu: seven plain sections; pages that belong together share a section and get tabs at the top. */
+const GROUPS = [
+  { key: "home", tabs: [["dash", "Home"]] },
+  { key: "near", tabs: [["places", "Stores with stock"], ["scan", "Scan a ZIP"]] },
+  { key: "products", tabs: [["found", "Found for you"], ["watch", "Your own links"], ["search", "Keyword searches"], ["filters", "Prices & filters"]] },
+  { key: "alerts", tabs: [["notify", "Discord alerts"]] },
+  { key: "areas", tabs: [["areas", "My areas"]] },
+  { key: "stores", tabs: [["retail", "Stores & keys"], ["speed", "How often"], ["accounts", "Sign-ins"]] },
+  { key: "advanced", tabs: [["times", "Restock patterns"], ["methods", "Connection methods"]] },
+];
+const lastTab = {};
+function groupOf(t) { return GROUPS.find((g) => g.tabs.some(([k]) => k === t)) || GROUPS[0]; }
+function subTabs() {
+  const g = groupOf(tab);
+  if (g.tabs.length < 2) return null;
+  return h("div", { class: "subtabs", role: "tablist", "aria-label": "Pages in this section" }, g.tabs.map(([k, label]) =>
+    h("button", { type: "button", role: "tab", "aria-selected": String(k === tab), class: k === tab ? "on" : "", text: label, onclick: () => go(k) })));
+}
+/* A short, plain state for each store, from its full status line. */
+function storeState(st) {
+  st = st || "";
+  let m;
+  if (/^OK/.test(st)) return /no Pokemon products found yet/.test(st) ? { label: "No products found yet", cls: "warn" } : { label: "Checking", cls: "ok" };
+  if ((m = st.match(/^Blocked, retry in (.+)$/))) return { label: "Paused by the store, back in " + m[1], cls: "warn" };
+  if (/^Waiting for you/.test(st)) return { label: "Needs you: finish the check in the browser window", cls: "warn" };
+  if (/^Needs a free/.test(st)) return { label: "Needs setup", cls: "setup" };
+  if (/^Error/.test(st)) return { label: "Problem, retrying", cls: "bad" };
+  if (/^Waiting for first check/.test(st) || !st) return { label: "Starting", cls: "" };
+  return { label: st.length > 48 ? st.slice(0, 46) + "..." : st, cls: "" };
 }
 function text(obj, key, attrs = {}) {
   return h("input", { type: "text", value: obj[key] ?? "", ...attrs, oninput: (e) => { obj[key] = e.target.value; touch(); } });
@@ -747,13 +809,18 @@ const views = {
       h("button", { class: "btn quiet", type: "button", text: "Clear", onclick: () => { nearState.zip = ""; nearState.point = null; store.set("restock-near", { zip: "", radius: nearState.radius, online: nearState.online }); render(); } }));
     setTimeout(drawDash);
     return [
-      h("h1", { text: "Dashboard" }),
-      h("p", { class: "lede", text: "Everything the monitor checked recently. Rows light up when an item is in stock and passes your filters. Mute a listing to stop its alerts." }),
-      h("div", { class: "tiles", id: "tiles" }), h("h2", { text: "Listings" }),
+      h("h1", { text: "Home" }),
+      h("p", { class: "lede", text: "What is in stock right now, and whether every store is being checked. Products are found for you, so there is nothing to look up or paste." }),
+      h("div", { id: "setup" }),
+      h("h2", { text: "In stock now" }), h("div", { id: "instock" }),
+      h("h2", { text: "Your stores" }), h("div", { id: "health" }),
       h("div", { class: "two" },
-        h("div", {}, zipbar, h("div", { class: "toolbar" }, search, sel, only), h("div", { class: "table-wrap", id: "stock" })),
-        h("div", {}, h("h2", { style: "margin-top:0", text: "Recent alerts" }), h("div", { class: "panel" }, h("ul", { class: "feed", id: "alerts" })),
-          h("h2", { text: "Activity" }), h("div", { class: "panel" }, h("ul", { class: "feed log", id: "activity" })))),
+        h("div", {}, h("h2", { text: "Everything being watched" }), h("div", { class: "toolbar" }, search, sel, only),
+          h("details", { class: "more", open: nearFilterOn() }, h("summary", { text: "Only show stores near a ZIP" }), zipbar),
+          h("div", { class: "table-wrap", id: "stock" })),
+        h("div", {}, h("h2", { text: "Recent alerts" }), h("div", { class: "panel" }, h("ul", { class: "feed", id: "alerts" })),
+          h("details", { class: "more" }, h("summary", { text: "Technical log (for troubleshooting)" }),
+            h("div", { class: "panel" }, h("ul", { class: "feed log", id: "activity" }))))),
     ];
   },
 
@@ -764,7 +831,7 @@ const views = {
       h("option", { value: "", text: "Every location" }));
     setTimeout(loadPatterns);
     return [
-      h("h1", { text: "Restock times" }),
+      h("h1", { text: "Restock patterns" }),
       h("p", { class: "lede", text: "Every restock the monitor catches while it runs is logged here by store, day and hour. After a couple of weeks you can see when each store usually gets stock, so you go at the right time instead of driving around." }),
       h("div", { class: "toolbar" }, sel, place),
       h("div", { id: "times-body" }, h("div", { class: "panel empty", text: "Loading restock history" })),
@@ -774,7 +841,7 @@ const views = {
   places() {
     setTimeout(loadPlaces);
     return [
-      h("h1", { text: "Stores near you" }),
+      h("h1", { text: "Stores with stock" }),
       h("p", { class: "lede", text: "Stores that have Pokemon cards in stock right now, from the latest checks. Pick an area and a radius, then click a store on the map or in the list to see exactly what it has. Tick the last box to also list every store near you." }),
       h("div", { id: "places-body" }, h("div", { class: "panel empty", text: "Loading stores" })),
     ];
@@ -788,7 +855,7 @@ const views = {
     const ign = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: foundState.showIgnored, onchange: (e) => { foundState.showIgnored = e.target.checked; drawFound(); } }), "Show ignored");
     setTimeout(loadFound);
     return [
-      h("h1", { text: "Found products" }),
+      h("h1", { text: "Found for you" }),
       h("p", { class: "lede", text: "Pokemon products the monitor found by searching store catalogs, grouped across stores. They are checked automatically, the most wanted types first. Ignore any you don't care about." }),
       h("div", { class: "toolbar" }, q, typeSel, rSel, ign, h("button", { class: "btn", type: "button", text: "Search stores now", onclick: async () => {
         try { await api("/api/action", { action: "rediscover" }); toast("Searching store catalogs now"); setTimeout(loadFound, 8000); } catch (e) { toast(e.message, true); } } })),
@@ -817,7 +884,7 @@ const views = {
           h("div", { class: "wide" }, sw(w, "in_store", "Check nearby store shelves too (Target, Best Buy, Kroger)"))));
     });
     return [
-      h("h1", { text: "Products" }),
+      h("h1", { text: "Your own links" }),
       h("p", { class: "lede", text: "Specific items you want, on top of what the monitor finds on its own. You do not need to add products for most stores: every enabled store searches its own site, and also looks up what other stores list by UPC and name. Add one here only for something it has not found." }),
       list.length ? list : h("div", { class: "panel empty", text: "No products yet. Add one with its UPC or a product link." }),
       h("button", { class: "btn primary", type: "button", text: "Add product", onclick: () => { cfg.watchlist.push({ name: "", upc: "", msrp: null, ids: {}, urls: [], retailers: [], in_store: true, enabled: true }); touch(); render(); } }),
@@ -841,7 +908,7 @@ const views = {
           h("div", {}, sw(s, "in_store", "Check nearby stores for matches"), h("p", { class: "hint", text: "Uses more requests. Best for one or two searches." }))));
     });
     return [
-      h("h1", { text: "Searches" }),
+      h("h1", { text: "Keyword searches" }),
       h("p", { class: "lede", text: "Catch new listings you don't have a UPC for. Results only alert when the title passes your keywords, the price is at MSRP, and it's in stock." }),
       list.length ? list : h("div", { class: "panel empty", text: "No searches yet." }),
       h("button", { class: "btn primary", type: "button", text: "Add search", onclick: () => { cfg.searches.push({ name: "", query: "", retailers: ["target", "walmart"], keywords: { include_any: [], exclude: [] }, max_price: null, in_store: false, enabled: true }); touch(); render(); } }),
@@ -893,7 +960,7 @@ const views = {
 
     const muted = (status && status.muted) || [];
     return [
-      h("h1", { text: "Product filters" }),
+      h("h1", { text: "Prices & filters" }),
       h("p", { class: "lede", text: "Decide what counts as a restock worth hearing about. Keyword lists ignore capitals and accents, so Pokemon and Pokémon match the same." }),
       h("h2", { text: "Keywords" }),
       h("div", { class: "card" }, h("div", { class: "card-body" },
@@ -932,7 +999,7 @@ const views = {
     const capVal = h("span", { class: "radius-val", text: n.max_miles ? n.max_miles + " mi" : "Off" });
     setTimeout(drawAreaMap);
     return [
-      h("h1", { text: "Areas & radius" }),
+      h("h1", { text: "My areas" }),
       h("p", { class: "lede", text: "Where you shop. Stores inside any of these circles are checked and can alert; stores outside them are ignored. Give an area its own Discord channel to send it only the stores inside that area." }),
       areasEditor(),
       h("div", { id: "area-map", class: "area-map" }),
@@ -943,7 +1010,7 @@ const views = {
           h("div", { style: "display:flex;gap:10px;align-items:center" }, h("input", { type: "range", min: "0", max: "50", value: String(n.max_miles || 0), "aria-label": "Alert distance in miles",
             oninput: (e) => { const v = Number(e.target.value); n.max_miles = v || null; capVal.textContent = v ? v + " mi" : "Off"; touch(); drawAreaMap(); } }), capVal)),
         setting("Check store shelves", "Shelf stock at Target, Best Buy and Kroger stores in your areas.", sw(cfg.settings, "in_store", ""))),
-      h("p", { class: "hint" }, "Skip single stores you never visit on ", h("a", { href: "#", onclick: (e) => { e.preventDefault(); go("places"); }, text: "Stores near you" }), "."),
+      h("p", { class: "hint" }, "Skip single stores you never visit on ", h("a", { href: "#", onclick: (e) => { e.preventDefault(); go("places"); }, text: "Stores with stock" }), "."),
     ];
   },
 
@@ -970,13 +1037,13 @@ const views = {
       "Search every product at the stores ticked below");
     const onl = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: scanState.online, onchange: (e) => { scanState.online = e.target.checked; saveScan(); } }), "Also list online stock");
     return [
-      h("h1", { text: "Find stock near a ZIP" }),
+      h("h1", { text: "Scan a ZIP" }),
       h("p", { class: "lede", text: "Type a ZIP, choose how far to look, and press Scan now. The app asks each store that shares shelf stock which of its stores nearby have your products. It only runs when you press the button, sends no Discord alerts, and does not change your areas." }),
       h("div", { class: "zipbar on" }, h("b", { text: "Near" }), zip, h("span", { text: "within" }), rad, radVal),
       h("div", { class: "card" }, h("div", { class: "card-body" }, h("div", { class: "wide" }, all,
         h("p", { style: "margin:8px 0 6px", class: "hint", text: scanState.everything
           ? "On: asks the stores ticked below, and searches each store's own catalog for Pokemon products right now, so you do not need to add links first. Product types you turned alerts off for are skipped."
-          : "Off: only My products plus what discovery already found." }),
+          : "Off: only your own links plus what was already found for you." }),
         h("div", { style: "display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin:10px 0 6px" },
           h("b", { text: "Stores to scan" }),
           h("button", { class: "btn quiet", type: "button", text: "All", onclick: () => pickAll(true) }),
@@ -1074,7 +1141,7 @@ const views = {
       return h("tr", {}, h("td", { text: site }), methods.map((m) => cell(site, m.method, best)));
     });
     return [
-      h("h1", {}, "Methods ", h("b", { text: "lab" })),
+      h("h1", { text: "Connection methods" }),
       h("p", { class: "lede", text: "Which way of loading pages lasts longest before a store blocks it. Counts are saved between runs, so the picture gets sharper over time." }),
       trustReport((status && status.trust) || { stores: [], feeds: [] }),
       historyPanel(status && status.history, label),
@@ -1101,7 +1168,7 @@ const views = {
       ] : h("div", { class: "panel empty", text: "No checks recorded yet. Numbers appear once the monitor has run for a few minutes." }),
       (ses.resting || []).length ? [h("h2", { text: "Resting right now" }), h("div", { class: "panel" }, h("ul", { class: "feed" },
         ses.resting.map((r) => h("li", {}, h("b", { text: r.profile }), " on " + r.site + ": back in about " + (r.minutes >= 90 ? Math.round(r.minutes / 60) + " h" : r.minutes + " min")))))] : null,
-      (ses.compare || []).length ? sideBySide(ses.compare, label) : h("div", { class: "panel empty", text: "Side-by-side test: no runs yet. It loads one page per store through every method at once, every 15 minutes by default (Stores & keys, Side-by-side test)." }),
+      (ses.compare || []).length ? sideBySide(ses.compare, label) : h("div", { class: "panel empty", text: "Side-by-side test: no runs yet. It loads one page per store through every method at once, every 15 minutes by default (Stores > Stores & keys, Side-by-side test)." }),
       featureTable(ses.features || []),
       h("h2", { text: "Methods to compare" }),
       h("div", { class: "panel", style: "overflow:hidden" }, [
@@ -1149,20 +1216,23 @@ const views = {
         cur = e.target.checked ? [...new Set([...cur, k])] : cur.filter((x) => x !== k);
         n.retailers = cur.length === Object.keys(RETAILERS).length ? [] : cur; touch(); } }), RETAILERS[k])));
     return [
-      h("h1", { text: "Notifications" }),
+      h("h1", { text: "Discord alerts" }),
       h("p", { class: "lede", text: "Connect Discord and decide exactly what gets pushed. Stores keep being checked either way; these settings only control the alerts." }),
       h("h2", { text: "Discord" }),
       h("div", { class: "card" }, h("div", { class: "card-body" },
         field("Restock channel webhook", secret(wh, "default", "https://discord.com/api/webhooks/..."), "In Discord: Server Settings, Integrations, Webhooks, New Webhook, pick your channel, Copy Webhook URL. Keep it private.", true),
-        field("Online restocks channel (optional)", secret(wh, "online", "Webhook URL"), "Things you can order online. Blank uses the restock channel."),
-        field("In-store channel (optional)", secret(wh, "in_store", "Webhook URL"), "Shelf stock near you. Each area can also have its own channel on Areas & radius."),
-        field("Status channel (optional)", secret(wh, "status", "Webhook URL"), "Everything that is not stock goes here instead: a sign-in is needed, a store keeps blocking, a check needs you, a method was switched off. Stock alerts never post here. Blank means no status messages.", true),
-        field("Ping a role", text(d, "mention_role_id", { placeholder: "Role ID, optional" }), "Developer Mode on, then right-click the role, Copy Role ID"),
-        field("Ping me", text(d, "mention_user_id", { placeholder: "Your user ID, optional" })),
-        field("Bot name", text(d, "username")),
         h("div", { style: "display:flex;align-items:end" }, h("button", { class: "btn", type: "button", text: "Send test message", onclick: async () => {
           if (dirty()) return toast("Save your changes first, then send the test.", true);
-          try { const r = await api("/api/action", { action: "test_discord" }); toast(r.ok ? "Test message sent" : (r.message || "Discord rejected the message. Check the webhook URL."), !r.ok); } catch (e) { toast(e.message, true); } } })))),
+          try { const r = await api("/api/action", { action: "test_discord" }); toast(r.ok ? "Test message sent" : (r.message || "Discord rejected the message. Check the webhook URL."), !r.ok); } catch (e) { toast(e.message, true); } } })),
+        h("details", { class: "more", style: "grid-column:1/-1", open: !!(wh.online || wh.in_store || wh.status || d.mention_role_id || d.mention_user_id) },
+          h("summary", { text: "More options: separate channels, pings, bot name" }),
+          h("div", { class: "card-body", style: "padding:10px 0 0" },
+            field("Online restocks channel (optional)", secret(wh, "online", "Webhook URL"), "Things you can order online. Blank uses the restock channel."),
+            field("In-store channel (optional)", secret(wh, "in_store", "Webhook URL"), "Shelf stock near you. Each area can also have its own channel under My areas."),
+            field("Status channel (optional)", secret(wh, "status", "Webhook URL"), "Everything that is not stock goes here instead: a sign-in is needed, a store keeps blocking, a check needs you, a method was switched off. Stock alerts never post here. Blank means no status messages.", true),
+            field("Ping a role", text(d, "mention_role_id", { placeholder: "Role ID, optional" }), "Developer Mode on, then right-click the role, Copy Role ID"),
+            field("Ping me", text(d, "mention_user_id", { placeholder: "Your user ID, optional" })),
+            field("Bot name", text(d, "username")))))),
       h("h2", { text: "What gets pushed" }),
       h("div", { class: "settings-list" },
         setting("Online restocks", "An item can be bought online again.", sw(n, "online", "")),
@@ -1218,7 +1288,7 @@ const views = {
     });
     const preset = (f) => { Object.keys(RETAILERS).forEach((k) => { const r = rs[k] = rs[k] || {}; r.interval_seconds = STEPS[nearestStep(Math.max(30, (DEFAULT_INTERVALS[k] || 180) * f))]; }); touch(); render(); };
     return [
-      h("h1", { text: "Check speed" }),
+      h("h1", { text: "How often each store is checked" }),
       h("p", { class: "lede", text: "How often each store is checked. Faster finds restocks sooner but gets blocked sooner; the monitor slows itself down automatically when a store pushes back." }),
       h("div", { class: "toolbar" }, h("span", { class: "hint", text: "Presets:" }),
         h("button", { class: "btn", type: "button", text: "Gentle", onclick: () => preset(2) }),
@@ -1255,13 +1325,17 @@ const views = {
     dsc.items_per_cycle = dsc.items_per_cycle || {};
     const block = (key, extra, desc) => {
       const r = rs[key] = rs[key] || {};
+      // A store's own settings are tucked away until needed, except a key the store cannot work without.
+      const missingKey = (key === "kroger" && !(r.client_id && r.client_secret)) || (key === "bestbuy" && !r.api_key);
       return h("div", { class: "card" + (r.enabled ? "" : " off") },
         h("div", { class: "card-head" }, sw(r, "enabled", ""), h("b", { style: "flex:1", text: RETAILERS[key] }), h("span", { class: "hint", text: desc })),
-        r.enabled && extra ? h("div", { class: "card-body" }, extra(r)) : null);
+        r.enabled && extra ? h("details", { class: "more", style: "margin:0 14px 10px", open: missingKey },
+          h("summary", { text: missingKey ? "Needs a free key to work" : "Options for this store" }),
+          h("div", { class: "card-body", style: "padding:10px 0 4px" }, extra(r))) : null);
     };
     return [
       h("h1", { text: "Stores & keys" }),
-      h("p", { class: "lede", text: "Turn stores on or off, add the free keys some need, and choose how website-based stores are loaded. Check speed has its own page." }),
+      h("p", { class: "lede", text: "Turn stores on or off, add the free keys some need, and choose how website-based stores are loaded. How often each store is checked is on the next tab." }),
       block("target", (r) => field("Only these store numbers", lines(r, "store_ids", { placeholder: "Leave empty for all stores in range" }), "One per line"), "Online and nearby store shelves, with quantities"),
       block("bestbuy", (r) => field("API key", secret(r, "api_key", "Free at developer.bestbuy.com"), "Required. Takes a few minutes to get.", true), "Online and nearby store shelves"),
       block("kroger", (r) => [
@@ -1280,16 +1354,16 @@ const views = {
       block("dicks", modeField, "Online, found automatically from its Pokemon section"),
       block("safeway", modeField, "Online, for the store set in the checking browser"),
       block("raleys", modeField, "Online. Finds Pokemon products by itself, or add product links"),
-      block("gamestop", modeField, "Online from product links, plus pickup stock at stores in your areas (experimental)"),
+      block("gamestop", modeField, "Online, plus pickup stock at stores in your areas. Finds Pokemon products by itself, newest first"),
       block("costco", modeField, "Online. Finds Pokemon products by itself, or add product links"),
       block("samsclub", modeField, "Online. Finds Pokemon products by itself, or add product links"),
       block("barnesandnoble", modeField, "Online. Finds Pokemon products by itself, or add product links"),
       block("booksamillion", modeField, "Online. Finds Pokemon products by itself, or add product links"),
       block("amazon", modeField, "Online, sold by Amazon only"),
       block("walgreens", (r) => [modeField(r),
-        field("API key (optional)", secret(r, "api_key", "From developer.walgreens.com"), "Adds exact Walgreens stores to Stores near you. Walgreens' API has no stock data, so stock still comes from product pages.")],
-        "Online listings from your product links; store locations with a key"),
-      block("cvs", modeField, "Online listings from your product links, plus shelf counts at stores around your areas (own Chrome)"),
+        field("API key (optional)", secret(r, "api_key", "From developer.walgreens.com"), "Adds exact Walgreens stores to Stores with stock. Walgreens' API has no stock data, so stock still comes from product pages.")],
+        "Online. Finds Pokemon products by itself (through the browser); store locations with a key"),
+      block("cvs", modeField, "Online, plus shelf counts at stores around your areas. Finds Pokemon products by itself (your own Chrome)"),
       block("web", (r) => [modeField(r),
         field("Page says in stock when it shows", lines(r, "in_stock_text", { placeholder: "add to cart" }), "Only used on pages without built-in stock data"),
         field("Page says sold out when it shows", lines(r, "out_of_stock_text", { placeholder: "out of stock\nsold out" }))], "Any other product link"),
@@ -1314,8 +1388,8 @@ const views = {
         setting("Slowest pace for browser checks (seconds)", "Browser checks load whole pages, so go easy.", num(br, "min_interval_seconds")),
         setting("Tabs per store", "Pages of one store rotate through this many tabs (1 to 6) instead of reloading a single tab.", num(br, "tabs_per_site", { min: "1", max: "6" })),
         setting("Close my Chrome and Edge with the app", "When the app closes, the Chrome and Edge started by start-my-chrome and start-my-edge close too. Your sign-ins are kept for next time.", sw(br, "close_own_on_exit", "")),
-        setting("Feature trial", "Run about half of the checks without learned routing and tab rotation so Methods lab can show whether they help.", sw(br, "feature_trial", "")),
-        setting("Side-by-side test (minutes, 0 = off)", "Every this many minutes, per store, one page loads through every method at once so Methods lab can compare them fairly.", num(br, "compare_every_minutes", { min: "0", max: "240" }))),
+        setting("Feature trial", "Run about half of the checks without learned routing and tab rotation so Connection methods can show whether they help.", sw(br, "feature_trial", "")),
+        setting("Side-by-side test (minutes, 0 = off)", "Every this many minutes, per store, one page loads through every method at once so Connection methods can compare them fairly.", num(br, "compare_every_minutes", { min: "0", max: "240" }))),
       h("p", { class: "hint", text: "Browser changes take effect after restarting the app." }),
       h("h2", { text: "Phone access" }),
       h("div", { class: "settings-list" },
@@ -1440,24 +1514,72 @@ function windowEditor(obj, key, title, hint) {
 
 function drawDash() {
   const s = status || { items: [], alerts: [], activity: [], retailers: [] };
-  const tiles = $("tiles"); if (!tiles) return;
-  tiles.replaceChildren(...(s.retailers.length ? s.retailers.map((r) => {
-    const st = r.status || "";
-    const cls = /^(Blocked|Waiting for you)/.test(st) ? "warn" : /^Error/.test(st) ? "bad" : "";
-    const meta = [];
-    if (r.using_browser) meta.push("Using the browser");
-    if (r.success !== null && r.checks >= 3) meta.push(r.success + "% of recent checks OK");
-    if (r.next_in !== null && r.next_in !== undefined) meta.push("next check in " + fmtSecs(r.next_in));
-    return h("div", { class: "tile " + cls, title: r.last_block || "" }, h("b", { text: r.display }), h("span", { text: st }),
-      meta.length ? h("span", { class: "meta", text: meta.join(", ") }) : null);
-  }) : [h("div", { class: "hint", text: "No stores are turned on. Turn some on under Stores & keys or Check speed." })]));
+  const health = $("health"); if (!health) return;
+  drawSetup(s);
+  // In stock now: one card per listing you can buy, with where.
+  const live = s.items.filter((i) => i.in_stock && !i.note && passesNear(i));
+  $("instock").replaceChildren(live.length ? h("div", { class: "cards" }, live.slice(0, 24).map((it) => {
+    const where = [];
+    if (it.online) where.push("Online");
+    const near = nearFilterOn() ? storesInRange(it.store_points).sort((a, b) => a.away - b.away).map((p) => p.name + " (" + p.away.toFixed(1) + " mi)")
+      : (it.store_points || []).map((p) => p.name + (p.distance !== null && p.distance !== undefined ? " (" + p.distance + " mi)" : ""));
+    if (near.length) where.push(near.slice(0, 2).join(", ") + (near.length > 2 ? " and " + (near.length - 2) + " more" : ""));
+    const vs = it.msrp && it.price ? (Math.abs(it.price - it.msrp) < 0.01 ? "at MSRP" : it.price > it.msrp ? money(it.price - it.msrp) + " over MSRP" : money(it.msrp - it.price) + " under MSRP") : "";
+    return h("div", { class: "scard" }, h("span", { class: "store", text: it.retailer_name }), extLink(it.url, it.title),
+      h("span", { class: "price", text: money(it.price) + (vs ? ", " + vs : "") }), h("span", { class: "where", text: where.join("; ") || "In stock" }));
+  })) : h("div", { class: "panel calm" }, h("span", { class: "dot" }), h("span", {},
+    "Nothing in stock right now. ", h("span", { class: "hint", text: "Watching " + s.items.length + " listings at " + s.retailers.length + " stores. You get a Discord alert the moment something comes back." }))));
+  // Your stores: a one-line summary, the stores that need attention first, details on request.
+  const rows = s.retailers.map((r) => ({ r, st: storeState(r.status) }));
+  const n = (c) => rows.filter((x) => x.st.cls === c).length;
+  const parts = [[n("ok"), "checking normally"], [n("warn"), "paused or need you"], [n("bad"), "with a problem"], [n("setup"), "need setup"]].filter(([k]) => k);
+  rows.sort((a, b) => ["bad", "warn", "setup", "", "ok"].indexOf(a.st.cls) - ["bad", "warn", "setup", "", "ok"].indexOf(b.st.cls));
+  health.replaceChildren(...(rows.length ? [
+    h("p", { class: "summary-line" }, ...parts.flatMap(([k, t], i) => [i ? ", " : "", h("b", { text: String(k) }), " " + t]), "."),
+    h("div", { class: "chips" }, rows.map(({ r, st }) => h("span", { class: "chip " + st.cls, title: r.status || "" }, h("i"), r.display,
+      st.cls && st.cls !== "ok" ? h("small", { text: st.label }) : null,
+      st.cls === "setup" ? h("button", { class: "btn quiet", type: "button", text: "Fix", onclick: () => go("retail") }) : null))),
+    h("details", { class: "more" }, h("summary", { text: "Details for each store" }), h("div", { class: "tiles", style: "margin-top:8px" }, s.retailers.map((r) => {
+      const meta = [];
+      if (r.using_browser) meta.push("Using the browser");
+      if (r.success !== null && r.checks >= 3) meta.push(r.success + "% of recent checks OK");
+      if (r.next_in !== null && r.next_in !== undefined) meta.push("next check in " + fmtSecs(r.next_in));
+      return h("div", { class: "tile " + (storeState(r.status).cls === "bad" ? "bad" : storeState(r.status).cls === "warn" ? "warn" : ""), title: r.last_block || "" },
+        h("b", { text: r.display }), h("span", { text: r.status || "" }), meta.length ? h("span", { class: "meta", text: meta.join(", ") }) : null);
+    }))),
+  ] : [h("div", { class: "panel calm" }, h("span", { class: "dot" }), h("span", {}, "No stores are switched on. ",
+    h("button", { class: "btn", type: "button", text: "Choose stores", onclick: () => go("retail") })))]));
   const alertsShown = s.alerts.filter((a) => !nearFilterOn() || !a.points || storesInRange(a.points).length || (nearState.online && a.online !== false));
   $("alerts").replaceChildren(...(alertsShown.length ? alertsShown.slice(0, 25).map((a) => h("li", {},
-    h("time", { text: new Date(a.time * 1000).toLocaleString() }), h("div", {}, h("span", { class: "ok", text: a.retailer + " " }), extLink(a.url, a.title)),
-    h("div", { class: "hint", text: a.reason + (a.price ? ", " + money(a.price) : "") + (a.sent ? "" : " (not sent to Discord)") }))) :
+    h("time", { text: new Date(a.time * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) }),
+    h("div", {}, h("span", { class: "ok", text: a.retailer + " " }), extLink(a.url, a.title)),
+    h("div", { class: "hint", text: plainReason(a.reason) + (a.price ? ", " + money(a.price) : "") + (a.sent ? "" : " (not sent to Discord)") }))) :
     [h("li", { class: "hint", text: nearFilterOn() ? "No alerts near this ZIP yet." : "Restock alerts show up here and in your Discord channel." })]));
   $("activity").replaceChildren(...s.activity.slice(0, 80).map((a) => h("li", {}, h("time", { text: new Date(a.time * 1000).toLocaleTimeString() + "  " }), a.msg)));
   drawTable();
+}
+function plainReason(r) {
+  return String(r || "").replace(/^online restock/, "Back in stock online").replace(/in stock at (\d+) new store\(s\)/, (m, k) => "On the shelf at " + k + (k === "1" ? " store" : " stores"))
+    .replace(/^new listing/, "New listing");
+}
+/* Getting started: shown only while something basic is missing. */
+function drawSetup(s) {
+  const el = $("setup"); if (!el || !cfg) return;
+  const hooks = Object.values((cfg.discord || {}).webhooks || {}).some((v) => v) || (cfg.areas || []).some((a) => a && a.webhook);
+  const area = (cfg.areas || []).length > 0 || !!((cfg.location || {}).zip);
+  const stores = (s.retailers || []).length > 0;
+  const needKey = (s.retailers || []).filter((r) => storeState(r.status).cls === "setup").map((r) => r.display);
+  const steps = [
+    [hooks, "Connect Discord, so alerts reach your phone", "Set up Discord", "notify"],
+    [area, "Set your area: a ZIP code and how far you will drive", "Set my area", "areas"],
+    [stores, "Choose the stores you shop at", "Choose stores", "retail"],
+  ];
+  if (needKey.length) steps.push([false, needKey.join(" and ") + (needKey.length > 1 ? " need" : " needs") + " a free key, or switch " + (needKey.length > 1 ? "them" : "it") + " off", "Open Stores", "retail"]);
+  if (steps.every(([ok]) => ok)) { el.replaceChildren(); return; }
+  el.replaceChildren(h("div", { class: "panel steps" }, h("h2", { text: "Getting started" }),
+    h("ol", {}, steps.map(([ok, what, label, to], i) => h("li", { class: ok ? "done" : "" }, h("span", { class: "mark", text: ok ? "\u2713" : String(i + 1) }),
+      h("span", { class: "what", text: what }), ok ? null : h("button", { class: "btn primary", type: "button", text: label, onclick: () => go(to) })))),
+    h("p", { class: "hint", style: "margin:10px 0 0", text: "Products are found for you at each store. Add your own links only for something it misses." })));
 }
 
 let lastHistoryTotal = -1;
@@ -1614,7 +1736,7 @@ function drawAreaMap() {
   else kids.push(h("div", { class: "panel empty", text: !cfg.areas.length ? "Add an area to see it on the map." : missing.length || areaMapBusy ? "Looking up your ZIP codes" : "Type a 5 digit ZIP for an area and it appears here." }));
   if (areaMapPlaces && areaMapPlaces.geocoder === false) kids.push(h("p", { class: "hint", text: "ZIP lookup is not installed, so the map cannot place your areas. Run setup.ps1 again to add it." }));
   if (unknown.length) kids.push(h("p", { class: "hint", text: "These ZIP codes were not found: " + unknown.join(", ") }));
-  kids.push(h("p", { class: "hint", text: "Drawn to scale from your ZIP codes, with no outside map service. Stores come from the last store search (Stores near you > Find stores again, after saving). Faded stores are outside your areas or skipped." }));
+  kids.push(h("p", { class: "hint", text: "Drawn to scale from your ZIP codes, with no outside map service. Stores come from the last store search (Stock near me > Stores with stock > Find stores again, after saving). Faded stores are outside your areas or skipped." }));
   box.replaceChildren(...kids);
 }
 
@@ -1792,11 +1914,11 @@ function drawTable() {
     h("tbody", {}, rows.map((it) => {
       const live = it.in_stock && !it.note;
       return h("tr", { class: live ? "in" : (it.note || it.muted ? "dim" : "") },
-        h("td", {}, extLink(it.url, it.title), h("span", { class: "sub", text: it.retailer_name + ", " + (it.source === "auto" ? "found automatically" : it.source) + (it.type ? ", " + it.type : "") + ", " + ago(it.checked) })),
+        h("td", {}, extLink(it.url, it.title), h("span", { class: "sub", text: [it.retailer_name, it.source === "auto" ? "found for you" : String(it.source || "").startsWith("search:") ? "keyword search" : "your links", it.type, "checked " + ago(it.checked)].filter(Boolean).join(" \u00b7 ") })),
         h("td", {}, it.note || it.status, storeLine(it)),
         h("td", { class: "price hide-s" }, money(it.price), it.msrp ? h("span", { class: "sub", text: "MSRP " + money(it.msrp) }) : null),
         h("td", { class: "act" }, h("button", { class: "btn quiet", type: "button", text: it.muted ? "Unmute" : "Mute", onclick: () => mute(it.key, !it.muted) })));
-    }))) : h("div", { class: "empty", text: status && status.items.length ? "Nothing matches these filters." : "No results yet. Add products or searches, then press Check now." }));
+    }))) : h("div", { class: "empty", text: status && status.items.length ? "Nothing matches these filters." : "Nothing checked yet. Products are found at each store by themselves; the first results show up within a few minutes of starting." }));
 }
 
 function storeLine(it) {
@@ -1805,7 +1927,9 @@ function storeLine(it) {
     if (!near.length) return it.stores.length ? h("span", { class: "sub", text: "No stores within " + nearState.radius + " mi of " + nearState.zip }) : null;
     return h("span", { class: "sub", text: near.slice(0, 3).map((p) => p.name + ", " + p.away.toFixed(1) + " mi" + (p.pickup ? ", pickup" : "")).join("; ") + (near.length > 3 ? "; +" + (near.length - 3) + " more" : "") });
   }
-  return it.stores.length ? h("span", { class: "sub", text: it.stores.slice(0, 3).join("; ") + (it.stores.length > 3 ? "; +" + (it.stores.length - 3) + " more" : "") }) : null;
+  const pts = it.store_points || [];
+  const one = (p) => p.name + " (" + [p.distance !== null && p.distance !== undefined ? p.distance + " mi" : "", p.qty ? p.qty + " on the shelf" : "", p.pickup ? "pickup" : ""].filter(Boolean).join(", ") + ")";
+  return pts.length ? h("span", { class: "sub", text: pts.slice(0, 3).map(one).join("; ") + (pts.length > 3 ? "; and " + (pts.length - 3) + " more" : "") }) : null;
 }
 function nearWhere() {
   if (!nearState.zip) return "Any location";
@@ -1836,8 +1960,10 @@ function render() {
   if (!cfg) return;
   const y = window.scrollY;
   viewSig = viewSigNow();
-  $("view").replaceChildren(...views[tab]().flat(Infinity).filter((x) => x !== null && x !== undefined && x !== false));
-  document.querySelectorAll("nav.rail button").forEach((b) => b.dataset.tab === tab ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
+  lastTab[groupOf(tab).key] = tab;
+  $("view").replaceChildren(...[subTabs(), ...views[tab]()].flat(Infinity).filter((x) => x !== null && x !== undefined && x !== false));
+  const g = groupOf(tab).key;
+  document.querySelectorAll("nav.rail button").forEach((b) => b.dataset.group === g ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
   counts();
   if (tab === "scan") drawScan();
   window.scrollTo(0, y);
@@ -1848,11 +1974,12 @@ function drawStrip() {
   $("lamp").classList.toggle("lit", live.length > 0);
   $("lamp-n").textContent = live.length;
   $("lamp-t").textContent = live.length ? (live.length === 1 ? "Item in stock now" : "Items in stock now") : "Nothing in stock";
-  $("lamp-s").textContent = live.length ? live.slice(0, 2).map((i) => i.retailer_name + ": " + i.title).join("  |  ").slice(0, 120) : status.items.length + " listings watched";
+  $("lamp-s").textContent = live.length ? live.slice(0, 2).map((i) => i.retailer_name + ": " + i.title).join("  \u00b7  ").slice(0, 120)
+    : "Watching " + status.items.length + " listings at " + (status.retailers || []).length + " stores";
   const st = $("state");
   st.className = "state" + (status.paused ? " pause" : status.running ? " run" : "");
   st.querySelector("span").textContent = status.paused ? "Alerts paused" : status.running ? "Checking" : "Stopped";
-  $("b-run").textContent = status.running ? "Stop" : "Start";
+  $("b-run").textContent = status.running ? "Stop checking" : "Start checking";
   $("b-pause").textContent = status.paused ? "Resume alerts" : "Pause alerts";
   $("verline").textContent = status.version_label || "";
   if (status.lan_url) $("hostline").textContent = "Also at " + status.lan_url;
@@ -1901,7 +2028,10 @@ async function poll() {
   catch (e) { $("state").querySelector("span").textContent = "Not connected"; }
 }
 
-document.querySelectorAll("nav.rail button").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.tab; window.scrollTo(0, 0); render(); }));
+document.querySelectorAll("nav.rail button").forEach((b) => b.addEventListener("click", () => {
+  const g = GROUPS.find((x) => x.key === b.dataset.group);
+  tab = lastTab[g.key] || g.tabs[0][0]; window.scrollTo(0, 0); render();
+}));
 $("b-save").addEventListener("click", async () => {
   try { await api("/api/config", cfg); savedJSON = JSON.stringify(cfg); touch(); toast("Saved. Checks restart with the new settings."); setTimeout(load, 1500); }
   catch (e) { toast(e.message, true); }

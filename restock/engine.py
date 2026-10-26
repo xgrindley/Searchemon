@@ -44,6 +44,8 @@ CONFIRM_GAP_S = 4
 RESOLVE_RETRY_S = 6 * 3600
 MAX_BACKOFF_S = 1800
 MAX_SLOWDOWN = 8.0
+TYPE_QUERIES = ("pokemon elite trainer box", "pokemon booster bundle", "pokemon booster box", "pokemon collection box",
+                "pokemon tin", "pokemon blister", "pokemon premium collection", "pokemon booster pack")
 
 
 def make_logger(data_dir: str, console: bool = False) -> logging.Logger:
@@ -93,6 +95,8 @@ class Monitor:
         self.trials: TrialPlan | None = None
         self.queue_state: dict[str, dict] = {}
         self._tl = threading.local()   # per-store-thread: confirm budget and ids found by UPC this cycle
+        self._discover_gate = threading.Semaphore(2)
+        self._type_turn: dict[str, int] = {}
         self.scan = ZipScan(self)      # the by-hand ZIP stock scan
         self.load()
 
@@ -327,7 +331,7 @@ class Monitor:
     def _trial_event(self, kind: str, arm: str, detail: str) -> None:
         self.status("autostop", arm, f"Method switched off: {arm}",
                     f"The trial method '{arm}' was stopped automatically: {detail}. "
-                    "Switch it back on in the Methods lab if you want to try it again.")
+                    "Switch it back on under Advanced > Connection methods if you want to try it again.")
 
     def _check_browser_problems(self) -> None:
         for w in list(getattr(self.browser, "workers", []) or []):
@@ -556,6 +560,17 @@ class Monitor:
         if stop.wait(stagger):
             return
         while not stop.is_set():
+            try:
+                need = r.setup_needed()
+            except Exception:
+                need = ""
+            if isinstance(need, str) and need:
+                # Not a block and not the store's fault: say what is missing and look again later (a save reloads anyway).
+                self.emit("status", name, need)
+                h["notes"], h["next"] = need, time.time() + 3600
+                wake.clear()
+                wake.wait(3600)
+                continue
             started = time.time()
             try:
                 self._confirms_left = MAX_CONFIRMS_PER_CYCLE
@@ -639,10 +654,10 @@ class Monitor:
             return f"OK, watching for the queue (checked {at})"
         if self._discovery_on(r):
             return (f"OK at {at}, searched the store but no Pokemon products found yet "
-                    "(a block or an empty search; see the Methods lab)")
+                    "(the store may be blocking searches; see Advanced > Connection methods)")
         if not r.supports_search:
-            return "No automatic search for this store yet. Add product links (Control panel > My products)"
-        return "Product search is off for this store (Stores & keys). Add product links (My products) to check it"
+            return "No automatic search for this store yet. Add product links (Products > Your own links)"
+        return "Product search is off for this store (Stores > Stores & keys). Add product links (Products > Your own links) to check it"
 
     # ---- work --------------------------------------------------------------------
     def resolve(self, retailer: Retailer, upc: str, force: bool = False) -> str | None:
@@ -739,16 +754,43 @@ class Monitor:
             self.localize(res)
         if results and getattr(self, "compare", None):
             sample = next((x.url for x in results.values() if x.url and x.url.startswith("http")), "")
-            if sample and r.name not in ("target", "bestbuy", "kroger"):    # these use official or JSON calls, not pages
+            if sample and r.name not in ("target", "bestbuy", "kroger") and self._troubled(r.name):
+                # Side-by-side tests load the page through every method at once. That extra traffic only pays off
+                # at a store that has pushed back lately, so a store that loads fine is left alone.
                 self.compare.maybe_run(r.name, sample)
         return results
+
+    def _troubled(self, name: str) -> bool:
+        """True when the store was blocked or failed in the last 24 hours."""
+        try:
+            _why, t = self.store_history.last_problem(name)
+            return bool(t) and time.time() - float(t) < 86400
+        except Exception:
+            return True
 
     def _discover(self, r: Retailer, d: dict) -> None:
         """Search the store's catalog for Pokemon products and remember what it finds."""
         limit = int(self.cfg.settings.get("max_search_results") or 24)
         found: list[StockResult] = []
-        for q in d.get("queries") or ["pokemon trading card game"]:
-            found.extend(r.search(q, max(limit, 48)))
+        # Your discovery words, plus two product-type searches that rotate each refresh, so a store whose general
+        # Pokemon search is thin still turns up its Elite Trainer Boxes, bundles and tins over a few refreshes.
+        turn = self._type_turn.get(r.name, 0)
+        self._type_turn[r.name] = turn + 2
+        extra = [TYPE_QUERIES[(turn + i) % len(TYPE_QUERIES)] for i in range(2)]
+        queries = list(dict.fromkeys(list(d.get("queries") or ["pokemon trading card game"]) + extra))
+        failures = 0
+        for q in queries:
+            try:
+                found.extend(r.search(q, max(limit, 48)))
+            except Blocked:
+                if not found:
+                    raise
+                break                     # keep what the earlier searches found
+            except Exception as exc:
+                failures += 1
+                self.log.info("%s search '%s' failed: %s", r.display, q, exc)
+        if failures == len(queries):
+            raise ConnectionError(f"{r.display}: every product search failed")
         if getattr(r, "search_url", ""):
             # Stores without a product API: also look for what the other stores already list, by UPC or name.
             for q in self.catalog.cross_queries(r.name, int(d.get("cross_per_refresh", 8))):
@@ -758,8 +800,9 @@ class Monitor:
                     raise
                 except Exception as exc:
                     self.log.debug("%s lookup of '%s' failed: %s", r.name, q, exc)
-        if not found:
-            found = r.seed_products()
+        allow = bool(self.cfg.settings.get("allow_non_english"))
+        if not any(classify(x.title, allow_non_english=allow).is_tcg for x in found):
+            found = found + r.seed_products()
             if found:
                 self.info(f"{r.display}: search came back empty, tracking {len(found)} known products instead")
         new = self.catalog.merge(r.name, found, self.cfg.raw, mark_run=True)
@@ -785,7 +828,11 @@ class Monitor:
         if self._discovery_on(r) and (self.catalog.due(r.name, hours) or first_try):
             self._discovery_tried.add(r.name)       # a store with nothing found is tried again after each restart
             try:
-                self._discover(r, d)
+                # At most two stores search at once: at startup every store wants to, and a burst of searches
+                # (many through the browser) slows the PC and looks like a bot to the stores.
+                with self._discover_gate:
+                    if not self.stop_event.is_set():
+                        self._discover(r, d)
             except Blocked:
                 raise
             except Exception as exc:
@@ -981,7 +1028,8 @@ class Monitor:
         return bool(d.get("places", True)) and bool(self.cfg.areas) and self.places.stale(self.cfg.areas)
 
     def refresh_places(self) -> int:
-        sources = [r.stores_near for name, r in self.retailers.items() if name in ("target", "bestbuy", "kroger", "walgreens")]
+        sources = [r.stores_near for name, r in self.retailers.items()
+                   if name in ("target", "bestbuy", "kroger", "walgreens") and not r.setup_needed()]
         n = self.places.refresh(self.cfg.areas, sources)
         self.info(f"Found {n} stores near your areas"
                   + (f" (some sources failed: {self.places.last_error})" if self.places.last_error else ""))

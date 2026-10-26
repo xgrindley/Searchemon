@@ -1,6 +1,6 @@
 """Desktop window. Monitoring runs while the window is open and stops when it closes.
 
-Tabs: Dashboard (what is happening), Discord (webhook, what gets posted, pings,
+Tabs: Home (what is happening), Discord (webhook, what gets posted, pings,
 quiet hours), Areas (ZIP codes and radius), Stores (which stores, how often,
 API keys, signing in to store accounts). Everything else lives in the full
 control panel in the browser.
@@ -238,7 +238,7 @@ class App:
         self.state_var = tk.StringVar(value="Starting...")
         # The control panel is the fuller, better-looking view, so it leads the bar and is the highlighted button.
         ttk.Button(bar, text="Open control panel", style="Accent.TButton", command=self.open_panel).pack(side="left", padx=(0, 8))
-        hint = ttk.Label(bar, text="Click here for the better, more advanced GUI", style="State.TLabel", cursor="hand2")
+        hint = ttk.Label(bar, text="Click here for maps, products and every setting", style="State.TLabel", cursor="hand2")
         hint.pack(side="left", padx=(0, 18))
         hint.bind("<Button-1>", lambda _e: self.open_panel())
         ttk.Label(bar, textvariable=self.state_var, style="TLabel").pack(side="left")
@@ -263,7 +263,7 @@ class App:
         self.pause_btn = ttk.Button(bar, text="Pause alerts", command=self.toggle_pause)
         self.pause_btn.pack(side="right", padx=3)
         ttk.Button(bar, text="Check now", command=self.check_now).pack(side="right", padx=3)
-        self.run_btn = ttk.Button(bar, text="Stop", command=self.toggle_run)
+        self.run_btn = ttk.Button(bar, text="Stop checking", command=self.toggle_run)
         self.run_btn.pack(side="right", padx=3)
 
         from .theme import GradientBar
@@ -281,7 +281,7 @@ class App:
         self.tab_discord = ttk.Frame(self.tabs)
         self.tab_areas = ttk.Frame(self.tabs)
         self.tab_stores = ttk.Frame(self.tabs)
-        self.tabs.add(self.tab_dash, text="  Dashboard  ")
+        self.tabs.add(self.tab_dash, text="  Home  ")
         self.tabs.add(self.tab_discord, text="  Discord & alerts  ")
         self.tabs.add(self.tab_areas, text="  Your area  ")
         self.tabs.add(self.tab_stores, text="  Stores & speed  ")
@@ -294,16 +294,18 @@ class App:
         panes = ttk.PanedWindow(tab, orient="vertical")
         panes.pack(fill="both", expand=True, padx=6, pady=6)
         top = ttk.Frame(panes)
+        ttk.Label(top, text="Your stores").pack(anchor="w", pady=(0, 2))
         self.retail_list = ttk.Treeview(top, columns=("retailer", "status"), show="headings", height=6)
         self.retail_list.heading("retailer", text="Store")
-        self.retail_list.heading("status", text="Last check")
+        self.retail_list.heading("status", text="Status")
         self.retail_list.column("retailer", width=170, stretch=False)
         self.retail_list.pack(fill="x", pady=(0, 6))
+        ttk.Label(top, text="Products being watched (in stock first; double-click one to open it)").pack(anchor="w", pady=(4, 2))
         cols = ("retailer", "title", "status", "price", "source", "checked")
         self.table = ttk.Treeview(top, columns=cols, show="headings")
         for col, label, width in (("retailer", "Store", 110), ("title", "Product", 380),
                                   ("status", "Stock", 220), ("price", "Price", 80),
-                                  ("source", "Matched", 170), ("checked", "Checked", 80)):
+                                  ("source", "From", 170), ("checked", "Checked", 80)):
             self.table.heading(col, text=label)
             self.table.column(col, width=width, stretch=col == "title")
         self.table.tag_configure("instock")
@@ -315,7 +317,7 @@ class App:
         scroll.pack(side="left", fill="y")
         panes.add(top, weight=3)
         bottom = ttk.Frame(panes)
-        ttk.Label(bottom, text="Activity (double-click a product to open it)").pack(anchor="w")
+        ttk.Label(bottom, text="Activity log").pack(anchor="w")
         self.log = tk.Text(bottom, height=10, wrap="word", font=(self.mono, 9), state="disabled", padx=8, pady=6, relief="flat", borderwidth=1)
         self.log.pack(fill="both", expand=True)
         self.log.tag_configure("alert", font=(self.mono, 9, "bold"))
@@ -1011,9 +1013,10 @@ class App:
         status = res.note or res.status_text()
         if res.stores and not res.note:
             status = f"{status} (nearest: {res.stores[0].label()})"
+        src = res.watch_name or res.source
+        src = "found for you" if src == "auto" else ("keyword search" if str(src).startswith("search:") else src)
         values = (res.retailer_name, res.title, status,
-                  f"${res.price:.2f}" if res.price else "", res.watch_name or res.source,
-                  time.strftime("%H:%M:%S"))
+                  f"${res.price:.2f}" if res.price else "", src, time.strftime("%I:%M %p").lstrip("0"))
         tag = ("ignored",) if res.note.startswith("ignored") else (("instock",) if res.in_stock else ())
         iid = self.rows.get(res.key)
         if iid and self.table.exists(iid):
@@ -1021,6 +1024,8 @@ class App:
         else:
             iid = self.table.insert("", "end", values=values, tags=tag)
             self.rows[res.key] = iid
+        if "instock" in tag:
+            self.table.move(iid, "", 0)          # what you can buy right now stays at the top
         self.urls[iid] = res.url
 
     def pump(self) -> None:
@@ -1039,7 +1044,7 @@ class App:
             running = self.monitor.running
             paused = bool((self.raw.get("settings") or {}).get("alerts_paused"))
             self.state_var.set(("Running" + (", alerts paused" if paused else "")) if running else "Stopped")
-            self.run_btn.configure(text="Stop" if running else "Start")
+            self.run_btn.configure(text="Stop checking" if running else "Start checking")
         except Exception as exc:
             self.monitor.log.warning("Window update failed: %s", exc)
         finally:

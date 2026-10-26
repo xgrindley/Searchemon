@@ -17,11 +17,12 @@ import html as htmllib
 import json
 import random
 import re
-from urllib.parse import quote_plus, urlsplit
+import time
+from urllib.parse import quote, quote_plus, urlsplit
 
 from ..models import StockResult
 from ..util import clean_url, normalize_text, normalize_upc, parse_price
-from .base import Retailer
+from .base import Blocked, Retailer
 
 LD_JSON = re.compile(r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>', re.S | re.I)
 OG_TITLE = re.compile(r'<meta[^>]+property="og:title"[^>]+content="([^"]+)"', re.I)
@@ -184,6 +185,7 @@ def parse_listing(html: str, product_re, base: str) -> list[tuple[str, str]]:
     ordinary links, then any product-looking address inside the page's own data (search pages that are
     built by script keep their results there)."""
     out: dict[str, str] = {}
+    by_path: dict[str, str] = {}      # one entry per product page, whatever extra query details a link carries
 
     def add(path_or_url: str, title: str = "") -> None:
         raw = htmllib.unescape(str(path_or_url)).replace("\\/", "/").replace("\\u002F", "/").replace("\\u002f", "/")
@@ -196,6 +198,18 @@ def parse_listing(html: str, product_re, base: str) -> list[tuple[str, str]]:
         title = (title or "").strip()
         if len(title) < 8:
             title = slug_title(urlsplit(url).path) or title
+        key = urlsplit(url).path.lower().rstrip("/")
+        if "=" in key or not key:
+            key = url.lower()             # an id in the path itself (Walgreens ID=prod123): the full link is the key
+        known = by_path.get(key)
+        if known is not None and known != url:
+            # Keep the link that carries more detail (its query), and the longer title of the two.
+            keep = url if len(url) > len(known) else known
+            best = max(out.pop(known), title, key=len)
+            by_path[key] = keep
+            out[keep] = best[:200]
+            return
+        by_path[key] = url
         prev = out.get(url)
         if prev is None or len(title) > len(prev):
             out[url] = title[:200]
@@ -232,27 +246,119 @@ class WebPage(Retailer):
     def url_for(self, ident: str) -> str:
         return ident
 
+    category_urls: tuple[str, ...] = ()         # pages that list the store's Pokemon products (newest first), no query needed
+    search_in_browser = False                   # the results are built by script, so only a real browser shows them
+    NAME_LINKS = 10                             # links with no product name: open up to this many to read the name
+    CATEGORY_TTL_S = 1800
+
+    def search_address(self, query: str) -> str:
+        """The store's search page for these words. Words in the address path use %20, in a query string +."""
+        before = self.search_url.split("{q}", 1)[0]
+        q = quote(query, safe="") if "?" not in before else quote_plus(query)
+        return self.search_url.replace("{q}", q)
+
+    def extra_listing(self, html: str) -> list[tuple[str, str]]:
+        """Products a store lists in a way plain links do not show (overridden where needed)."""
+        return []
+
+    def read_listing(self, html: str) -> list[tuple[str, str]]:
+        items = parse_listing(html or "", self.product_re, f"https://www.{self.domains[0]}") if self.product_re else []
+        seen = {u for u, _ in items}
+        return items + [(u, t) for u, t in self.extra_listing(html or "") if u not in seen]
+
+    def load_listing(self, url: str) -> tuple[list[tuple[str, str]], object]:
+        """Load a search or category page and read its products. Pages whose results are built by script come
+        back empty from a plain request, so then the real browser is used, waiting for the results to appear;
+        once that works it is used straight away for this store from then on."""
+        wait = self.product_re.pattern if self.product_re else ""
+        browser = getattr(self, "browser", None)
+        usable = lambda: bool(browser and browser.usable)       # noqa: E731
+        resp = None
+        if not (self.search_in_browser or getattr(self, "_listing_needs_browser", False)) or not usable():
+            resp = self.fetch_html(url)
+            items = self.read_listing(resp.text)
+            if items or not usable() or (self.last_via == "browser" and not wait):
+                return items, resp
+        if usable():
+            try:
+                resp = self._via_browser(url, wait_re=wait)
+            except Blocked:
+                if resp is not None:
+                    return [], resp
+                if usable():
+                    raise
+                resp = self.fetch_html(url)      # the browser could not start: a plain request is better than nothing
+                return self.read_listing(resp.text), resp
+            items = self.read_listing(resp.text)
+            if items and not self.search_in_browser and not getattr(self, "_listing_needs_browser", False):
+                self._listing_needs_browser = True
+                self.log.info("%s: its search results only show in a real browser, so searches use the browser from now on",
+                              self.display)
+            return items, resp
+        return [], resp
+
     def search(self, query: str, limit: int) -> list[StockResult]:
-        """Search the store's own site for a product or a UPC, so you do not have to paste links."""
-        if not (self.search_url and self.product_re):
+        """Search the store's own site for a product or a UPC, so you do not have to paste links. A store with a
+        Pokemon category page is read from that page too (cached for 30 minutes), which catches new listings."""
+        if not ((self.search_url or self.category_urls) and (self.product_re or type(self).extra_listing is not WebPage.extra_listing)):
             return []
-        url = self.search_url.replace("{q}", quote_plus(query))
-        resp = self.fetch_html(url)
-        items = parse_listing(resp.text or "", self.product_re, f"https://www.{self.domains[0]}")
+        items: list[tuple[str, str]] = []
+        resp = None
+        if self.search_url:
+            items, resp = self.load_listing(self.search_address(query))
+        for cat in self.category_urls:
+            cached = getattr(self, "_cat_cache", {}).get(cat)
+            if cached and time.time() - cached[0] < self.CATEGORY_TTL_S:
+                found = cached[1]
+            else:
+                try:
+                    found, _ = self.load_listing(cat)
+                except Blocked:
+                    raise
+                except Exception as exc:
+                    self.log.info("%s category page failed: %s", self.display, exc)
+                    found = []
+                if not hasattr(self, "_cat_cache"):
+                    self._cat_cache = {}
+                self._cat_cache[cat] = (time.time(), found)
+            have = {u for u, _ in items}
+            items += [(u, t) for u, t in found if u not in have]
         # Links that name no product (just an id) are named by opening the page, a few per search.
-        blank = [i for i, (_, t) in enumerate(items) if not t][:6]
+        # Names already read earlier are remembered, so the same product page is not opened again on every search.
+        names = self.__dict__.setdefault("_names", {})
+        items = [(u, t or names.get(u, "")) for u, t in items]
+        blank = [i for i, (_, t) in enumerate(items) if not t][: self.NAME_LINKS]
         for i in blank:
-            page = self.fetch_html(items[i][0])
+            try:
+                page = self.fetch_html(items[i][0])
+            except Blocked:
+                break
             info = self.parse(page.text or "", items[i][0]) if page.status == 200 else {}
             items[i] = (items[i][0], info.get("title") or "")
+            names[items[i][0]] = items[i][1] or names.get(items[i][0], "")
             self.pause(self.link_delay())
         items = [(u, t) for u, t in items if t]
-        self.dump("search", (resp.text or "")[:300000], force=not items)
-        if not items:
-            self.log.info("%s search for '%s' showed no product links (status %s, %d characters). "
-                          "A copy of the page is in data\\debug.", self.display, query[:40], resp.status, len(resp.text or ""))
+        if resp is not None:
+            self.dump("search", (resp.text or "")[:4_000_000], force=not items)
+            if not items:
+                self.log.info("%s search for '%s' showed no product links (status %s, %d characters). "
+                              "A copy of the page is in data\\debug.", self.display, query[:40], resp.status, len(resp.text or ""))
         self.pause(self.link_delay())
-        return [StockResult(self.name, self.display, u, t, u, online_status="UNCHECKED") for u, t in items[:limit]]
+        out = []
+        for u, t in items[:limit]:
+            r = StockResult(self.name, self.display, u, t, u, online_status="UNCHECKED")
+            r.upc = self.upc_from_link(u)
+            out.append(r)
+        return out
+
+    @staticmethod
+    def upc_from_link(url: str) -> str | None:
+        """Some stores put the barcode in the product link (Books-A-Million: .../F196214142756). A barcode lets the
+        same product be found exactly at every other store."""
+        m = re.search(r"/F?(0?\d{11,13})(?:[/?#]|$)", urlsplit(url).path + "/")
+        if m and normalize_upc(m.group(1)).startswith(("820650", "196214", "4521329")):
+            return normalize_upc(m.group(1))
+        return None
 
     def parse(self, html: str, url: str) -> dict:
         return parse_product_page(html, self.rcfg)
@@ -331,7 +437,7 @@ _GS_OUT = ("out_of_stock", "outofstock", "not_available", "unavailable", "none",
 
 
 def gamestop_product_id(ident: str) -> str:
-    m = re.search(r"/(\d{4,})(?:\.html)?(?:[/?#]|$)", ident)
+    m = re.search(r"[?&]pid=(\d{4,})", ident) or re.search(r"/(\d{4,})(?:\.html)?(?:[/?#]|$)", ident)
     return m.group(1) if m else (ident if ident.isdigit() else "")
 
 
@@ -412,6 +518,17 @@ class GameStop(WebPage):
     supports_search = True
     search_url = "https://www.gamestop.com/search/?q={q}&lang=default"
     product_re = re.compile(r"/products/[a-z0-9-]+/\d+\.html", re.I)
+    # Newest Pokemon cards first: catches new listings without knowing what to search for.
+    category_urls = ("https://www.gamestop.com/toys-games/trading-cards/trading-card-games?prefn1=franchise&prefv1=Pokemon"
+                     "&view=new&srule=most-popular",)
+
+    def extra_listing(self, html: str) -> list[tuple[str, str]]:
+        """GameStop builds its result tiles with script, but each tile's product id is in the page (data-pid).
+        Those ids open the product page directly."""
+        out = []
+        for pid in dict.fromkeys(re.findall(r'data-pid="(\d{4,})"', html)):
+            out.append((f"https://www.gamestop.com/on/demandware.store/Sites-gamestop-us-Site/default/Product-Show?pid={pid}", ""))
+        return out
     own_seller_names = ("gamestop",)
     supports_in_store = True
     _store_ep = -1             # which entry of _GS_ENDPOINTS worked
@@ -468,7 +585,9 @@ class Costco(WebPage):
     domains = ("costco.com",)
     supports_search = True
     search_url = "https://www.costco.com/CatalogSearch?dept=All&keyword={q}"
-    product_re = re.compile(r"\.product\.\d+\.html", re.I)
+    # The older ".product.123.html" links and the newer "/p/-/name/123" ones.
+    product_re = re.compile(r"\.product\.\d+\.html|/p/-/[a-z0-9-]+/\d{6,}", re.I)
+    search_in_browser = True
 
 
 class SamsClub(WebPage):
@@ -488,6 +607,7 @@ class BarnesAndNoble(WebPage):
     supports_search = True
     search_url = "https://www.barnesandnoble.com/s/{q}"
     product_re = re.compile(r"/w/[a-z0-9-]+/\d+", re.I)
+    search_in_browser = True      # a plain request gets a bare "Not Found"; the real site needs a browser
 
 
 class BooksAMillion(WebPage):
@@ -496,7 +616,8 @@ class BooksAMillion(WebPage):
     domains = ("booksamillion.com",)
     supports_search = True
     search_url = "https://www.booksamillion.com/search?query={q}"
-    product_re = re.compile(r"/p/\d{10,13}", re.I)
+    # /p/<name>/<brand>/F<barcode>, for example /p/Pokemon-TCG-Mega-Evolution/Pok%C3%A9mon/F196214142756
+    product_re = re.compile(r"/p/(?:[^/\s\"'<>?#]+/){1,3}F?\d{10,14}|/p/\d{10,13}", re.I)
 
 
 class Amazon(WebPage):
@@ -579,6 +700,7 @@ class Safeway(WebPage):
     supports_search = True
     search_url = "https://www.safeway.com/shop/search-results.html?q={q}"
     product_re = re.compile(r"/shop/product-details\.\d+\.html", re.I)
+    search_in_browser = True
 
 
 class Raleys(WebPage):
@@ -635,6 +757,7 @@ class Walgreens(WebPage):
     supports_search = True
     search_url = "https://www.walgreens.com/search/results.jsp?Ntt={q}"
     product_re = re.compile(r"/store/c/[a-z0-9-]+/ID=prod\d+-product", re.I)
+    search_in_browser = True
 
     @property
     def key(self) -> str:
@@ -738,6 +861,7 @@ class CVS(WebPage):
     supports_search = True
     search_url = "https://www.cvs.com/search?searchTerm={q}"
     product_re = re.compile(r"/shop/[a-z0-9-]+-prodid-\d+", re.I)
+    search_in_browser = True
 
     def url_for(self, ident: str) -> str:
         if ident.startswith("http"):

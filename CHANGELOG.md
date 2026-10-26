@@ -1,6 +1,43 @@
 # Changelog
 
 ## v4.1 (test build, in progress)
+- **Product finding fixed at the stores where it found nothing.** Diagnosed from the app's own log and saved pages: discovery had
+  found only 10 products in total (8 of them Sam's Club books). Fixed:
+  - **Target**: its data search was refused by PerimeterX, and the in-browser retry passed the bot-check reply on as an empty
+    result. The reply is now recognized, and Target's normal search page is read in a real browser instead.
+  - **Costco, CVS, Safeway, Walgreens, Barnes & Noble**: their search results are built by script after the page loads, so a plain
+    request (or a browser that read the page too early) saw none. They are now searched in the browser, which waits up to 12
+    seconds for results to appear (and scrolls once). Any other store whose plain search comes back empty tries the browser once
+    and keeps using it if that works.
+  - **Walgreens**: its Akamai "Challenge Validation" page was not recognized as a bot check, so the app never switched to the browser.
+  - **Barnes & Noble**: search words in the address now use %20 (a plain request got a bare "Not Found").
+  - **Books-A-Million**: product links have the form `/p/<name>/<brand>/F<barcode>`; they were never matched. They are now, and the
+    barcode in the link is kept, so the same product is found by barcode at every other store.
+  - **GameStop**: result tiles are filled in by script, but each tile's product id is in the page; those ids are now read. GameStop's
+    newest-first Pokemon category page is read too, which catches new listings before anyone searches for them.
+  - Each refresh also asks two product-type searches in turn (Elite Trainer Box, Booster Bundle, Booster Box, tins and so on).
+    One failed search no longer ends the whole refresh, and products are named once and remembered, not reopened every search.
+  - Target and Walgreens are now among the stores that use your own Chrome first.
+- **Lighter on your PC and on the stores.** At most two stores search for products at once (startup used to fire every store's
+  searches together). Side-by-side method tests now run only at stores that pushed back in the last day, instead of every
+  15 minutes at every store.
+- **Stores that need a free key** (Kroger, Best Buy) now say "Needs setup" and wait, instead of showing as blocked and logging a
+  pause every few minutes. They are left out of scans and the store finder until a key is added.
+- **Easier control panel**, after a usability pass written up as a review panel's complaints:
+  - Seven menu sections instead of fourteen pages: Home, Stock near me, Products, Discord alerts, My areas, Stores, Advanced.
+    Pages that belong together share a section and get tabs, with plain names (Found for you, Your own links, Prices & filters,
+    How often, Sign-ins, Restock patterns, Connection methods).
+  - Home leads with what is in stock now (price against MSRP and where), then a one-line store summary with chips (stores that need
+    attention first, "Fix" on the ones that need setup). Store details, the ZIP filter and the technical log are folded away.
+  - A Getting started list shows until Discord, your area and your stores are set, with a button for each step.
+  - Plainer wording throughout: "found for you" and "your links" instead of auto and watch, "just now" and "5 min ago", stores
+    as "Store (2.5 mi, 3 on the shelf, pickup)", alerts as "Back in stock online", Start/Stop as "Start checking"/"Stop checking".
+  - Discord alerts shows the one webhook you need first; extra channels, pings and the bot name are under More options. Each store
+    on Stores & keys keeps its options folded away, except a missing key it cannot work without.
+- **Desktop window**: the first tab is Home, tables are labeled (Your stores, Products being watched), what is in stock stays at
+  the top of the product list, and "Matched" is now "From" with plain values.
+- Fixed: a product link with and without extra query details was counted as two products.
+- 15 new tests (326 in all).
 - **Stability pass.** A full review for the things a launched product must not do. Fixed:
   - **Only one copy runs per folder.** Starting it again offers the running copy's control panel instead of a second copy that
     would post every alert twice and fight over the browser profile and the panel's port. `run.ps1` says so too.

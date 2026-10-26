@@ -236,11 +236,15 @@ class ZipScan:
             return
         try:
             r = REGISTRY[name](cfg, mon.log, mon.browser)
+            need = r.setup_needed()
+            if isinstance(need, str) and need:
+                self._set(name, status=need, state="skip")
+                return
             if name in ONLINE_ONLY:
                 online = True          # online is all such a store can report, so it is never left out
             ids, note = self._ids(r, cfg, everything)
             if not ids:
-                self._set(name, status="Nothing to check: " + (note or "no products known yet") + ". Add products in My products "
+                self._set(name, status="Nothing to check: " + (note or "no products known yet") + ". Add products under Products > Your own links "
                                        "or paste a product link.", state="skip")
                 return
             self._set(name, status=f"Checking {len(ids)} products" + (f" ({note})" if note else ""), products=len(ids), state="run")

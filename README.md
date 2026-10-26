@@ -15,8 +15,10 @@ open, your settings stay in a file next to the app, and the control panel only a
 
 - **Finds the products for you.** Target, Best Buy, Walmart and Kroger are searched every few hours, and since v3.5 so are
   CVS, GameStop, Costco, Sam's Club, Walgreens, Barnes & Noble, Books-A-Million and Safeway. Products found at one store are looked up
-  at the others by UPC and by name. You do not paste links first.
-- **Shows stock by store, not just a list of stores.** The Stores near you page lists only the stores that have something in stock
+  at the others by UPC and by name. You do not paste links first. Stores whose search results are built by script (Costco, CVS,
+  Safeway, Walgreens, Barnes & Noble) are searched in a real browser that waits for the results; GameStop's newest Pokemon listings
+  are read from its category page; when Target refuses its data search, its normal search page is read instead.
+- **Shows stock by store, not just a list of stores.** The Stores with stock page lists only the stores that have something in stock
   right now, nearest first, with a map. Pick an area, drag the radius, click a store to see what it has.
 - **Alerts you can trust.** A restock has to be a sealed card product of a type you want, sold by the store itself, at or near MSRP,
   inside one of your areas, and still there on a second look a few seconds later.
@@ -48,7 +50,7 @@ flowchart LR
     F -->|confirm after a few seconds| G[Alert rules<br/>type, MSRP, seller, area]
     G --> H[Discord restock channel]
     E -->|blocked or sign-in lost| I[Discord status channel]
-    E --> J[History<br/>Restock times, Methods lab]
+    E --> J[History<br/>Restock patterns, Connection methods]
 ```
 
 ## Setup (PowerShell)
@@ -63,9 +65,9 @@ flowchart LR
    ```
 
 3. Start it (step 4), open the control panel, then:
-   - Notifications: paste your channel's webhook URL
+   - Discord alerts: paste your channel's webhook URL
      (Server Settings > Integrations > Webhooks > New Webhook > Copy Webhook URL). Optional: a second webhook for the status channel
-   - Areas & radius: your home ZIP and a radius
+   - My areas: your home ZIP and a radius
    - optional: a free Best Buy API key and a free Kroger client ID and secret
 4. Start it:
 
@@ -73,7 +75,7 @@ flowchart LR
    .\run.ps1
    ```
 
-   Click **Test Discord** to confirm the channel gets a message.
+   Click **Send test message** (Discord alerts) to confirm the channel gets a message.
 
 Optional: `.\add-to-startup.ps1` opens it when you sign in, and `.\build-exe.ps1` builds a standalone `PokeRestock.exe`
 (it checks itself before it is zipped).
@@ -83,22 +85,21 @@ Optional: `.\add-to-startup.ps1` opens it when you sign in, and `.\build-exe.ps1
 While the app is open, a control panel runs at **http://127.0.0.1:8765**. The desktop window leads with an
 **Open control panel** button, because the panel is the fuller view.
 
-| Page | What it is for |
+The menu has seven sections. Sections with more than one page show tabs at the top.
+
+| Section | What is there |
 |---|---|
-| Dashboard | Every listing being watched, in-stock rows highlighted, recent alerts, each store's health |
-| Find stock near a ZIP | A scan you start by hand for any ZIP and radius. Tick the stores to ask (Walgreens is online only) |
-| Found products | What the monitor found by searching store catalogs. Ignore or track any of it |
-| Stores near you | Stores with stock right now, a map, area and radius filters, click a store to see what it has |
-| Restock times | A week grid of when each store restocks, learned from what the monitor has seen |
-| Methods lab | Which way of loading pages lasts longest before a store blocks it, with trust ratings for each store |
-| Accounts | Saved store sign-ins, whether they still work, and browser profile cleanup |
-| Notifications | Webhooks, role ping, and what goes to the status channel |
-| Areas & radius | Your areas on a map that updates as you type |
-| Check speed, Product filters, My products, Searches, Stores & keys | Pace, product types and MSRP caps, your own links, keyword searches, store switches and keys |
+| Home | What is in stock right now (with price against MSRP and where), whether each store is checking normally, every listing being watched, and recent alerts. A short Getting started list shows until Discord, your area and your stores are set |
+| Stock near me | **Stores with stock**: a map and list of stores with something in stock, filtered by area and radius. **Scan a ZIP**: a one-off scan for any ZIP and radius |
+| Products | **Found for you**: what the app found at each store by itself. **Your own links**, **Keyword searches**, and **Prices & filters** (product types and MSRP caps) |
+| Discord alerts | The webhook, a test message, and what gets posted. Separate channels, pings and the status channel are under More options |
+| My areas | Your ZIP codes and radius, on a map that updates as you type |
+| Stores | **Stores & keys** (switch stores on or off; each store's options are tucked away until needed), **How often**, and **Sign-ins** |
+| Advanced | **Restock patterns** and **Connection methods** (which way of loading pages lasts longest before a store pushes back) |
 
 It fits narrow windows (the side menu becomes a tab bar), wide tables scroll inside their box, and if the app is closed the page
 says so and reconnects by itself when it is back. To use it from your phone on home Wi-Fi, turn on **Phone access** under
-Stores & keys, set a PIN, and restart the app.
+Stores > Stores & keys, set a PIN, and restart the app.
 
 ## Stock by store
 
@@ -127,10 +128,10 @@ Big retailers run bot protection, and a monitor that ignores it gets blocked for
    Turn that off with `browser.auto_start_own_chrome: false`.
 6. **Asks you when a person is needed.** If a store wants a press-and-hold or puzzle, the browser window comes on screen, you get a
    Windows notification and a banner, and checks for that store wait until you finish it.
-7. **Cleans up bad cookies.** Accounts has **Clear bot-check cookies** and **Reset profile** for when a browser earned a bad
+7. **Cleans up bad cookies.** Stores > Sign-ins has **Clear bot-check cookies** and **Reset profile** for when a browser earned a bad
    reputation, in both the control panel and the desktop window.
 
-**Methods lab** measures all of this. It shows checks per block for every method, a side-by-side test of the same page through every
+**Advanced > Connection methods** measures all of this. It shows checks per block for every method, a side-by-side test of the same page through every
 method, trial methods that switch themselves off when they fail, and an A/B test of the app's own features so you can see whether
 they help. The trust report rates each store Reliable, Flaky or Blocked from the app's own recent checks.
 
@@ -140,7 +141,7 @@ pacing plus a real browser plus you, once in a while, holds up better over time.
 
 ## Know when your stores restock
 
-Every restock the monitor sees while running is logged per store, day and hour (`data\history.jsonl`). **Restock times** turns that
+Every restock the monitor sees while running is logged per store, day and hour (`data\history.jsonl`). **Restock patterns** turns that
 into a week grid and lists the most likely windows, for example "Tue 7 AM to 9 AM" at your nearest Target. With `learn_from_history`
 on, the monitor checks twice as often during those hours, and a newly found sibling product gets extra attention for a while after
 one restocks. Alerts also say whether a store has **order pickup**, so you can buy online and collect instead of hoping the shelf
@@ -148,7 +149,7 @@ still has it.
 
 ## Product types and alerts
 
-Alerts follow your **Product filters**: each product type (Elite Trainer Box, Booster Bundle, tin, collection box, and so on) can be
+Alerts follow your **Prices & filters**: each product type (Elite Trainer Box, Booster Bundle, tin, collection box, and so on) can be
 switched on or off for alerts, with its own MSRP cap. An alert fires when stock appears that was not there on the last check, only if
 the listing is a sealed card product of a wanted type, sold by the store itself (not a third-party seller), priced at or under its cap
 plus wiggle room, at a store inside one of your areas, and still there on a second look. The same item and store will not re-alert

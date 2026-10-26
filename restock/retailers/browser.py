@@ -98,7 +98,7 @@ def _force_foreground(hint: str) -> None:
 OWN_CHROME = "my-chrome"
 OWN_EDGE = "my-edge"
 # Stores that always try your own Chrome first (added to browser.own_chrome_sites).
-DEFAULT_OWN_SITES = ("cvs.com", "dickssportinggoods.com", "gamestop.com", "samsclub.com")
+DEFAULT_OWN_SITES = ("cvs.com", "dickssportinggoods.com", "gamestop.com", "samsclub.com", "target.com", "walgreens.com")
 
 
 def _port_open(port: int) -> bool:
@@ -179,14 +179,16 @@ class BrowserWorker:
 
     # ---- public API (any thread) ---------------------------------------------------
     def fetch(self, url: str, timeout: float = 120, ask: bool = True, post: dict | None = None,
-              referer: str = "", page_get: bool = False) -> FetchResult:
+              referer: str = "", page_get: bool = False, wait_re: str = "") -> FetchResult:
         """Load a page. With `post` (JSON) or `page_get`, call `url` from inside a page on the
-        store's own site, so the site's cookies and session go with it, and return the answer."""
+        store's own site, so the site's cookies and session go with it, and return the answer.
+        wait_re: for pages that build their content with script after loading (most store search pages),
+        wait up to WAIT_FOR_S seconds until the page text matches this pattern."""
         if post is not None or page_get:
             res = self._submit(lambda: self._in_page("POST" if post is not None else "GET", url, post, referer, ask),
                                timeout)
         else:
-            res = self._submit(lambda: self._fetch(url, ask), timeout)
+            res = self._submit(lambda: self._fetch(url, ask, wait_re), timeout)
         res.profile = self.name
         return res
 
@@ -487,10 +489,33 @@ class BrowserWorker:
                }""", [method, url, payload, "include" if same_origin else "omit"])
         self.last_load[domain] = time.time()
         status, text = int(out.get("status") or 0), out.get("text") or ""
-        info = classify(status, text) if status >= 400 or text.lstrip().startswith("<") else None
+        # A bot check can also come back as JSON with a normal status (PerimeterX sends {"blockScript": ...}).
+        looks_blocked = status >= 400 or text.lstrip().startswith("<") or '"blockScript"' in text[:3000]
+        info = classify(status, text) if looks_blocked else None
         return FetchResult(status, text, url, info, via=self.name)
 
-    def _fetch(self, url: str, ask: bool = True) -> FetchResult:
+    WAIT_FOR_S = 12
+
+    def _settle(self, page, wait_re: str) -> str:
+        """Wait for script-built content (search results) to show up, then return the page's HTML."""
+        html = self._html(page)
+        if not wait_re:
+            return html
+        rx = re.compile(wait_re, re.I)
+        deadline = time.time() + self.WAIT_FOR_S
+        while not rx.search(html) and time.time() < deadline:
+            page.wait_for_timeout(1000)
+            html = self._html(page)
+        if not rx.search(html):
+            try:                                  # some stores only add results once the page is scrolled
+                page.mouse.wheel(0, 2500)
+                page.wait_for_timeout(1500)
+                html = self._html(page)
+            except Exception:
+                pass
+        return html
+
+    def _fetch(self, url: str, ask: bool = True, wait_re: str = "") -> FetchResult:
         domain = urlsplit(url).netloc.lower()
         now = time.time()
 
@@ -530,6 +555,9 @@ class BrowserWorker:
         headers = resp.headers if resp else {}
         html = self._html(page)
         info = classify(status, html, headers)
+        if info is None and wait_re and status < 400:
+            html = self._settle(page, wait_re)
+            info = classify(status, html, headers)
 
         if info and info.kind == "queue":
             return FetchResult(status, html, page.url, info, via=self.name)
@@ -804,7 +832,7 @@ class BrowserPool:
 
     # ---- checking -------------------------------------------------------------------
     def fetch(self, url: str, timeout: float = 120, post: dict | None = None, referer: str = "",
-              page_get: bool = False, pick: str = "", label: str = "") -> FetchResult:
+              page_get: bool = False, pick: str = "", label: str = "", wait_re: str = "") -> FetchResult:
         """Load a page in one of the checking browsers.
 
         pick is for trial methods: "solo" stays on one steady profile instead of rotating, "own" uses
@@ -813,7 +841,7 @@ class BrowserPool:
         domain = urlsplit(referer or url).netloc.lower()
         site = domain.removeprefix("www.")
         in_page = post is not None or page_get
-        extra = {"post": post, "referer": referer, "page_get": page_get} if in_page else {}
+        extra = {"post": post, "referer": referer, "page_get": page_get} if in_page else ({"wait_re": wait_re} if wait_re else {})
         if post is None:
             extra.pop("post", None)
         now = time.time()

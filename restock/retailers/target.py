@@ -276,12 +276,43 @@ class Target(Retailer):
             self.pause(0.5)
         return out
 
+    SEARCH_PAGE = "https://www.target.com/s?searchTerm={q}"
+    LINK_RE = re.compile(r'href="(?:https://www\.target\.com)?(/p/([a-z0-9-]*)/-/A-(\d{6,10}))[^"]*"[^>]*>(.*?)</a>', re.I | re.S)
+
+    def search_page(self, query: str, limit: int) -> list[StockResult]:
+        """Target's own search page in a real browser. Its data search refuses plain requests (PerimeterX), but
+        the normal page, loaded the way a person does, lists the products; titles come from the links."""
+        if not (self.browser and self.browser.usable):
+            return []
+        from urllib.parse import quote_plus
+        res = self._via_browser(self.SEARCH_PAGE.format(q=quote_plus(query)), wait_re=r"/-/A-\d{6,10}")
+        found: dict[str, str] = {}
+        for _path, slug, tcin, inner in self.LINK_RE.findall(res.text or ""):
+            text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", inner)).strip()
+            if len(text) < 8:
+                text = slug.replace("-", " ").strip().title().replace("Pokemon", "Pokemon").replace("Tcg", "TCG")
+            if len(text) > len(found.get(tcin, "")):
+                found[tcin] = text
+        if not found:
+            self.dump(f"searchpage_{query}", (res.text or "")[:4_000_000], force=True)
+        else:
+            self.log.info("Target: the data search was refused, so its search page was read instead (%d products)", len(found))
+        return [StockResult(retailer=self.name, retailer_name=self.display, product_id=t, title=title,
+                            url=f"https://www.target.com/p/-/A-{t}", online_status="UNCHECKED")
+                for t, title in list(found.items())[:limit] if title]
+
     def search(self, query: str, limit: int) -> list[StockResult]:
         """Candidates with title and price only. The engine fetches real stock
         for the ones that pass the filters, which saves requests."""
+        try:
+            first = self._search_raw(query, 24, 0)
+        except Blocked:
+            first = []
+        if not first:
+            return self.search_page(query, limit)
         out, seen, offset = [], set(), 0
         while len(out) < limit:
-            page = self._search_raw(query, 24, offset)
+            page = first if offset == 0 else self._search_raw(query, 24, offset)
             if not page:
                 break
             for p in page:

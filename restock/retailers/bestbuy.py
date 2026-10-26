@@ -28,6 +28,9 @@ class BestBuy(Retailer):
     def key(self) -> str:
         return str(self.rcfg.get("api_key") or "").strip()
 
+    def setup_needed(self) -> str:
+        return "" if self.key else "Needs a free Best Buy key (developer.bestbuy.com). Add it in Stores, or switch Best Buy off."
+
     def _api(self, path: str, **params) -> dict:
         if not self.key:
             raise Blocked("Best Buy: no api_key configured", 3600)

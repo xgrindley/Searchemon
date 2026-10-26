@@ -13,6 +13,16 @@
   windows and becomes a tab bar for small ones, rows and settings wrap, and the top strip no longer overflows or shows text through it.
   Methods lab and Accounts no longer rebuild every 5 seconds: they refresh only when their numbers change, and never while you are
   selecting text or typing, so the page stays still and responds faster.
+- **Find stock near a ZIP: pick your stores.** The store ticks are always shown on the scan page now (All and None buttons, stores that
+  are off in Stores & keys are labelled), and the scan asks exactly the stores you tick, with or without "Search every product".
+  **Walgreens** was added. It publishes no shelf stock, so for Walgreens the scan reports the online listing only, and says so.
+- **CVS stops sitting on "Blocked".** CVS, Sam's Club, GameStop and Dick's refuse the app's automated browsers but accept a normal
+  Chrome. The app now starts your own Chrome (minimized, own profile in data\my-chrome, DevTools on this PC only) by itself the first
+  time one of those stores needs it, at most once every 10 minutes (`browser.auto_start_own_chrome: false` turns it off). A scan that
+  still has to wait for it says "Needs your own Chrome" instead of "Blocked".
+- **Sam's Club tries your own Chrome first**, like CVS, Dick's and GameStop (built in). In the app's automated browser the Sam's human check
+  can sit on loading dots forever; your own Chrome (start-my-chrome.ps1) is a normal browser, so the Press and Hold button shows up.
+  The app does not solve human checks. It shows you the page and carries on after you finish it.
 - **Control panel first.** In the desktop window, "Open control panel" is now the highlighted button at the front of the top bar, with a
   "Click here for the better, more advanced GUI" note beside it that opens the panel too.
 - **Clear message when the app is gone.** "Failed to fetch" is replaced by "Lost contact with the app" plus a red bar, and the page reconnects by itself once the app runs again.

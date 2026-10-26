@@ -61,6 +61,8 @@ DEFAULTS: dict[str, Any] = {
         # Your own Chrome, started with start-my-chrome.ps1. Whenever it is running it joins
         # the profiles and gets these stores first, since a real Chrome is refused least.
         "own_chrome_port": 9222,
+        # Start that Chrome (minimized) by itself the first time a store needs it, so nothing sits on "Blocked" until you start it by hand.
+        "auto_start_own_chrome": True,
         # Your own Edge (start-my-edge.ps1): a second real browser to compare against Chrome. 0 turns it off.
         "own_edge_port": 9223,
         # When a store refuses a plain data request, repeat it from inside the store's own page in a real browser.
@@ -72,7 +74,7 @@ DEFAULTS: dict[str, Any] = {
         # Run about half of the checks without each new feature and count the blocks, so Methods lab can show whether it helps.
         "feature_trial": True,
         "close_own_on_exit": True,
-        "own_chrome_sites": ["cvs.com", "dickssportinggoods.com", "gamestop.com"],
+        "own_chrome_sites": ["cvs.com", "dickssportinggoods.com", "gamestop.com", "samsclub.com"],
         "notify_discord": False,
         "min_interval_seconds": 120,
     },

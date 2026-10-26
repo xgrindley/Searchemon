@@ -97,7 +97,7 @@ def _force_foreground(hint: str) -> None:
 OWN_CHROME = "my-chrome"
 OWN_EDGE = "my-edge"
 # Stores that always try your own Chrome first (added to browser.own_chrome_sites).
-DEFAULT_OWN_SITES = ("cvs.com", "dickssportinggoods.com", "gamestop.com")
+DEFAULT_OWN_SITES = ("cvs.com", "dickssportinggoods.com", "gamestop.com", "samsclub.com")
 
 
 def _port_open(port: int) -> bool:
@@ -734,6 +734,32 @@ class BrowserPool:
                 out.append((name, port, label))
         return out
 
+    _own_started = 0.0
+
+    def _ensure_own_chrome(self) -> None:
+        """A store that needs your own Chrome is being checked and none is running: start one (minimized) and
+        join it. Tried at most once every 10 minutes, and never when you switched it off or started Chrome yourself."""
+        if self.stopping or not self.bcfg.get("auto_start_own_chrome", True):
+            return
+        port = int(self.bcfg.get("own_chrome_port") or 0)
+        if not port or any(getattr(w, "cdp_url", "") and w.name == OWN_CHROME for w in self.workers):
+            return
+        with self._attach_lock:
+            if time.time() - self._own_started < 600:
+                return
+            self._own_started = time.time()
+        if not _port_open(port):
+            from .. import ownchrome as ownchrome_hook
+            if not ownchrome_hook.start(port, self._data_dir, self.log):
+                return
+            self.log.info("Started your own Chrome (minimized) for the stores that refuse the app's browsers. Leave it open.")
+            for _ in range(24):
+                if _port_open(port) or self.stopping:
+                    break
+                time.sleep(0.5)
+        self._own_looked = 0.0
+        self._maybe_attach_own_chrome()
+
     def _maybe_attach_own_chrome(self) -> None:
         """If you start your own Chrome or Edge after the app is already running, join it here, so
         nothing needs restarting. Looks at most every 15 seconds."""
@@ -777,6 +803,8 @@ class BrowserPool:
             extra.pop("post", None)
         now = time.time()
         self._maybe_attach_own_chrome()
+        if pick != "stealth" and self._uses_own_chrome(site):
+            self._ensure_own_chrome()
         # The stealth profile is only for its own trial; normal checks never touch it.
         live = [w for w in self.workers if w.usable and (bool(getattr(w, "stealth", False)) == (pick == "stealth"))]
         if not live:

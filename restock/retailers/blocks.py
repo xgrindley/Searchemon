@@ -61,7 +61,9 @@ class BlockInfo:
                 "denied": "refused the request", "queue": "has its waiting-room queue up"}[self.kind]
         vendor = "" if self.vendor == "Generic" else f" ({self.vendor})"
         msg = f"{display} {what}{vendor}"
-        if self.retry_after >= 1800:
+        if self.vendor in NO_PERSON_VENDORS and self.kind == "challenge":
+            msg += ". Its press-and-hold check cannot be passed in the app's browsers, so that browser rests there for an hour"
+        elif self.retry_after >= 1800:
             msg += f". It asked for a wait of about {self.retry_after / 3600:.0f} hours"
         if self.hard:
             msg += ". This kind of block usually lifts within a few hours to a day"
@@ -70,11 +72,19 @@ class BlockInfo:
         return msg
 
 
+# Checks a person cannot pass in the app's browsers. PerimeterX's "Press & hold" (Target, Walmart, Sam's Club)
+# recognizes an automated browser and answers "Please try again" however long you hold, so asking only leaves
+# the store stuck waiting. These are treated as an ordinary block: that browser rests and the next one is tried.
+NO_PERSON_VENDORS = {"PerimeterX"}
+PX_REST_S = 3600          # how long a browser rests at a store after a press-and-hold page
+
+
 def wants_person(info: BlockInfo | None) -> bool:
     """True when opening the browser window for the user could help. A flat refusal such as
-    Akamai's "Access Denied" page has nothing to click or solve, so asking someone to verify
-    there only leaves the store stuck waiting."""
-    return bool(info) and info.kind == "challenge"
+    Akamai's "Access Denied" page has nothing to click or solve, and a press-and-hold that only
+    fails in an automated browser cannot be passed either, so asking there only leaves the store
+    stuck waiting."""
+    return bool(info) and info.kind == "challenge" and info.vendor not in NO_PERSON_VENDORS
 
 
 _WAIT_RX = re.compile(r"try again (?:in|after)\s+(\d+)\s*(hour|minute|min)", re.I)
@@ -129,6 +139,9 @@ def classify(status: int, text: str, headers: dict | None = None) -> BlockInfo |
                                         "verify you are"))
         if vendor == "Imperva" and not human and ("error 15" in low or "blocked by our security service" in low):
             return BlockInfo(vendor, "denied", False)
+        if vendor in NO_PERSON_VENDORS:
+            # Not something to wait on: rest this browser at the store for a while and carry on with the others.
+            return BlockInfo(vendor, "challenge", False, retry_after=PX_REST_S)
         return BlockInfo(vendor, "challenge" if (human or status != 403 or (vendor == "Cloudflare" and on_page)) else "denied", human)
     if status in (401, 403):
         return BlockInfo(vendor or "Generic", "denied", False)

@@ -1,6 +1,11 @@
 # Changelog
 
 ## v4.1 (test build, in progress)
+- **Target's "Press & hold" check is now a block, not a request for you.** PerimeterX (Target, also Walmart and Sam's Club)
+  recognizes the app's browsers and answers "Please try again" however long you hold, so asking you only left Target stuck on
+  "Waiting for you". Now that browser rests at the store for an hour and the next one (your own Chrome first) is tried. If Target's
+  search page is the part that is blocked, only that search backs off (3 hours); Target's product checks use its data feed and keep
+  going instead of pausing the whole store. Checks a person can pass (a tick box, a typed code) still ask you.
 - **Product finding fixed at the stores where it found nothing.** Diagnosed from the app's own log and saved pages: discovery had
   found only 10 products in total (8 of them Sam's Club books). Fixed:
   - **Target**: its data search was refused by PerimeterX, and the in-browser retry passed the bot-check reply on as an empty

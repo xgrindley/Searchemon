@@ -277,15 +277,25 @@ class Target(Retailer):
         return out
 
     SEARCH_PAGE = "https://www.target.com/s?searchTerm={q}"
+    PAGE_SEARCH_REST_S = 3 * 3600
+    _page_search_until = 0.0
     LINK_RE = re.compile(r'href="(?:https://www\.target\.com)?(/p/([a-z0-9-]*)/-/A-(\d{6,10}))[^"]*"[^>]*>(.*?)</a>', re.I | re.S)
 
     def search_page(self, query: str, limit: int) -> list[StockResult]:
         """Target's own search page in a real browser. Its data search refuses plain requests (PerimeterX), but
         the normal page, loaded the way a person does, lists the products; titles come from the links."""
-        if not (self.browser and self.browser.usable):
+        if not (self.browser and self.browser.usable) or time.time() < self._page_search_until:
             return []
         from urllib.parse import quote_plus
-        res = self._via_browser(self.SEARCH_PAGE.format(q=quote_plus(query)), wait_re=r"/-/A-\d{6,10}")
+        try:
+            res = self._via_browser(self.SEARCH_PAGE.format(q=quote_plus(query)), wait_re=r"/-/A-\d{6,10}")
+        except Blocked as exc:
+            # Target's press-and-hold page (or another block). Product checks use Target's data feed and keep
+            # working, so only this search backs off; Target is not paused over it.
+            self._page_search_until = time.time() + self.PAGE_SEARCH_REST_S
+            self.log.info("Target: its search page is blocked too (%s); searching it again in %d hours, product checks continue",
+                          exc, self.PAGE_SEARCH_REST_S // 3600)
+            return []
         found: dict[str, str] = {}
         for _path, slug, tcin, inner in self.LINK_RE.findall(res.text or ""):
             text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", inner)).strip()

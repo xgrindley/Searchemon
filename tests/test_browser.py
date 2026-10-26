@@ -26,7 +26,8 @@ JS_CHECK = """<html><head><title>Just a moment...</title>
 <script>setTimeout(function(){document.cookie="cleared=1; path=/"; location.reload();}, 1500);</script>
 Checking your browser</body></html>"""
 
-CAPTCHA = """<html><head><title>Robot or human?</title></head><body><div id="px-captcha">Press &amp; Hold</div>
+# A check a person can pass (PerimeterX's press-and-hold is not one: it fails in automated browsers, see blocks.py).
+CAPTCHA = """<html><head><title>Robot or human?</title></head><body><div id="captcha">Verify you are human: tick the box</div>
 <script>setInterval(function(){fetch('/solved').then(r=>r.text()).then(t=>{ if(t==='yes'){
 document.cookie="human=1; path=/"; location.reload(); }});}, 500);</script></body></html>"""
 
@@ -70,8 +71,10 @@ def browser_available() -> bool:
 
 class ClassifyTests(unittest.TestCase):
     def test_vendors(self):
-        self.assertEqual(classify(403, CAPTCHA).vendor, "PerimeterX")
+        self.assertEqual(classify(403, CAPTCHA).vendor, "Generic")
         self.assertTrue(classify(403, CAPTCHA).needs_human)
+        px = classify(200, "<div id='px-captcha'>Press &amp; Hold</div>")
+        self.assertEqual((px.vendor, px.kind, px.needs_human, px.retry_after), ("PerimeterX", "challenge", False, 3600))
         self.assertEqual(classify(503, JS_CHECK).vendor, "Cloudflare")
         self.assertFalse(classify(503, JS_CHECK).needs_human)
         self.assertEqual(classify(429, "").kind, "rate_limit")
@@ -136,7 +139,7 @@ class BrowserModeTests(unittest.TestCase):
                 web.check_ids([self.base + "/captcha/1"], False)
             self.assertTrue(ctx.exception.waiting_for_human)
             self.assertEqual(self.events[0][0], "human")
-            self.assertEqual(self.events[0][2], "PerimeterX")
+            self.assertEqual(self.events[0][2], "Generic")
             with self.assertRaises(Blocked):
                 web.check_ids([self.base + "/captcha/1"], False)   # still waiting, nothing new loaded
 

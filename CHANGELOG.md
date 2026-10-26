@@ -9,6 +9,11 @@
 - Still manual only, still no Discord alerts, and the search results are held in memory only: your saved catalog and settings
   are not changed.
 - Tests: four new ones in tests\test_scan.py.
+- **Rolling history:** the trust table no longer starts from nothing after a restart. Each store's last 40 check outcomes, hourly
+  totals for the last 7 days and its last problem are saved in data\store-history.json (a few KB, counts only, no pages or
+  URLs) after every check and when the app closes. "Based on" now also shows the last 24 hours or 7 days. The method counts in
+  block-stats.json and the trial state were already saved.
+- Tests: tests\test_history.py.
 
 To test v2.10 (PowerShell):
 ```

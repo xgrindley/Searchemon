@@ -28,6 +28,9 @@ Read this first when picking the project back up. Newest entries at the top of e
 - Not covered: API stores (Target, Best Buy, Kroger) go through Retailer.get, not fetch_html.
 - Needs a live check on the PC: httpx[http2] install (setup.ps1), browser-own with start-my-chrome.ps1 running.
 
+## Rolling history (v2.10)
+- history_store.py: data/store-history.json, per store recent (40 chars of 0/1), hourly [ok, fail] for 7 days, last problem. Engine preloads health["recent"] from it; trust.py falls back to the 7 day totals.
+
 ## Method control (v2.9)
 - trials.py keeps data/trial-state.json: active list, per-method attempt counters (since switched on), stopped records, last 30 events.
 - Auto-stop: attempts > stop_after (25) and fails/attempts >= stop_fail_pct (50). Only trial arms; controls are never counted.

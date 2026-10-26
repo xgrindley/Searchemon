@@ -30,6 +30,7 @@ from .retailers.base import set_tracker, set_trials
 from .retailers.browser import BrowserPool
 from .sessions import BlockTracker
 from .scan import ZipScan
+from .history_store import StoreHistory
 from .trials import TrialPlan
 from .rules import allow_kind, decide
 from .state import StateStore
@@ -94,6 +95,7 @@ class Monitor:
     # ---- setup ----------------------------------------------------------------
     def load(self) -> None:
         self.cfg: Config = load_config(self.config_path)
+        self.store_history = StoreHistory(self.cfg.data_dir)
         self.log = make_logger(self.cfg.data_dir, self.console)
         with self.snap_lock:
             self.retailer_status.clear()
@@ -281,6 +283,7 @@ class Monitor:
             if self._closed:
                 return
             self._closed = True
+        self.store_history.save()
         if self.browser:
             self.browser.stopping = True            # no new browsers join while the app is closing
         self.stop()
@@ -372,8 +375,10 @@ class Monitor:
 
     def _health(self, name: str) -> dict:
         if name not in self.health:
-            self.health[name] = {"recent": deque(maxlen=40), "slow": self._saved_slow(name), "blocks": 0,
-                                 "last_block": "", "last_ok": 0.0, "mode": ""}
+            hist = self.store_history
+            last, _t = hist.last_problem(name)
+            self.health[name] = {"recent": deque(hist.recent(name), maxlen=40), "slow": self._saved_slow(name), "blocks": 0,
+                                 "last_block": last, "last_ok": hist.last_ok(name), "mode": ""}
         return self.health[name]
 
     # A store that pushed back stays slowed after a restart, easing off with time, so
@@ -436,6 +441,7 @@ class Monitor:
                 count = self.run_cycle(r)
                 backoff = 0.0
                 h["recent"].append(1)
+                self.store_history.record(name, True)
                 h["slow"] = max(1.0, h["slow"] * 0.8)   # ease back toward normal speed
                 h["last_ok"] = time.time()
                 h["mode"] = "browser" if r.last_via == "browser" else "direct"
@@ -446,6 +452,7 @@ class Monitor:
                     status = "Waiting for you to verify in the browser"
                 else:
                     h["recent"].append(0)
+                    self.store_history.record(name, False, str(exc))
                     h["blocks"] += 1
                     h["last_block"] = str(exc)
                     h["slow"] = min(MAX_SLOWDOWN, h["slow"] * 2)  # back off harder each time
@@ -460,10 +467,12 @@ class Monitor:
                 self.log.error("%s cycle failed: %s", name, traceback.format_exc())
                 self.emit("log", f"{r.display}: error {exc}")
                 h["recent"].append(0)
+                self.store_history.record(name, False, f"error: {str(exc)[:80]}")
                 status = f"Error: {str(exc)[:60]}"
                 backoff = 60
             self.state.save()
             self._save_pacing()
+            self.store_history.save()
             delay, notes = self._next_delay(r, h, time.time() - started)
             if backoff:
                 delay = backoff

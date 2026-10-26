@@ -49,6 +49,8 @@ def store_row(name: str, display: str, health: dict, compare_rows: list[dict], t
         verdict, score, basis = "Needs setup", None, "official feed not switched on"
     elif checks >= MIN_CHECKS and success is not None:
         score, basis = float(success), f"{checks} recent checks"
+    elif int(health.get("week_checks") or 0) >= MIN_CHECKS and health.get("week_success") is not None:
+        score, basis = float(health["week_success"]), f"{health['week_checks']} checks in the last 7 days"
     elif best_trk:
         score, basis = 100 * best_trk[1], f"{best_trk[2]} checks with {best_trk[0]}"
     elif best_cmp:
@@ -77,6 +79,9 @@ def store_row(name: str, display: str, health: dict, compare_rows: list[dict], t
         advice.append(f"Uses the {feed['label']}.")
     if verdict == "Not enough data":
         advice.append("Let the monitor run for a while; ratings need about 10 checks.")
+    if basis and int(health.get("week_checks") or 0) > checks:
+        basis += f" | last 24 h: {health.get('day_checks') or 0} checks, {health.get('day_success')}% loaded" \
+            if health.get("day_checks") else f" | last 7 days: {health['week_checks']} checks, {health['week_success']}% loaded"
     return {"store": name, "display": display, "verdict": verdict,
             "score": None if score is None else round(score),
             "basis": basis, "best_method": best_cmp[0] if best_cmp else (best_trk[0] if best_trk else ""),

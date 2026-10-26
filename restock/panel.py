@@ -118,7 +118,11 @@ class PanelServer:
         def health(name: str) -> dict:
             h = m.health.get(name) or {}
             recent = list(h.get("recent") or [])
+            d_ok, d_bad = m.store_history.window(name, 24)
+            w_ok, w_bad = m.store_history.window(name, 24 * 7)
             return {
+                "day_checks": d_ok + d_bad, "day_success": round(100 * d_ok / (d_ok + d_bad)) if d_ok + d_bad else None,
+                "week_checks": w_ok + w_bad, "week_success": round(100 * w_ok / (w_ok + w_bad)) if w_ok + w_bad else None,
                 "success": round(100 * sum(recent) / len(recent)) if recent else None,
                 "checks": len(recent),
                 "mode": h.get("mode") or "",

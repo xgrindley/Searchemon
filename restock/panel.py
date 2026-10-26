@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import hmac
 import json
+import os
 import secrets
 import socket
 import threading
@@ -26,6 +27,8 @@ from .retailers.browser import playwright_installed
 from .trust import build as trust_build, missing_feeds
 from .util import app_version, clean_url, version_label
 
+FONT_FILES = {"sora.woff2": "sora-latin-wght-normal.woff2", "inter.woff2": "inter-latin-wght-normal.woff2",
+              "mono.woff2": "jetbrains-mono-latin-wght-normal.woff2"}
 SIGN_IN_NAMES = {"walmart": "Walmart", "pokemoncenter": "Pokemon Center", "amazon": "Amazon", "dicks": "Dick's Sporting Goods",
                  "safeway": "Safeway", "costco": "Costco", "samsclub": "Sam's Club", "gamestop": "GameStop",
                  "barnesandnoble": "Barnes & Noble", "booksamillion": "Books-A-Million", "raleys": "Raley's",
@@ -173,6 +176,7 @@ class PanelServer:
                 "installed": playwright_installed(),
                 "running": bool(browser and browser.thread and browser.thread.is_alive()),
                 "problem": (browser.failed if browser else "") or "",
+                "profiles": browser.profiles_info() if browser else [],
             },
             "sessions": {"rows": trk_rows,
                          "profiles": browser.names() if browser else [],
@@ -316,6 +320,19 @@ class _Handler(BaseHTTPRequestHandler):
             token = self.panel.token if self._is_local_client() else ""
             html = PAGE.replace("__TOKEN__", json.dumps(token))
             return self._send(200, html.encode(), "text/html; charset=utf-8")
+        if path.startswith("/fonts/") and path[7:] in FONT_FILES:
+            try:
+                with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", FONT_FILES[path[7:]]), "rb") as fh:
+                    body = fh.read()
+            except OSError:
+                return self._send(404, b"Not found", "text/plain")
+            self.send_response(200)
+            self.send_header("Content-Type", "font/woff2")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "public, max-age=604800")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            return self.wfile.write(body)
         if not self._authed():
             return self._json(401, {"error": "PIN required"})
         if path == "/api/scan":
@@ -388,6 +405,12 @@ class _Handler(BaseHTTPRequestHandler):
                 elif action == "account_forget":
                     m.accounts.forget(str(body.get("store")))
                     return self._json(200, {"ok": True, "message": "Forgot the saved sign-in status (the browser's cookies are untouched)."})
+                elif action == "profile_clear_bot":
+                    ok, msg = m.profile_clear_bot(str(body.get("profile")), body.get("site") or None)
+                    return self._json(200, {"ok": ok, "message": msg})
+                elif action == "profile_reset":
+                    ok, msg = m.profile_reset(str(body.get("profile")))
+                    return self._json(200, {"ok": ok, "message": msg})
                 elif action == "trial_toggle":
                     ok, msg = m.trials.set_active(str(body.get("key")), bool(body.get("on")))
                     return self._json(200, {"ok": ok, "message": msg})

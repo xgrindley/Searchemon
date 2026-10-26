@@ -131,16 +131,32 @@ class App:
                 or any(a.get("webhook") for a in (self.raw.get("areas") or []) if isinstance(a, dict)))
 
     def _style(self) -> None:
+        from tkinter import font as tkfont
+        have = set(tkfont.families())
+        ui = next((f for f in ("Segoe UI Variable Text", "Segoe UI", "Calibri", "Helvetica") if f in have), "TkDefaultFont")
+        head = next((f for f in ("Segoe UI Variable Display", "Segoe UI Semibold", ui) if f in have), ui)
+        self.mono = next((f for f in ("Cascadia Mono", "Cascadia Code", "Consolas", "Courier New") if f in have), "TkFixedFont")
+        for name, size in (("TkDefaultFont", 10), ("TkTextFont", 10), ("TkMenuFont", 10), ("TkHeadingFont", 10)):
+            try:
+                tkfont.nametofont(name).configure(family=ui, size=size)
+            except tk.TclError:
+                pass
         style = ttk.Style()
         if "vista" in style.theme_names():
             style.theme_use("vista")
-        style.configure("Treeview", rowheight=24)
-        style.configure("H.TLabel", font=("Segoe UI", 12, "bold"))
-        style.configure("Sub.TLabel", foreground="#5f6368")
-        style.configure("State.TLabel", font=("Segoe UI", 11, "bold"))
+        elif "clam" in style.theme_names():
+            style.theme_use("clam")
+        ink, muted, accent = "#1f1b3a", "#5b5778", "#6d4fd6"
+        style.configure("Treeview", rowheight=28, font=(ui, 10))
+        style.configure("Treeview.Heading", font=(ui, 9, "bold"), padding=(6, 5))
+        style.configure("TNotebook.Tab", padding=(14, 7), font=(ui, 10))
+        style.configure("TButton", padding=(10, 5))
+        style.configure("H.TLabel", font=(head, 13, "bold"), foreground=ink)
+        style.configure("Sub.TLabel", foreground=muted, font=(ui, 9))
+        style.configure("State.TLabel", font=(head, 12, "bold"), foreground=accent)
         style.configure("Banner.TFrame", background="#fff4ce")
-        style.configure("Banner.TLabel", background="#fff4ce", font=("Segoe UI", 10))
-        style.configure("Accent.TButton", font=("Segoe UI", 10, "bold"))
+        style.configure("Banner.TLabel", background="#fff4ce", font=(ui, 10))
+        style.configure("Accent.TButton", font=(ui, 10, "bold"), padding=(14, 6))
 
     def _section(self, parent, title: str, hint: str = "") -> ttk.Frame:
         ttk.Label(parent, text=title, style="H.TLabel").pack(anchor="w", pady=(14, 2))
@@ -195,6 +211,8 @@ class App:
         menu.add_command(label="Search stores for Pokemon products now", command=self.rediscover)
         menu.add_command(label="Show the checking browser", command=lambda: self.monitor.show_browser())
         menu.add_command(label="Block tracker (checks before a store blocks)", command=self.show_tracker)
+        menu.add_command(label="Browser cleanup (Reset profile, in Stores & speed)",
+                         command=lambda: self.tabs.select(self.tab_stores))
         menu.add_separator()
         menu.add_command(label="Reload settings from file", command=self.reload)
         menu.add_command(label="Edit settings file (advanced)", command=self.edit_config)
@@ -244,7 +262,7 @@ class App:
                                   ("source", "Matched", 170), ("checked", "Checked", 80)):
             self.table.heading(col, text=label)
             self.table.column(col, width=width, stretch=col == "title")
-        self.table.tag_configure("instock", background="#d9f7e3")
+        self.table.tag_configure("instock", background="#d4f5e2", foreground="#0b5a2b")
         self.table.tag_configure("ignored", foreground="#8a8a8a")
         self.table.bind("<Double-1>", self.open_selected)
         scroll = ttk.Scrollbar(top, orient="vertical", command=self.table.yview)
@@ -254,9 +272,9 @@ class App:
         panes.add(top, weight=3)
         bottom = ttk.Frame(panes)
         ttk.Label(bottom, text="Activity (double-click a product to open it)").pack(anchor="w")
-        self.log = tk.Text(bottom, height=10, wrap="word", font=("Consolas", 9), state="disabled")
+        self.log = tk.Text(bottom, height=10, wrap="word", font=(self.mono, 9), state="disabled", padx=8, pady=6, relief="flat", borderwidth=1)
         self.log.pack(fill="both", expand=True)
-        self.log.tag_configure("alert", foreground="#0a7a32", font=("Consolas", 9, "bold"))
+        self.log.tag_configure("alert", foreground="#0a7a32", font=(self.mono, 9, "bold"))
         panes.add(bottom, weight=1)
 
     def _build_discord(self, tab) -> None:
@@ -477,6 +495,21 @@ class App:
                             "For Walmart, also choose your store there so pickup shows for it. Target, Best Buy and "
                             "Kroger are checked through data feeds that don't use sign-in or show bot checks.")
 
+        box = self._section(p, "Blocked by Akamai or PerimeterX? Clean up a checking browser",
+                            "A store can remember a browser's cookies with a bad reputation and keep blocking it. "
+                            "Clear bot-check cookies removes only those and keeps your sign-ins. Reset profile deletes "
+                            "everything that browser saved (sign-ins too) and it starts fresh on the next check.")
+        row = ttk.Frame(box)
+        row.pack(fill="x", pady=4)
+        ttk.Label(row, text="Browser").pack(side="left")
+        self.profile_var = tk.StringVar()
+        self.profile_box = ttk.Combobox(row, textvariable=self.profile_var, width=24, state="readonly",
+                                        postcommand=self._refresh_profiles)
+        self.profile_box.pack(side="left", padx=8)
+        ttk.Button(row, text="Clear bot-check cookies", command=self.profile_clear_bot).pack(side="left", padx=4)
+        ttk.Button(row, text="Reset profile", command=self.profile_reset).pack(side="left", padx=4)
+        self._refresh_profiles()
+
         box = self._section(p, "Free keys for more shelf checks")
         self.v["bestbuy_key"] = tk.StringVar()
         self.v["kroger_id"] = tk.StringVar()
@@ -671,7 +704,7 @@ class App:
         win.geometry("760x420")
         ttk.Label(win, text="How many checks each method gets through before a store blocks it. "
                             "Numbers keep growing across restarts.", wraplength=720).pack(anchor="w", padx=10, pady=8)
-        text = tk.Text(win, font=("Consolas", 9), wrap="none")
+        text = tk.Text(win, font=(self.mono, 9), wrap="none")
         text.pack(fill="both", expand=True, padx=10)
 
         def refresh():
@@ -748,6 +781,42 @@ class App:
             secs = max(30, int(base * factor), SLOWEST_FIRST.get(name, 0))
             speed.set(speed_label(secs))
         self.touch()
+
+    def _refresh_profiles(self) -> None:
+        names = self.monitor.browser.names() if self.monitor.browser else []
+        self.profile_box["values"] = names
+        if names and self.profile_var.get() not in names:
+            self.profile_var.set(names[0])
+
+    def _profile_job(self, work, busy: str) -> None:
+        self.write(busy)
+        def run():
+            try:
+                work()                      # the result is posted to the Activity log by the monitor
+            except Exception as exc:
+                self.events.put(("log", f"Browser cleanup failed: {exc}"))
+        threading.Thread(target=run, daemon=True).start()
+
+    def profile_clear_bot(self) -> None:
+        name = self.profile_var.get()
+        if not name:
+            messagebox.showinfo("No browser", "No checking browser is set up yet.")
+            return
+        if messagebox.askyesno("Clear bot-check cookies",
+                               f"Delete the bot-check cookies (Akamai, PerimeterX, Cloudflare) in '{name}'?\n\n"
+                               "Your store sign-ins are kept."):
+            self._profile_job(lambda: self.monitor.profile_clear_bot(name), f"Clearing bot-check cookies in '{name}'...")
+
+    def profile_reset(self) -> None:
+        name = self.profile_var.get()
+        if not name:
+            messagebox.showinfo("No browser", "No checking browser is set up yet.")
+            return
+        if messagebox.askyesno("Reset profile",
+                               f"Delete everything '{name}' saved (cookies, sign-ins, cache)?\n\n"
+                               "You will need to sign in to your stores again. It starts fresh on the next check.",
+                               icon="warning"):
+            self._profile_job(lambda: self.monitor.profile_reset(name), f"Resetting '{name}'...")
 
     def sign_in(self, name: str) -> None:
         url = SIGN_IN[name]

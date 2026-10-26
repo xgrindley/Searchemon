@@ -17,6 +17,7 @@ from .util import atomic_write_json, normalize_text, normalize_upc, read_json
 
 FORGET_AFTER_S = 21 * 86400      # a listing not seen in searches for 3 weeks is dropped
 HOT_FOR_S = 6 * 3600             # an item seen in stock recently is checked every cycle
+BOOST_FOR_S = 2 * 3600           # the same product at other stores is checked every cycle for a while after a restock
 
 
 class Catalog:
@@ -81,6 +82,22 @@ class Catalog:
             item["price"] = res.price if res.price is not None else item.get("price")
             item["status_text"] = res.status_text()
 
+    def boost_siblings(self, res: StockResult) -> int:
+        """A product just restocked somewhere: the first store to restock is unpredictable and others often follow
+        within hours, so check the same product at the other stores every cycle for a while. Returns how many."""
+        me = self.items.get(res.key)
+        if me is None or not res.in_stock:
+            return 0
+        norm = lambda v: v.get("upc") or normalize_text(v["title"]).replace("pokemon trading card game", "pokemon tcg")
+        mine, n = norm(me), 0
+        until = time.time() + BOOST_FOR_S
+        with self.lock:
+            for key, v in self.items.items():
+                if key != res.key and v["retailer"] != me["retailer"] and norm(v) == mine and v.get("status") != "ignored":
+                    v["boost_until"] = until
+                    n += 1
+        return n
+
     def set_status(self, key: str, status: str) -> None:
         with self.lock:
             if key in self.items and status in ("tracking", "ignored"):
@@ -103,12 +120,33 @@ class Catalog:
         if n <= 0 or not items:
             return []
         now = time.time()
-        hot = [v for v in items if now - v.get("last_in_stock", 0) < HOT_FOR_S]
+        hot = [v for v in items if now - v.get("last_in_stock", 0) < HOT_FOR_S or v.get("boost_until", 0) > now]
         rest = [v for v in items if v not in hot]
         start = self.cursor.get(retailer, 0) % max(len(rest), 1)
         picked = (rest[start:] + rest[:start])[: max(0, n - len(hot))]
         self.cursor[retailer] = start + len(picked)
         return hot + picked
+
+    def cross_queries(self, retailer: str, n: int) -> list[str]:
+        """Search words for products found at other stores but not yet at this one: the UPC where known (a
+        store's search usually jumps straight to that product), else the first words of the title. A different
+        batch is returned each time, so over a few refreshes every product gets looked for."""
+        wanted = []
+        for g in self.groups():
+            if any(l["retailer"] == retailer for l in g["listings"]):
+                continue
+            if all(l.get("status") == "ignored" for l in g["listings"]):
+                continue
+            first = next((l for l in g["listings"] if l.get("upc")), g["listings"][0])
+            q = first.get("upc") or " ".join(str(g["title"]).split()[:9])
+            if q and q not in wanted:
+                wanted.append(q)
+        if not wanted or n <= 0:
+            return []
+        start = self.cursor.get("x:" + retailer, 0) % len(wanted)
+        picked = (wanted[start:] + wanted[:start])[:n]
+        self.cursor["x:" + retailer] = start + len(picked)
+        return picked
 
     def groups(self) -> list[dict]:
         """Listings of the same product across stores, matched by UPC, else by title."""

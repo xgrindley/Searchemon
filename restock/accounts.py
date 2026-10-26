@@ -128,6 +128,15 @@ class AccountTracker:
             self.sites.pop(site, None)
         self.save()
 
+    def forget_profile(self, profile: str) -> None:
+        """A browser's saved state was wiped: drop what was recorded for it."""
+        with self.lock:
+            for site in list(self.sites):
+                self.sites[site].pop(profile, None)
+                if not self.sites[site]:
+                    del self.sites[site]
+        self.save()
+
     def save(self) -> None:
         with self.lock:
             data = {"sites": {s: {p: dict(r) for p, r in rows.items()} for s, rows in self.sites.items()}}

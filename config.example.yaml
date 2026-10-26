@@ -69,6 +69,8 @@ discovery:
   queries: ["pokemon trading card game", "pokemon tcg"]
   refresh_hours: 6               # search catalogs again this often
   alert_new_listings: true       # post when a store lists a product for the first time
+  cross_store: true              # CVS, GameStop, Costco, etc. also search for the products found at other stores
+  cross_per_refresh: 8           # how many of those lookups per store each refresh
   items_per_cycle: {target: 6, bestbuy: 20, kroger: 50, walmart: 0, dicks: 3}
   places: true                   # map nearby stores weekly (store finders + OpenStreetMap)
 

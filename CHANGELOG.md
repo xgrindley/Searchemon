@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.7 (2026-10-26, test build, includes v2.6)
+- Stores & speed: the labels in "Free keys for more shelf checks" are wider, so "Walmart.io private key file" is no
+  longer cut off, and the key file box is about twice as wide so a full path such as
+  C:\Users\Grindley\Documents\poke-restock\walmart-private.pem shows without scrolling. The saved value was never cut off.
+
+To test v2.7 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+`VERSION` should print 2.7. Close the running app first, then open Stores & speed and scroll to the Walmart.io fields.
+
 ## v2.6 (2026-10-26, test build, includes v2.5)
 - New: trial methods. More ways of loading pages, tried one at a time per store so each can be traced.
   For every store only one method runs at once. Each gets a slice of checks (default 20), the normal method

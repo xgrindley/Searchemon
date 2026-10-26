@@ -22,6 +22,7 @@ from .tcg import TYPES, classify, type_settings
 from .models import StockResult
 from .panel_page import PAGE
 from .retailers.browser import playwright_installed
+from .trust import build as trust_build, missing_feeds
 from .util import app_version, clean_url, version_label
 
 MAX_BODY = 1_000_000
@@ -34,6 +35,19 @@ def lan_ip() -> str:
             return s.getsockname()[0]
     except OSError:
         return "127.0.0.1"
+
+
+def store_domains(name: str) -> tuple[str, ...]:
+    """Web domains behind a store name, for matching block statistics."""
+    from .retailers import _KROGER_HOSTS, SITE_CLASSES
+    fixed = {"target": ("target.com",), "bestbuy": ("bestbuy.com",), "walmart": ("walmart.com",),
+             "kroger": tuple(_KROGER_HOSTS)}
+    if name in fixed:
+        return fixed[name]
+    for cls in SITE_CLASSES:
+        if cls.name == name:
+            return tuple(cls.domains)
+    return ()
 
 
 class PanelServer:
@@ -104,7 +118,11 @@ class PanelServer:
         def health(name: str) -> dict:
             h = m.health.get(name) or {}
             recent = list(h.get("recent") or [])
+            d_ok, d_bad = m.store_history.window(name, 24)
+            w_ok, w_bad = m.store_history.window(name, 24 * 7)
             return {
+                "day_checks": d_ok + d_bad, "day_success": round(100 * d_ok / (d_ok + d_bad)) if d_ok + d_bad else None,
+                "week_checks": w_ok + w_bad, "week_success": round(100 * w_ok / (w_ok + w_bad)) if w_ok + w_bad else None,
                 "success": round(100 * sum(recent) / len(recent)) if recent else None,
                 "checks": len(recent),
                 "mode": h.get("mode") or "",
@@ -114,26 +132,37 @@ class PanelServer:
                 "last_block": h.get("last_block") or "",
             }
         browser = m.browser
+        retailer_rows = [
+            {"name": n, "display": r.display, "status": rstatus.get(n, "Waiting for first check"),
+             "fetch_mode": r.fetch_mode, "using_browser": r.using_browser(), **health(n)}
+            for n, r in m.retailers.items()
+        ]
+        cmp_rows = getattr(m, "compare", None).rows() if getattr(m, "compare", None) else []
+        trk_rows = m.tracker.rows() if m.tracker else []
+        trust = {
+            "stores": trust_build(retailer_rows, cmp_rows, trk_rows, store_domains, m.cfg.retailer_cfg),
+            "feeds": missing_feeds(m.cfg.retailer_cfg, set(m.retailers)),
+        }
         return {
             "running": m.running,
             "paused": bool(m.cfg.settings.get("alerts_paused")),
             "now": time.time(),
             "version": app_version(),
             "version_label": version_label(),
-            "retailers": [
-                {"name": n, "display": r.display, "status": rstatus.get(n, "Waiting for first check"),
-                 "fetch_mode": r.fetch_mode, "using_browser": r.using_browser(), **health(n)}
-                for n, r in m.retailers.items()
-            ],
+            "retailers": retailer_rows,
+            "trust": trust,
             "human_checks": list(m.human_checks.values()),
             "browser": {
                 "installed": playwright_installed(),
                 "running": bool(browser and browser.thread and browser.thread.is_alive()),
                 "problem": (browser.failed if browser else "") or "",
             },
-            "sessions": {"rows": m.tracker.rows() if m.tracker else [],
+            "sessions": {"rows": trk_rows,
                          "profiles": browser.names() if browser else [],
-                         "resting": browser.resting() if browser else []},
+                         "resting": browser.resting() if browser else [],
+                         "compare": cmp_rows,
+                         "features": getattr(m, "trial", None).rows() if getattr(m, "trial", None) else []},
+            "trials": m.trials.snapshot() if m.trials else None,
             "history_total": len(m.history.events),
             "areas": [{"name": a.name, "zip": a.zip, "radius": a.radius, "lat": a.lat, "lon": a.lon,
                        "place": zip_place(a.zip)} for a in m.cfg.areas],
@@ -272,6 +301,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(200, html.encode(), "text/html; charset=utf-8")
         if not self._authed():
             return self._json(401, {"error": "PIN required"})
+        if path == "/api/scan":
+            return self._json(200, self.panel.monitor.scan.snapshot())
         if path == "/api/status":
             return self._json(200, self.panel.status())
         if path == "/api/config":
@@ -319,6 +350,18 @@ class _Handler(BaseHTTPRequestHandler):
                     m.show_browser()
                 elif action == "refresh_places":
                     threading.Thread(target=_safe(m, m.refresh_places), daemon=True).start()
+                elif action == "scan_start":
+                    ok, msg = m.scan.start(body.get("zip"), body.get("radius"), body.get("stores"),
+                                           bool(body.get("online")), bool(body.get("everything")))
+                    return self._json(200, {"ok": ok, "message": msg})
+                elif action == "trial_toggle":
+                    ok, msg = m.trials.set_active(str(body.get("key")), bool(body.get("on")))
+                    return self._json(200, {"ok": ok, "message": msg})
+                elif action == "trial_bulk":
+                    ok, msg = m.trials.keep_best(3) if body.get("mode") == "best" else m.trials.all_off()
+                    return self._json(200, {"ok": ok, "message": msg})
+                elif action == "scan_cancel":
+                    m.scan.cancel()
                 elif action == "rediscover":
                     m.rediscover()
                 elif action == "exclude_store":

@@ -24,9 +24,14 @@ from .notify import DiscordNotifier, Toaster
 from .retailers import REGISTRY, route_url
 from .retailers.base import Blocked, Retailer
 from .retailers.blocks import BlockInfo
-from .retailers.base import set_tracker
+from .compare import SideBySide
+from .features import FeatureTrial
+from .retailers.base import set_tracker, set_trials
 from .retailers.browser import BrowserPool
 from .sessions import BlockTracker
+from .scan import ZipScan
+from .history_store import StoreHistory
+from .trials import TrialPlan
 from .rules import allow_kind, decide
 from .state import StateStore
 from .tcg import classify, type_settings
@@ -74,18 +79,23 @@ class Monitor:
         self.activity: deque = deque(maxlen=300)
         self.retailer_status: dict[str, str] = {}
         self.health: dict[str, dict] = {}
+        self._close_lock = threading.Lock()
+        self._closed = False
         self.human_checks: dict[str, dict] = {}
         self._pacing_lock = threading.Lock()
         self.browser: BrowserPool | None = None
         self.tracker: BlockTracker | None = None
+        self.trials: TrialPlan | None = None
         self.queue_state: dict[str, dict] = {}
         self._confirms_left = MAX_CONFIRMS_PER_CYCLE
         self._from_upc: set[str] = set()
+        self.scan = ZipScan(self)      # the by-hand ZIP stock scan
         self.load()
 
     # ---- setup ----------------------------------------------------------------
     def load(self) -> None:
         self.cfg: Config = load_config(self.config_path)
+        self.store_history = StoreHistory(self.cfg.data_dir)
         self.log = make_logger(self.cfg.data_dir, self.console)
         with self.snap_lock:
             self.retailer_status.clear()
@@ -102,6 +112,11 @@ class Monitor:
         if self.tracker is None:
             self.tracker = BlockTracker(self.cfg.data_dir)
             set_tracker(self.tracker)
+        if self.trials is None:
+            self.trials = TrialPlan(self.cfg.raw, self.cfg.data_dir, self.log, self.tracker)
+            set_trials(self.trials)
+        else:
+            self.trials.attach(self.cfg.raw)
         if self.browser is None:
             # The checking browsers (one per profile) are kept across settings reloads.
             # Each only launches the first time a site actually needs it.
@@ -111,6 +126,14 @@ class Monitor:
             self.browser.on_reopen = self._browser_reopened
         else:
             self.browser.raw = self.cfg.raw
+        if getattr(self, "compare", None) is None:
+            self.compare = SideBySide(self.cfg.data_dir, self.log, self.browser)
+        else:
+            self.compare.browser = self.browser
+        self.browser.prefer = self.compare.rates
+        if getattr(self, "trial", None) is None:
+            self.trial = FeatureTrial(self.cfg.data_dir, lambda: self.cfg.raw)
+        self.browser.trial = self.trial
         self.retailers: dict[str, Retailer] = {
             name: REGISTRY[name](self.cfg, self.log, self.browser) for name in self.cfg.enabled_retailers()
         }
@@ -254,12 +277,22 @@ class Monitor:
             self.info("The checking browser is off or not installed, so there is nothing to sign in to.")
 
     def close(self) -> None:
-        """Stop everything, including the browser. Call when the app exits."""
+        """Stop everything, including every browser window the app opened or joined. Call when the app
+        exits. Safe to call more than once."""
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+        self.store_history.save()
+        if self.browser:
+            self.browser.stopping = True            # no new browsers join while the app is closing
         self.stop()
         if self.browser:
             self.browser.stop()
         if self.tracker:
             self.tracker.save()
+        if getattr(self, "trial", None):
+            self.trial.save()
 
     # ---- lifecycle --------------------------------------------------------------
     @property
@@ -342,8 +375,10 @@ class Monitor:
 
     def _health(self, name: str) -> dict:
         if name not in self.health:
-            self.health[name] = {"recent": deque(maxlen=40), "slow": self._saved_slow(name), "blocks": 0,
-                                 "last_block": "", "last_ok": 0.0, "mode": ""}
+            hist = self.store_history
+            last, _t = hist.last_problem(name)
+            self.health[name] = {"recent": deque(hist.recent(name), maxlen=40), "slow": self._saved_slow(name), "blocks": 0,
+                                 "last_block": last, "last_ok": hist.last_ok(name), "mode": ""}
         return self.health[name]
 
     # A store that pushed back stays slowed after a restart, easing off with time, so
@@ -385,6 +420,8 @@ class Monitor:
         if r.using_browser():
             floor = max(floor, float((self.cfg.raw.get("browser") or {}).get("min_interval_seconds") or 120))
         interval = max(interval, floor)
+        if r.using_browser() and self.trials:
+            interval *= self.trials.interval_factor(r.name)   # the half-pace trial method
         jitter = random.uniform(0, float(self.cfg.raw.get("jitter_seconds") or 0))
         notes = [why] if why else []
         if h["slow"] > 1.05:
@@ -404,6 +441,7 @@ class Monitor:
                 count = self.run_cycle(r)
                 backoff = 0.0
                 h["recent"].append(1)
+                self.store_history.record(name, True)
                 h["slow"] = max(1.0, h["slow"] * 0.8)   # ease back toward normal speed
                 h["last_ok"] = time.time()
                 h["mode"] = "browser" if r.last_via == "browser" else "direct"
@@ -414,6 +452,7 @@ class Monitor:
                     status = "Waiting for you to verify in the browser"
                 else:
                     h["recent"].append(0)
+                    self.store_history.record(name, False, str(exc))
                     h["blocks"] += 1
                     h["last_block"] = str(exc)
                     h["slow"] = min(MAX_SLOWDOWN, h["slow"] * 2)  # back off harder each time
@@ -428,10 +467,12 @@ class Monitor:
                 self.log.error("%s cycle failed: %s", name, traceback.format_exc())
                 self.emit("log", f"{r.display}: error {exc}")
                 h["recent"].append(0)
+                self.store_history.record(name, False, f"error: {str(exc)[:80]}")
                 status = f"Error: {str(exc)[:60]}"
                 backoff = 60
             self.state.save()
             self._save_pacing()
+            self.store_history.save()
             delay, notes = self._next_delay(r, h, time.time() - started)
             if backoff:
                 delay = backoff
@@ -537,6 +578,10 @@ class Monitor:
         results = r.check_ids(ids, in_store) if ids else {}
         for res in results.values():
             self.localize(res)
+        if results and getattr(self, "compare", None):
+            sample = next((x.url for x in results.values() if x.url and x.url.startswith("http")), "")
+            if sample and r.name not in ("target", "bestbuy", "kroger"):    # these use official or JSON calls, not pages
+                self.compare.maybe_run(r.name, sample)
         return results
 
     def _discover(self, r: Retailer, d: dict) -> None:
@@ -757,7 +802,7 @@ class Monitor:
         return bool(d.get("places", True)) and bool(self.cfg.areas) and self.places.stale(self.cfg.areas)
 
     def refresh_places(self) -> int:
-        sources = [r.stores_near for name, r in self.retailers.items() if name in ("target", "bestbuy", "kroger")]
+        sources = [r.stores_near for name, r in self.retailers.items() if name in ("target", "bestbuy", "kroger", "walgreens")]
         n = self.places.refresh(self.cfg.areas, sources)
         self.info(f"Found {n} stores near your areas"
                   + (f" (some sources failed: {self.places.last_error})" if self.places.last_error else ""))

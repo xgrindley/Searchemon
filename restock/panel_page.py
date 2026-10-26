@@ -142,7 +142,20 @@ input:focus, textarea:focus, select:focus { border-color: var(--act); outline: n
 .setting:first-child { border-radius: var(--r-m) var(--r-m) 0 0; }
 .setting:last-child { border-radius: 0 0 var(--r-m) var(--r-m); }
 .setting .t b { display: block; font-weight: 600; }
-.setting .t span { font-size: 13px; color: var(--muted); }
+.setting .t span { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); }
+.mc-row { display: grid; grid-template-columns: minmax(0,1.6fr) repeat(3, minmax(70px,.5fr)) auto; gap: 12px; align-items: center; padding: 12px 16px; background: var(--raised); }
+.mc-row + .mc-row { margin-top: 2px; }
+.mc-row .n { font-weight: 600; font-variant-numeric: tabular-nums; }
+.mc-row .k { display: block; font-size: 12px; color: var(--muted); }
+.mc-row .nm b { display: block; }
+.mc-row .nm span { display: block; font-size: 13px; color: var(--muted); }
+.mc-row.off { opacity: .8; }
+.mc-bar { height: 6px; border-radius: 99px; background: var(--line-soft); overflow: hidden; margin-top: 4px; }
+.mc-bar i { display: block; height: 100%; background: var(--ok-strong); }
+.mc-bar i.warn { background: var(--warn); }
+.mc-bar i.bad { background: var(--bad); }
+.mc-tools { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+@media (max-width: 760px) { .mc-row { grid-template-columns: 1fr 1fr; } }
 .setting input[type=number] { width: 110px; }
 .rules td { padding: 6px 8px; border-bottom: 1px solid var(--line-soft); }
 .rules { width: 100%; border-collapse: collapse; background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-m); }
@@ -297,6 +310,7 @@ table.matrix td.none { color: var(--faint); }
     <div class="brand"><span>Searchemon<small id="hostline">Running on this PC</small><small id="verline"></small></span></div>
     <div class="navlabel">Monitor</div>
     <button data-tab="dash" aria-current="page">Dashboard</button>
+    <button data-tab="scan">Find stock near a ZIP</button>
     <button data-tab="found">Found products <span class="count" id="c-found"></span></button>
     <button data-tab="places">Stores near you <span class="count" id="c-places"></span></button>
     <button data-tab="times">Restock times</button>
@@ -442,6 +456,144 @@ function picks(obj, key, options) {
 const field = (label, input, hint, wide) => h("label", { class: "f" + (wide ? " wide" : "") }, h("span", { class: "l", text: label }), input, hint ? h("span", { text: hint }) : null);
 function setting(title, desc, control) { return h("div", { class: "setting" }, h("div", { class: "t" }, h("b", { text: title }), desc ? h("span", { text: desc }) : null), control); }
 function move(arr, i, d) { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; touch(); render(); }
+
+
+async function trialAct(body, okMsg) {
+  try {
+    const r = await api("/api/action", body);
+    toast(r.message || okMsg || "Done", r.ok === false);
+    await poll();
+  } catch (e) { toast(e.message, true); }
+}
+
+function methodControl(tri, rows) {
+  const arms = (tri.arms || []).filter((a) => !a.control);
+  const by = {};
+  rows.forEach((r) => { const m = by[r.method] = by[r.method] || { checks: 0, blocks: 0 }; m.checks += r.checks; m.blocks += r.blocks; });
+  const stopped = arms.filter((a) => a.stopped);
+  const onCount = arms.filter((a) => a.on).length;
+  const ruleText = "A method that is on is switched off by itself once it has had more than " + tri.stop_after + " attempts and " + tri.stop_fail_pct + "% or more of them failed or were blocked.";
+  const when = (t) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const kindText = { off: "switched off by you", on: "switched on by you", auto_stop: "stopped automatically" };
+  return [
+    h("h2", { text: "Method control" }),
+    h("p", { class: "lede", text: "Turn trial methods on or off here. Changes take effect at once and are remembered, so after a restart everything is as you left it. " + (tri.auto_stop ? ruleText : "Automatic stopping is off.") }),
+    stopped.length ? h("div", { class: "banner", style: "display:flex" }, h("span", { text:
+      "Stopped automatically: " + stopped.map((a) => a.label + " (" + a.stopped.fails + " of " + a.stopped.attempts + " failed or blocked)").join("; ") + ". Switch one back on to give it a fresh count." })) : null,
+    h("div", { class: "mc-tools" },
+      h("button", { class: "btn primary", type: "button", text: "Keep only the best 3", onclick: () => trialAct({ action: "trial_bulk", mode: "best" }) }),
+      h("button", { class: "btn", type: "button", text: "Turn off all trials", onclick: () => trialAct({ action: "trial_bulk", mode: "off" }) }),
+      h("span", { class: "hint", text: onCount + " of " + arms.length + " trial methods on. The best are ranked by how rarely they fail (at least 10 checks)." })),
+    h("div", { class: "panel", style: "overflow:hidden" }, arms.map((a) => {
+      const m = by[a.key] || { checks: 0, blocks: 0 };
+      const pct = m.checks ? Math.round(100 * m.blocks / m.checks) : null;
+      const prog = Math.min(100, Math.round(100 * a.attempts / Math.max(1, tri.stop_after + 1)));
+      const failPct = a.attempts ? Math.round(100 * a.fails / a.attempts) : 0;
+      const state = a.unavailable ? "Cannot run yet" : a.stopped ? "Stopped automatically" : a.on ? "On" : "Off";
+      return h("div", { class: "mc-row" + (a.on ? "" : " off") },
+        h("div", { class: "nm" },
+          h("b", {}, a.label, a.best ? h("span", { class: "badge live", style: "display:inline-block;margin-left:8px", text: "Best so far" }) : null),
+          h("span", { text: state + (a.on ? " | " + (a.family === "browser" ? "browser stores" : "plain-request stores") : "") }),
+          a.unavailable ? h("span", { style: "color:var(--warn)", text: a.unavailable }) : null,
+          a.stopped ? h("span", { style: "color:var(--warn)", text: "Stopped " + when(a.stopped.at) + ": " + a.stopped.fails + " of " + a.stopped.attempts + " failed or blocked (" + a.stopped.pct + "%)" }) : null),
+        h("div", {}, h("span", { class: "n", text: m.checks }), h("span", { class: "k", text: "checks in all" })),
+        h("div", {}, h("span", { class: "n", text: pct === null ? "n/a" : pct + "%" }), h("span", { class: "k", text: "blocked in all" })),
+        h("div", {}, h("span", { class: "n", text: a.attempts + " (" + failPct + "% failed)" }),
+          h("span", { class: "k", text: "since switched on" }),
+          h("div", { class: "mc-bar" }, h("i", { class: failPct >= tri.stop_fail_pct && a.attempts > 5 ? "bad" : failPct >= tri.stop_fail_pct / 2 ? "warn" : "", style: "width:" + prog + "%" }))),
+        h("button", { class: "btn" + (a.on ? "" : " primary"), type: "button", text: a.on ? "Turn off" : "Turn on",
+          "aria-label": (a.on ? "Turn off " : "Turn on ") + a.label, onclick: () => trialAct({ action: "trial_toggle", key: a.key, on: !a.on }) }));
+    })),
+    h("h3", { text: "What happened" }),
+    (tri.events || []).length ? h("div", { class: "panel" }, h("ul", { class: "feed" }, tri.events.slice().reverse().map((e) => {
+      const arm = arms.find((a) => a.key === e.arm);
+      return h("li", {}, h("b", { text: (arm ? arm.label : e.arm) }), " " + (kindText[e.kind] || e.kind) + " on " + when(e.t) + (e.kind === "auto_stop" && e.detail ? ": " + e.detail : ""));
+    }))) : h("div", { class: "panel empty", text: "Nothing has been switched off automatically, and no buttons have been used yet." }),
+  ];
+}
+
+function trialPanel(tri) {
+  cfg.trials = cfg.trials || {};
+  cfg.trials.active = cfg.trials.active || [];
+  const t = cfg.trials;
+  const where = {};
+  Object.entries(tri.current || {}).forEach(([store, arm]) => { (where[arm] = where[arm] || []).push(store); });
+  const resting = {};
+  (tri.resting || []).forEach((r) => { (resting[r.arm] = resting[r.arm] || []).push(r.store + " (" + r.minutes + " min)"); });
+  const rows = (tri.arms || []).map((a) => h("div", { class: "setting" },
+    h("div", { class: "t" },
+      h("b", { text: a.label + (a.control ? " (normal method, always in the rotation)" : "") }),
+      h("span", { text: a.idea }),
+      h("span", { text: "Idea from: " + a.source }),
+      a.unavailable ? h("span", { style: "color:var(--warn)", text: "Cannot run yet: " + a.unavailable }) : null,
+      where[a.key] ? h("span", { text: "In use now at: " + where[a.key].join(", ") }) : null,
+      resting[a.key] ? h("span", { style: "color:var(--warn)", text: "Resting after a block at: " + resting[a.key].join(", ") }) : null),
+    h("span", { class: "badge" + (a.on ? " live" : ""), text: a.control ? (a.family === "browser" ? "browser stores" : "plain-request stores") : (a.on ? "On" : "Off") })));
+  return h("div", {},
+    h("div", { class: "settings-list" },
+      setting("Run trials", "Off keeps every store on its normal method only.", sw(t, "enabled", "")),
+      setting("Checks per turn", "How many checks a method gets before the next one takes over.",
+        h("input", { type: "number", min: "5", max: "200", value: String(t.slice_checks || 20), "aria-label": "Checks per turn",
+          oninput: (e) => { t.slice_checks = Math.max(5, Number(e.target.value) || 20); touch(); } })),
+      setting("Stop failing methods by themselves", "Switch a method off once it has failed or been blocked too often.", sw(t, "auto_stop", "")),
+      setting("Stop after more than (attempts)", "A method is only judged after this many attempts since it was switched on.",
+        h("input", { type: "number", min: "5", max: "500", value: String(t.stop_after || 25), "aria-label": "Attempts before judging",
+          oninput: (e) => { t.stop_after = Math.max(5, Number(e.target.value) || 25); touch(); } })),
+      setting("Stop at this failure rate (%)", "Failed or blocked attempts as a share of all attempts.",
+        h("input", { type: "number", min: "10", max: "100", value: String(t.stop_fail_pct || 50), "aria-label": "Failure percent",
+          oninput: (e) => { t.stop_fail_pct = Math.min(100, Math.max(10, Number(e.target.value) || 50)); touch(); } }))),
+    h("div", { class: "settings-list", style: "margin-top:12px" }, rows),
+    h("p", { class: "hint", text: "These settings apply after you save. The on and off buttons are in Method control, under the trust table. A full trace of every switch, block and automatic stop is kept in data\\trial-log.jsonl." }));
+}
+
+
+/* ---------- find stock near a ZIP (started by hand) ---------- */
+const scanState = Object.assign({ zip: "", radius: 15, online: false, stores: null, everything: true }, store.get("restock-scan", {}));
+let scanData = null, scanTimer = null;
+function saveScan() { store.set("restock-scan", { zip: scanState.zip, radius: scanState.radius, online: scanState.online, stores: scanState.stores, everything: scanState.everything }); }
+async function scanLoad() {
+  clearTimeout(scanTimer); scanTimer = null;
+  try { scanData = await api("/api/scan"); } catch (e) { return; }
+  if (tab === "scan") drawScan();
+  if (scanData && scanData.running && tab === "scan") scanTimer = setTimeout(scanLoad, 2000);
+}
+async function scanStart() {
+  try {
+    const r = await api("/api/action", { action: "scan_start", zip: scanState.zip, radius: scanState.radius, online: scanState.online, everything: scanState.everything,
+      stores: scanState.stores || (scanData && scanData.available) || undefined });
+    if (!r.ok) { toast(r.message, true); return; }
+    toast("Scanning near " + scanState.zip);
+    scanLoad();
+  } catch (e) { toast(e.message, true); }
+}
+async function scanCancel() { try { await api("/api/action", { action: "scan_cancel" }); toast("Stopping the scan"); } catch (e) { toast(e.message, true); } }
+function drawScan() {
+  const out = $("scan-out"), d = scanData;
+  if (!out) return;
+  const btn = $("scan-go");
+  if (btn) { btn.disabled = !!(d && d.running) || scanState.zip.length !== 5; btn.textContent = d && d.running ? "Scanning..." : "Scan now"; }
+  const stop = $("scan-stop"); if (stop) stop.style.display = d && d.running ? "" : "none";
+  if (!d || !d.state) { out.replaceChildren(h("div", { class: "panel empty", text: "Nothing scanned yet. Enter a ZIP, set a radius and press Scan now." })); return; }
+  const stores = Object.entries(d.stores || {});
+  const rows = d.rows || [];
+  const sites = new Set(rows.filter((r) => !r.online).map((r) => r.retailer + ":" + r.store));
+  const dot = { ok: "var(--ok)", bad: "var(--warn)", run: "var(--muted)", wait: "var(--faint)", skip: "var(--faint)", none: "var(--faint)" };
+  const head = h("p", { class: "lede", text: (d.running ? "Scanning " : d.state === "cancelled" ? "Stopped. Partial results for " : "Results for ") + d.zip
+    + (d.place ? " (" + d.place + ")" : "") + " within " + d.radius + " miles: " + sites.size + " store" + (sites.size === 1 ? "" : "s") + " with stock so far." });
+  const prog = h("div", { class: "panel", style: "overflow:hidden" }, stores.map(([k, v]) => h("div", { class: "mrow" },
+    h("div", { class: "top" }, h("b", { text: v.name }), h("span", { style: "color:" + (dot[v.state] || "var(--muted)"), text: v.status }))))) ;
+  const table = rows.length ? h("div", { class: "table-wrap" }, h("table", { class: "stock" },
+    h("tr", {}, ["Distance", "Store", "Product", "Stock", "Price", ""].map((t) => h("th", { text: t }))),
+    rows.map((r) => h("tr", {},
+      h("td", { text: r.distance === null ? "Online" : r.distance.toFixed(1) + " mi" }),
+      h("td", {}, h("b", { text: r.retailer_name }), " ", r.store === "Online" ? "" : r.store, r.address ? h("div", { class: "hint", text: r.address }) : null),
+      h("td", { text: r.product }),
+      h("td", { text: r.stock + (r.pickup ? ", pickup" : "") }),
+      h("td", { text: money(r.price) + (r.over_msrp ? " (over MSRP)" : "") }),
+      h("td", {}, r.url ? extLink(r.url, "Open") : null))))) :
+    h("div", { class: "panel empty", text: d.running ? "Nothing found yet..." : "No stores in range have these products in stock right now." });
+  out.replaceChildren(head, prog, h("h2", { text: "Stores with stock, nearest first" }), table);
+}
 
 /* ---------- views ---------- */
 const views = {
@@ -659,6 +811,40 @@ const views = {
     ];
   },
 
+  scan() {
+    setTimeout(scanLoad, 0);
+    const avail = (scanData && scanData.available) || ["target", "bestbuy", "kroger", "gamestop", "cvs"];
+    const names = (scanData && scanData.names) || { target: "Target", bestbuy: "Best Buy", kroger: "Kroger family", gamestop: "GameStop", cvs: "CVS" };
+    scanState.stores = (scanState.stores || avail).filter((x) => avail.includes(x));
+    const zip = h("input", { type: "text", inputmode: "numeric", maxlength: "5", placeholder: "ZIP code", "aria-label": "ZIP code", value: scanState.zip,
+      oninput: (e) => { scanState.zip = e.target.value.replace(/\D/g, "").slice(0, 5); e.target.value = scanState.zip; saveScan(); drawScan(); },
+      onkeydown: (e) => { if (e.key === "Enter" && scanState.zip.length === 5) scanStart(); } });
+    const radVal = h("span", { class: "radius-val", text: scanState.radius + " mi" });
+    const rad = h("input", { type: "range", min: "1", max: "100", step: "1", value: String(scanState.radius), "aria-label": "Search radius in miles",
+      oninput: (e) => { scanState.radius = Number(e.target.value); radVal.textContent = scanState.radius + " mi"; saveScan(); } });
+    const chips = h("div", { class: "checks" }, avail.map((k) => h("label", { class: "chip" },
+      h("input", { type: "checkbox", checked: scanState.stores.includes(k), onchange: (e) => {
+        scanState.stores = e.target.checked ? [...new Set([...scanState.stores, k])] : scanState.stores.filter((x) => x !== k); saveScan(); } }), names[k] || k)));
+    const all = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: scanState.everything, onchange: (e) => { scanState.everything = e.target.checked; saveScan(); drawScan(); } }),
+      "Search every product at every store that is on");
+    const onl = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: scanState.online, onchange: (e) => { scanState.online = e.target.checked; saveScan(); } }), "Also list online stock");
+    return [
+      h("h1", { text: "Find stock near a ZIP" }),
+      h("p", { class: "lede", text: "Type a ZIP, choose how far to look, and press Scan now. The app asks each store that shares shelf stock which of its stores nearby have your products. It only runs when you press the button, sends no Discord alerts, and does not change your areas." }),
+      h("div", { class: "zipbar on" }, h("b", { text: "Near" }), zip, h("span", { text: "within" }), rad, radVal),
+      h("div", { class: "card" }, h("div", { class: "card-body" }, h("div", { class: "wide" }, all,
+        h("p", { style: "margin:8px 0 6px", class: "hint", text: scanState.everything
+          ? "On: asks every store you have switched on, and searches each store's own catalog for Pokemon products right now, so you do not need to add links first. Product types you turned alerts off for are skipped."
+          : "Off: only the stores ticked below, and only My products plus what discovery already found." }),
+        scanState.everything ? null : [h("p", { style: "margin:0 0 6px", class: "hint", text: "Stores to ask" }), chips],
+        h("div", { style: "margin-top:8px" }, onl)))),
+      h("p", {}, h("button", { class: "btn primary", id: "scan-go", type: "button", text: "Scan now", disabled: scanState.zip.length !== 5, onclick: scanStart }),
+        " ", h("button", { class: "btn quiet", id: "scan-stop", type: "button", text: "Stop", style: "display:none", onclick: scanCancel })),
+      h("div", { id: "scan-out" }),
+      h("p", { class: "hint", text: "With the switch on, up to 150 products per store are checked (a store with no search uses what discovery already found); with it off, up to 30. Walmart and the other sites do not share shelf stock, so they are not part of this scan." }),
+    ];
+  },
+
   methods() {
     const ses = (status && status.sessions) || { rows: [], profiles: [], resting: [] };
     const rows = ses.rows || [];
@@ -667,7 +853,10 @@ const views = {
       m.checks += r.checks; m.blocks += r.blocks; m.streak += r.streak; m.best = Math.max(m.best, r.best); });
     const methods = Object.values(by).map((m) => Object.assign(m, { per: m.blocks ? m.checks / m.blocks : null }))
       .sort((a, b) => (b.per === null ? 1e9 + b.checks : b.per) - (a.per === null ? 1e9 + a.checks : a.per));
-    const label = (m) => m === "direct" ? "Plain requests" : m === "pool" ? "Browser pool" : "Browser: " + m;
+    const tri = (status && status.trials) || { arms: [], current: {}, resting: [], enabled: false, slice_checks: 20 };
+    const armName = {};
+    (tri.arms || []).forEach((a) => { armName[a.key] = a.label; });
+    const label = (m) => armName[m] || (m === "direct" ? "Plain requests" : m === "pool" ? "Browser pool" : m.endsWith("+page") ? "Page fetch: " + m.slice(0, -5) : "Browser: " + m);
     const totalChecks = methods.reduce((t, m) => t + m.checks, 0), totalBlocks = methods.reduce((t, m) => t + m.blocks, 0);
     const top = methods.find((m) => m.checks >= 5) || methods[0];
     const maxPer = Math.max(1, ...methods.map((m) => m.per === null ? m.checks : m.per));
@@ -686,6 +875,8 @@ const views = {
     return [
       h("h1", {}, "Methods ", h("b", { text: "lab" })),
       h("p", { class: "lede", text: "Which way of loading pages lasts longest before a store blocks it. Counts are saved between runs, so the picture gets sharper over time." }),
+      trustReport((status && status.trust) || { stores: [], feeds: [] }),
+      methodControl(tri, rows),
       methods.length ? [
         h("div", { class: "hero" },
           h("div", { class: "big" }, h("div", { class: "k", text: "Lasting longest so far" }), h("div", { class: "v grad", text: label(top.method) }),
@@ -708,9 +899,33 @@ const views = {
       ] : h("div", { class: "panel empty", text: "No checks recorded yet. Numbers appear once the monitor has run for a few minutes." }),
       (ses.resting || []).length ? [h("h2", { text: "Resting right now" }), h("div", { class: "panel" }, h("ul", { class: "feed" },
         ses.resting.map((r) => h("li", {}, h("b", { text: r.profile }), " on " + r.site + ": back in about " + (r.minutes >= 90 ? Math.round(r.minutes / 60) + " h" : r.minutes + " min")))))] : null,
+      (ses.compare || []).length ? sideBySide(ses.compare, label) : h("div", { class: "panel empty", text: "Side-by-side test: no runs yet. It loads one page per store through every method at once, every 15 minutes by default (Stores & keys, Side-by-side test)." }),
+      featureTable(ses.features || []),
+      h("h2", { text: "Methods to compare" }),
+      h("div", { class: "panel", style: "overflow:hidden" }, [
+        { id: "direct", name: "Plain requests", pick: (m) => m === "direct", idea: "The baseline",
+          text: "Ordinary web requests at a polite pace. Fast and light, but stores with bot protection often refuse them." },
+        { id: "profiles", name: "App browser profiles (Edge, Chrome)", pick: (m) => m !== "direct" && m !== "pool" && !m.startsWith("my-") && !m.endsWith("+page"), idea: "Real-browser idea from SeleniumBase, without its stealth modes",
+          text: "A real browser with its own cookies, kept off screen. Several profiles share the load and a blocked one rests." },
+        { id: "my-chrome", name: "Your own Chrome", pick: (m) => m === "my-chrome", idea: "DevTools control of a real Chrome (SeleniumBase CDP mode idea)",
+          text: "The Chrome you start with start-my-chrome.ps1. A normal browser with your own profile, tried first at CVS, Dick's and GameStop." },
+        { id: "my-edge", name: "Your own Edge", pick: (m) => m === "my-edge", idea: "Same idea as your own Chrome, a second real browser",
+          text: "Start it with start-my-edge.ps1. Some stores accept Edge when they refuse Chrome, or the other way round. This shows which." },
+        { id: "page", name: "Page fetch", pick: (m) => m.endsWith("+page"), idea: "Page-context calls (SeleniumBase CDP mode idea)",
+          text: "When a plain data request is refused, the same call is made from inside the store's own page in a real browser, the way the store's own scripts do it. CVS store counts use it already." },
+      ].map((c) => {
+        const mine = methods.filter((m) => c.pick(m.method)), checks = mine.reduce((t, m) => t + m.checks, 0), blocks = mine.reduce((t, m) => t + m.blocks, 0);
+        const state = !checks ? "Not tried yet" : checks + " checks, " + (blocks ? blocks + " blocked (1 per " + Math.round(checks / blocks) + ")" : "never blocked");
+        return h("div", { class: "mrow" },
+          h("div", { class: "top" }, h("b", { text: c.name }), h("span", { text: state })),
+          h("div", { class: "sub2", text: c.text }), h("div", { class: "sub2", text: "Idea from: " + c.idea }));
+      })),
+      h("h2", { text: "About the trial methods" }),
+      h("p", { class: "lede", text: "Extra ways of loading pages, tried one at a time so each can be traced. For every store only one method runs at once: each gets a slice of " + tri.slice_checks + " checks, the normal method takes its turns too for a fair comparison, and a method a store blocks sits out for a while. Results land in the tables above." }),
+      trialPanel(tri),
       h("h2", { text: "Profiles and tests" }),
       h("div", { class: "card" }, h("div", { class: "card-body" }, h("div", { class: "wide" },
-        h("p", { style: "margin:0 0 8px", text: "Active browser profiles: " + ((ses.profiles || []).join(", ") || "none") + ". Add or change them in config.yaml under browser: profiles, then restart the app." }),
+        h("p", { style: "margin:0 0 8px", text: "Active browser profiles: " + ((ses.profiles || []).join(", ") || "none") + ". Add or change them in config.yaml under browser: profiles, then restart the app. Your own Chrome (start-my-chrome.ps1) and Edge (start-my-edge.ps1) join by themselves while they are running." }),
         h("p", { style: "margin:0 0 6px", class: "hint", text: "For a side-by-side test of every method on the same pages, run this in PowerShell from the app folder:" }),
         h("code", { text: ".\\.venv\\Scripts\\python.exe app.py --abtest" })))),
     ];
@@ -838,7 +1053,12 @@ const views = {
         field("Stores to check", num(r, "max_stores"), "Nearest stores in your areas. 5 fits the free daily limit."),
         field("Only these store IDs", lines(r, "store_ids", { placeholder: "Optional, one per line" }))],
         "Kroger, Fred Meyer, Smith's and other Kroger stores: stock level per store"),
-      block("walmart", modeField, "Online, plus pickup at the store set in the checking browser"),
+      block("walmart", (r) => [modeField(r),
+        field("Walmart.io Consumer ID", text(r, "consumer_id", { placeholder: "From your app on walmart.io" }), "Optional. With the key file below, stock comes from Walmart's own feed instead of its website."),
+        field("Private key file", text(r, "private_key_file", { placeholder: "C:\\Users\\you\\walmart\\private.pem" }), "Full path to the .pem private key you made for Walmart.io. It stays on this PC."),
+        field("Key version", text(r, "key_version", { placeholder: "1" }), "Shown next to your uploaded public key on walmart.io, usually 1."),
+        field("Publisher ID (optional)", text(r, "publisher_id", { placeholder: "Impact publisher ID" }))],
+        "Online, plus pickup at the store set in the checking browser. Add Walmart.io details for the official feed"),
       block("pokemoncenter", (r) => [modeField(r), h("div", { class: "wide" }, sw(r, "watch_queue", "Watch the Pokemon Center queue (usually opens minutes before a drop)"))], "Online drops and the waiting-room queue"),
       block("dicks", modeField, "Online, found automatically from its Pokemon section"),
       block("safeway", modeField, "Online, for the store set in the checking browser"),
@@ -849,7 +1069,9 @@ const views = {
       block("barnesandnoble", modeField, "Online, from product links"),
       block("booksamillion", modeField, "Online, from product links"),
       block("amazon", modeField, "Online, sold by Amazon only"),
-      block("walgreens", modeField, "Online listings from your product links"),
+      block("walgreens", (r) => [modeField(r),
+        field("API key (optional)", secret(r, "api_key", "From developer.walgreens.com"), "Adds exact Walgreens stores to Stores near you. Walgreens' API has no stock data, so stock still comes from product pages.")],
+        "Online listings from your product links; store locations with a key"),
       block("cvs", modeField, "Online listings from your product links, plus shelf counts at stores around your areas (own Chrome)"),
       block("web", (r) => [modeField(r),
         field("Page says in stock when it shows", lines(r, "in_stock_text", { placeholder: "add to cart" }), "Only used on pages without built-in stock data"),
@@ -873,7 +1095,10 @@ const views = {
         setting("Keep the window out of the way", "It moves on screen only when a store needs you.", sw(br, "show_window", "", true)),
         setting("Ask me to verify", "Bring the window forward when a store wants a person to finish a check.", sw(br, "ask_me_to_verify", "")),
         setting("Slowest pace for browser checks (seconds)", "Browser checks load whole pages, so go easy.", num(br, "min_interval_seconds")),
-        setting("Tabs per store", "Pages of one store rotate through this many tabs (1 to 6) instead of reloading a single tab.", num(br, "tabs_per_site", { min: "1", max: "6" }))),
+        setting("Tabs per store", "Pages of one store rotate through this many tabs (1 to 6) instead of reloading a single tab.", num(br, "tabs_per_site", { min: "1", max: "6" })),
+        setting("Close my Chrome and Edge with the app", "When the app closes, the Chrome and Edge started by start-my-chrome and start-my-edge close too. Your sign-ins are kept for next time.", sw(br, "close_own_on_exit", "")),
+        setting("Feature trial", "Run about half of the checks without learned routing and tab rotation so Methods lab can show whether they help.", sw(br, "feature_trial", "")),
+        setting("Side-by-side test (minutes, 0 = off)", "Every this many minutes, per store, one page loads through every method at once so Methods lab can compare them fairly.", num(br, "compare_every_minutes", { min: "0", max: "240" }))),
       h("p", { class: "hint", text: "Browser changes take effect after restarting the app." }),
       h("h2", { text: "Phone access" }),
       h("div", { class: "settings-list" },
@@ -897,6 +1122,58 @@ function notifyCfg() { cfg.notify = cfg.notify || {}; const n = cfg.notify;
   for (const [k, v] of Object.entries({ online: true, in_store: true, pickup_only: false, new_listings: true, queue: true, ping_on: ["restock", "queue"], retailers: [], quiet_mode: "no_ping" }))
     if (!(k in n)) n[k] = v;
   return n; }
+function sideBySide(rows, label) {
+  const stores = [...new Set(rows.map((r) => r.store))].sort();
+  const methods = [...new Set(rows.map((r) => r.method))].sort((a, b) => a === "direct" ? -1 : b === "direct" ? 1 : a.localeCompare(b));
+  const cell = (store, method) => {
+    const r = rows.find((x) => x.store === store && x.method === method);
+    if (!r) return h("td", { class: "none", text: "not run" });
+    const pct = Math.round(100 * r.ok / r.runs);
+    const txt = pct + "% loaded (" + r.ok + " of " + r.runs + ")" + (r.avg_ms ? ", " + (r.avg_ms / 1000).toFixed(1) + " s" : "") + (r.last_ok ? "" : ", last: " + (r.last_kind || "blocked"));
+    return h("td", { class: pct >= 90 ? "best" : (pct < 50 ? "bad" : ""), text: txt });
+  };
+  return [
+    h("h2", { text: "Side by side, same page at the same time" }),
+    h("div", { class: "table-wrap" }, h("table", { class: "matrix" },
+      h("tr", {}, h("th", { text: "Store" }), methods.map((m) => h("th", { text: label(m) }))),
+      stores.map((st) => h("tr", {}, h("td", { text: st }), methods.map((m) => cell(st, m)))))),
+    h("p", { class: "hint", text: "Each run loads one product page through every method together. Green = loads almost every time, amber = often refused." }),
+  ];
+}
+
+function trustReport(t) {
+  const stores = t.stores || [], feeds = t.feeds || [];
+  const cls = (v) => v === "Reliable" ? "best" : (v === "Blocked" || v === "Flaky" ? "bad" : "none");
+  return [
+    h("h2", { text: "Can I trust each store?" }),
+    stores.length ? h("div", { class: "table-wrap" }, h("table", { class: "matrix" },
+      h("tr", {}, ["Store", "Rating", "Based on", "Best method", "What to do"].map((x) => h("th", { text: x }))),
+      stores.map((r) => h("tr", {},
+        h("td", { text: r.display }),
+        h("td", { class: cls(r.verdict), text: r.verdict + (r.score === null ? "" : " (" + r.score + "%)") }),
+        h("td", { text: r.basis || "nothing yet" }),
+        h("td", { text: r.best_method ? r.best_method + (r.best_rate === null ? "" : ", " + r.best_rate + "% side by side") : "none yet" }),
+        h("td", { text: r.advice || "Nothing needed." }))))) : h("div", { class: "panel empty", text: "No stores are being checked yet." }),
+    h("p", { class: "hint", text: "Reliable = 90% or more of real checks loaded. Flaky = 60 to 89%. Blocked = under 60%. Ratings use only the app's own recent checks, the block counts and the side-by-side test, and need about 10 checks." }),
+    feeds.length ? h("div", { class: "panel", style: "margin-bottom:16px" }, h("ul", { class: "feed" }, feeds.map((f) =>
+      h("li", {}, h("b", { text: f.label }), " is not switched on. Free key: " + f.where + ". Official feeds do not use bot checks, so they are the most dependable way to cover that store.")))) : null,
+  ];
+}
+
+function featureTable(rows) {
+  const pct = (b, c) => c ? (100 * b / c).toFixed(1) + "% blocked" : "no data";
+  return [
+    h("h2", { text: "Do the new features help?" }),
+    h("div", { class: "table-wrap" }, h("table", { class: "matrix" },
+      h("tr", {}, ["Feature", "With it", "Without it", "Verdict"].map((t) => h("th", { text: t }))),
+      rows.map((r) => h("tr", {}, h("td", { text: r.label }),
+        h("td", { text: r.with_checks + " checks, " + pct(r.with_blocks, r.with_checks) }),
+        h("td", { text: r.without_checks + " checks, " + pct(r.without_blocks, r.without_checks) }),
+        h("td", { class: r.verdict === "Helping" ? "best" : (r.verdict === "Not helping" ? "bad" : ""), text: r.verdict }))))),
+    h("p", { class: "hint", text: "With the feature trial on (Stores & keys), about half of the checks run without each feature. A verdict appears after 30 checks on each side." }),
+  ];
+}
+
 function go(t) { tab = t; window.scrollTo(0, 0); render(); }
 function ensureAreas() {
   const loc = cfg.location || {};
@@ -1161,6 +1438,7 @@ function render() {
   $("view").replaceChildren(...views[tab]().flat(Infinity).filter((x) => x !== null && x !== undefined && x !== false));
   document.querySelectorAll("nav.rail button").forEach((b) => b.dataset.tab === tab ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
   counts();
+  if (tab === "scan") drawScan();
   window.scrollTo(0, y);
 }
 function drawStrip() {

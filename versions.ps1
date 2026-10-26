@@ -21,7 +21,7 @@ $version = if (Test-Path "VERSION") { (Get-Content "VERSION" -Raw).Trim() } else
 # Program files only.
 $items = @("app.py", "restock", "tests", "requirements.txt", "config.example.yaml", "README.md",
            "VERSION", "CHANGELOG.md", "NOTES.md", "RESOURCES.md",
-           "setup.ps1", "run.ps1", "versions.ps1", "update.ps1", "RELEASING.md", "add-to-startup.ps1", "build-exe.ps1", "start-my-chrome.ps1")
+           "setup.ps1", "run.ps1", "versions.ps1", "update.ps1", "RELEASING.md", "add-to-startup.ps1", "build-exe.ps1", "start-my-chrome.ps1", "start-my-edge.ps1", "learn-traffic.ps1")
 
 function Snapshot([string]$note, [string]$tag) {
     $stamp = Get-Date -Format "yyyy-MM-dd_HHmm"

@@ -122,6 +122,10 @@ retailers:
     # in_stock_text: ["add to cart"]
     # out_of_stock_text: ["out of stock", "sold out"]
 
+power:
+  low_priority: true           # run quietly in the background so what you are doing gets the CPU first
+  keep_awake: false            # true stops Windows sleeping while the app runs (the screen can still turn off)
+
 control_panel:
   enabled: true
   port: 8765

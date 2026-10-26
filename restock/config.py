@@ -17,7 +17,11 @@ ALL_RETAILERS = ("bestbuy", "target", "kroger", "walmart", "pokemoncenter", "gam
 
 DEFAULTS: dict[str, Any] = {
     "discord": {
-        "webhooks": {"default": "", "online": "", "in_store": ""},
+        "webhooks": {"default": "", "online": "", "in_store": "", "status": ""},
+        "status_kinds": {"blocked": True, "recovered": True, "human": True, "signin": True, "autostop": True, "browser": True},
+        "status_block_after": 3,          # consecutive blocks at a store before the status channel is told
+        "status_cooldown_minutes": 60,    # the same message about the same store or browser is not repeated sooner
+        "ping_status": False,             # mention you on messages that need you (verification, sign-in)
         "mention_role_id": "",
         "mention_user_id": "",
         "username": "Restock Monitor",

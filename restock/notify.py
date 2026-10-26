@@ -51,6 +51,10 @@ class DiscordNotifier:
     def __init__(self, discord_cfg: dict, log: logging.Logger, areas=()):
         self.area_hooks = {a.name: a.webhook for a in areas if getattr(a, "webhook", "")}
         self.hooks = {k: v for k, v in (discord_cfg.get("webhooks") or {}).items() if v}
+        # The "status" channel is for everything that is not stock: sign-in needed, blocks, method changes.
+        # It is kept out of the restock routing so a stock alert can never land there.
+        self.status_url = self.hooks.pop("status", "")
+        self.status_ping = bool(discord_cfg.get("ping_status", False))
         self.role = str(discord_cfg.get("mention_role_id") or "").strip()
         self.user = str(discord_cfg.get("mention_user_id") or "").strip()
         self.username = discord_cfg.get("username") or "Restock Monitor"
@@ -61,6 +65,22 @@ class DiscordNotifier:
     @property
     def enabled(self) -> bool:
         return bool(self.hooks or self.area_hooks)
+
+    @property
+    def status_enabled(self) -> bool:
+        return bool(self.status_url)
+
+    def status(self, title: str, text: str, kind: str = "info", ping: bool = False) -> bool:
+        """A message for the status channel. Never pings unless you turned that on, and only for things you must act on."""
+        if not self.status_url:
+            return False
+        color = {"blocked": AMBER, "human": AMBER, "signin": BLUE, "autostop": GREY, "recovered": GREEN,
+                 "browser": AMBER}.get(kind, BLUE)
+        content, allowed = self._mention(ping and self.status_ping)
+        embed = {"title": title[:256], "description": text[:3800], "color": color,
+                 "footer": {"text": "Status"}, "timestamp": dt.datetime.now(dt.timezone.utc).isoformat()}
+        return self._post(self.status_url, {"username": self.username, "content": content, "embeds": [embed],
+                                            "allowed_mentions": allowed})
 
     def routes(self, res: StockResult, new_online: bool = True, new_stores: bool = True) -> list[tuple[str, StockResult]]:
         """Which channels an alert goes to, and what each one shows.
@@ -318,6 +338,14 @@ class DiscordNotifier:
                 "username": self.username,
                 "embeds": [{"title": "Restock monitor connected",
                             "description": f"Alerts for '{name}' will post here.",
+                            "color": GREEN}],
+                "allowed_mentions": {"parse": []},
+            })
+        if self.status_url:
+            results["status"] = self._post(self.status_url, {
+                "username": self.username,
+                "embeds": [{"title": "Status channel connected",
+                            "description": "Sign-in requests, blocks and method changes will post here. Stock alerts never do.",
                             "color": GREEN}],
                 "allowed_mentions": {"parse": []},
             })

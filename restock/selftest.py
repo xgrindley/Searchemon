@@ -9,7 +9,7 @@ import sys
 import tempfile
 
 REQUIRED = ["requests", "yaml", "zipcodes", "tkinter", "restock.engine", "restock.panel", "restock.panel_page", "restock.gui",
-            "restock.retailers", "restock.retailers.pages", "restock.retailers.browser", "restock.trials", "restock.accounts",
+            "restock.theme", "restock.retailers", "restock.retailers.pages", "restock.retailers.browser", "restock.trials", "restock.accounts",
             "restock.history_store", "restock.scan", "restock.tcg", "restock.catalog"]
 OPTIONAL = {
     "playwright.sync_api": "checking through a browser",

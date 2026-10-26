@@ -2,7 +2,7 @@
 
 Read this first when picking the project back up. Newest entries at the top of each section.
 
-## State (v3.0 stable; test builds continue from v3.1)
+## State (v3.0 stable; test builds continue from v3.1, now v3.6)
 - Repo: github.com/xgrindley/Searchemon (public). main = the latest stable release only (v2.0, declared 2026-10-25), test = current work (next test build is v2.9). See RELEASING.md.
 - Version scheme: stable v1.0, v2.0, v3.0...; tests count up from the release (v2.1, v2.2, v2.3, v2.4, v2.5...). v1.0 was v0.6 promoted, v2.0 is v1.2 promoted.
 - Windows app, Python 3.13 venv, tkinter window + local control panel at 127.0.0.1:8765.
@@ -30,6 +30,9 @@ Read this first when picking the project back up. Newest entries at the top of e
 
 ## Rolling history (v2.10)
 - history_store.py: data/store-history.json, per store recent (40 chars of 0/1), hourly [ok, fail] for 7 days, last problem. Engine preloads health["recent"] from it; trust.py falls back to the 7 day totals.
+
+## Desktop theme (v3.6)
+- restock/theme.py: DARK/LIGHT palettes, apply() paints ttk (clam), recolor() paints canvas/text/menu, GradientBar strip. Mode saved in data/gui-theme.txt. tkinter can be run in the sandbox via `uv python install 3.13` (python-build-standalone) plus xvfb-run and `import -window root` for screenshots.
 
 ## Page-store search (v3.5)
 - WebPage.search uses search_url + product_re per store (CVS, GameStop, Costco, Sam's, Walgreens, B&N, BAM, Safeway); parse_listing reads JSON-LD, anchors, then script data. Untested on live sites; debug copies go to data\\debug.

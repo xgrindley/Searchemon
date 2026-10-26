@@ -38,7 +38,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--act); outline-offset: 2px; }
 
 /* ---- frame ---- */
-.frame { display: grid; grid-template-columns: 200px 1fr; min-height: 100vh; }
+.frame { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 100vh; }
 nav.rail { background: var(--panel); border-right: 1px solid var(--line); padding: 18px 10px; position: sticky; top: 0; height: 100vh; }
 .brand { font: 600 15px/1.2 var(--font-display); padding: 0 10px 18px; }
 .brand small { display: block; font: 400 12px var(--font); color: var(--muted); margin-top: 3px; }
@@ -52,13 +52,15 @@ nav.rail .navlabel { font-size: 12px; color: var(--faint); padding: 14px 10px 4p
 .speed-row .t b { display: block; font-weight: 600; }
 .speed-row .t span { font-size: 12.5px; color: var(--muted); }
 .speed-row input[type=range] { width: 100%; }
-main { padding: 0 28px 120px; max-width: 1180px; width: 100%; }
+main { padding: 0 28px 120px; max-width: 1180px; width: 100%; min-width: 0; }
+body { overflow-x: hidden; }
 
 /* ---- annunciator strip: the one loud element ---- */
 .strip { display: flex; align-items: stretch; gap: 12px; padding: 16px 0; position: sticky; top: 0; background: var(--bg); z-index: 5; flex-wrap: wrap; }
 .lamp { flex: 1 1 260px; display: flex; align-items: center; gap: 14px; padding: 10px 16px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--panel); min-height: 64px; }
 .lamp .big { font: 600 30px/1 var(--font-display); min-width: 1.6ch; letter-spacing: -.02em; }
-.lamp .what { color: var(--muted); }
+.lamp > div:last-child { min-width: 0; }
+.lamp .what { color: var(--muted); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .lamp.lit { background: var(--ok-bg); border-color: var(--ok-strong); }
 .lamp.lit .big { color: var(--ok); }
 .lamp.lit .what { color: var(--ok); }
@@ -118,7 +120,10 @@ td.price { white-space: nowrap; text-align: right; font-family: var(--mono); fon
 td .sub { display: block; font-size: 12px; color: var(--muted); }
 tr.in td .sub { color: var(--ok); }
 td.act { white-space: nowrap; text-align: right; }
-.table-wrap { background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-m); overflow: hidden; }
+.table-wrap { background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-m); overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+.table-wrap table { min-width: 100%; }
+table.matrix td, table.matrix th { overflow-wrap: anywhere; }
+table.matrix th:first-child, table.matrix td:first-child { min-width: 90px; }
 
 .two { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
 .feed { list-style: none; margin: 0; padding: 0; }
@@ -177,7 +182,15 @@ input:focus, textarea:focus, select:focus { border-color: var(--act); outline: n
 .mc-bar i.warn { background: var(--warn); }
 .mc-bar i.bad { background: var(--bad); }
 .mc-tools { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
-@media (max-width: 760px) { .mc-row { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 1100px) {
+  .mc-row { grid-template-columns: repeat(3, minmax(0, 1fr)) auto; }
+  .mc-row .nm { grid-column: 1 / -1; }
+  .mc-row > .btn { grid-column: 4; grid-row: 2; }
+}
+@media (max-width: 760px) { .mc-row { grid-template-columns: 1fr 1fr; } .mc-row > .btn { grid-column: 1 / -1; grid-row: auto; justify-self: start; } }
+.setting .t, .mc-row .nm, .feed li, .mrow .sub2, .lede, .hint { overflow-wrap: anywhere; }
+.setting { flex-wrap: wrap; }
+.setting .t { flex: 1 1 260px; min-width: 0; }
 .setting input[type=number] { width: 110px; }
 .rules td { padding: 6px 8px; border-bottom: 1px solid var(--line-soft); }
 .rules { width: 100%; border-collapse: collapse; background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-m); }
@@ -216,7 +229,8 @@ input[type=range] { accent-color: var(--act); width: 160px; }
 
 /* stores near you */
 .radar-wrap { padding: 12px; }
-.radar { width: 100%; max-width: 560px; display: block; margin: 0 auto; }
+.radar, .mapsvg { width: 100%; max-width: 760px; display: block; margin: 0 auto; border-radius: var(--r-s); background: radial-gradient(120% 100% at 50% 40%, rgba(255,255,255,.05), rgba(255,255,255,.015)); }
+.area-map { margin: 14px 0 6px; }
 .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); padding: 0 16px 14px; justify-content: center; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 .badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
@@ -250,8 +264,17 @@ input[type=range] { accent-color: var(--act); width: 160px; }
 dialog { border: 1px solid var(--line); border-radius: var(--r-m); background: var(--raised); color: var(--ink); padding: 22px; max-width: 340px; }
 dialog::backdrop { background: rgba(20, 24, 28, .45); }
 
+@media (max-width: 1100px) and (min-width: 901px) {
+  .frame { grid-template-columns: 168px minmax(0, 1fr); }
+  main { padding: 0 20px 120px; }
+  nav.rail { padding: 14px 8px; overflow-y: auto; }
+  nav.rail button { padding: 7px 8px; font-size: 13.5px; }
+  .two { grid-template-columns: minmax(0, 1fr); }
+  .strip .controls { margin-left: auto; }
+  .savebar { left: 168px; padding: 12px 20px; }
+}
 @media (max-width: 900px) {
-  .frame { grid-template-columns: 1fr; }
+  .frame { grid-template-columns: minmax(0, 1fr); }
   nav.rail { position: sticky; top: 0; height: auto; display: flex; gap: 4px; overflow-x: auto; padding: 8px; z-index: 8; border-right: 0; border-bottom: 1px solid var(--line); }
   .brand { display: none; }
   nav.rail button { width: auto; white-space: nowrap; }
@@ -278,7 +301,9 @@ nav.rail button[aria-current="page"] { background: var(--act-soft); box-shadow: 
 .lamp { border-radius: 26px; min-height: 76px; padding: 12px 22px; }
 .lamp .big { font-weight: 300; font-size: 40px; }
 .lamp.lit { background: linear-gradient(135deg, rgba(167,139,250,.2), rgba(34,211,238,.2)); border-color: rgba(103,232,249,.6); }
-.strip { background: transparent; backdrop-filter: none; }
+.strip { background: rgba(11,8,32,.78); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); margin: 0 -28px; padding-left: 28px; padding-right: 28px; }
+@media (max-width: 1100px) { .strip { margin: 0 -20px; padding-left: 20px; padding-right: 20px; } }
+@media (max-width: 900px) { .strip { margin: 0 -16px; padding-left: 16px; padding-right: 16px; } }
 .btn { border-radius: 999px; padding: 8px 18px; min-height: 40px; background: rgba(255,255,255,.07); }
 .btn.primary { background: var(--grad); border: 0; color: var(--act-ink); }
 .btn.quiet { background: none; }
@@ -397,7 +422,7 @@ function passesNear(it) {
 }
 const UPC_RETAILERS = ["target", "bestbuy", "walmart"];
 let token = __TOKEN__ || sessionStorage.getItem("restock-pin") || "";
-let cfg = null, savedJSON = "", status = null, tab = "dash";
+let cfg = null, savedJSON = "", status = null, tab = "dash", viewSig = "";
 const dashState = { q: "", retailer: "", inOnly: false };
 const timesState = { retailer: "", place: "" };
 const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -867,16 +892,18 @@ const views = {
     ensureAreas();
     const n = notifyCfg();
     const capVal = h("span", { class: "radius-val", text: n.max_miles ? n.max_miles + " mi" : "Off" });
+    setTimeout(drawAreaMap);
     return [
       h("h1", { text: "Areas & radius" }),
       h("p", { class: "lede", text: "Where you shop. Stores inside any of these circles are checked and can alert; stores outside them are ignored. Give an area its own Discord channel to send it only the stores inside that area." }),
       areasEditor(),
+      h("div", { id: "area-map", class: "area-map" }),
       h("p", {}, h("button", { class: "btn", type: "button", text: "Add area", onclick: () => { cfg.areas.push({ name: cfg.areas.length ? "Work" : "Home", zip: "", radius_miles: 15 }); touch(); render(); } })),
       h("h2", { text: "Alert distance" }),
       h("div", { class: "settings-list" },
         setting("Only alert for stores within", "A tighter limit for alerts than your areas, for example check 25 miles but only ping for stores within 10. Off uses your areas.",
           h("div", { style: "display:flex;gap:10px;align-items:center" }, h("input", { type: "range", min: "0", max: "50", value: String(n.max_miles || 0), "aria-label": "Alert distance in miles",
-            oninput: (e) => { const v = Number(e.target.value); n.max_miles = v || null; capVal.textContent = v ? v + " mi" : "Off"; touch(); } }), capVal)),
+            oninput: (e) => { const v = Number(e.target.value); n.max_miles = v || null; capVal.textContent = v ? v + " mi" : "Off"; touch(); drawAreaMap(); } }), capVal)),
         setting("Check store shelves", "Shelf stock at Target, Best Buy and Kroger stores in your areas.", sw(cfg.settings, "in_store", ""))),
       h("p", { class: "hint" }, "Skip single stores you never visit on ", h("a", { href: "#", onclick: (e) => { e.preventDefault(); go("places"); }, text: "Stores near you" }), "."),
     ];
@@ -1060,6 +1087,8 @@ const views = {
 
   notify() {
     const d = cfg.discord, wh = d.webhooks = d.webhooks || {}, n = notifyCfg(), st = cfg.settings;
+    const sk = d.status_kinds = d.status_kinds || {};
+    ["blocked", "recovered", "human", "signin", "autostop", "browser"].forEach((k) => { if (sk[k] === undefined) sk[k] = true; });
     const br = cfg.browser = cfg.browser || {}, dsc = cfg.discovery = cfg.discovery || {};
     n.quiet_hours = n.quiet_hours || [];
     const kinds = [["restock", "Restocks"], ["queue", "Pokemon Center queue"], ["new_listing", "New listings"]];
@@ -1079,6 +1108,7 @@ const views = {
         field("Restock channel webhook", secret(wh, "default", "https://discord.com/api/webhooks/..."), "In Discord: Server Settings, Integrations, Webhooks, New Webhook, pick your channel, Copy Webhook URL. Keep it private.", true),
         field("Online restocks channel (optional)", secret(wh, "online", "Webhook URL"), "Things you can order online. Blank uses the restock channel."),
         field("In-store channel (optional)", secret(wh, "in_store", "Webhook URL"), "Shelf stock near you. Each area can also have its own channel on Areas & radius."),
+        field("Status channel (optional)", secret(wh, "status", "Webhook URL"), "Everything that is not stock goes here instead: a sign-in is needed, a store keeps blocking, a check needs you, a method was switched off. Stock alerts never post here. Blank means no status messages.", true),
         field("Ping a role", text(d, "mention_role_id", { placeholder: "Role ID, optional" }), "Developer Mode on, then right-click the role, Copy Role ID"),
         field("Ping me", text(d, "mention_user_id", { placeholder: "Your user ID, optional" })),
         field("Bot name", text(d, "username")),
@@ -1095,6 +1125,18 @@ const views = {
         setting("Sold-out notices", "Post when an item sells out online.", sw(st, "notify_sold_out", "")),
         setting("Verification requests", "Post when a store wants you to finish a check in the browser.", sw(br, "notify_discord", "")),
         setting("Windows pop-ups", "Also show alerts as notifications on this PC.", sw(st, "windows_toast", ""))),
+      h("h2", { text: "Status channel messages" }),
+      h("p", { class: "hint", text: "These post to the status channel above, never to the restock channels. The same message about the same store is not repeated within the quiet period." }),
+      h("div", { class: "settings-list" },
+        setting("A store keeps blocking", "After several blocks in a row, with the way to clear them.", sw(sk, "blocked", "")),
+        setting("Back to normal", "A store that was blocked loads again.", sw(sk, "recovered", "")),
+        setting("Verification needed", "A store wants you to finish a check in the browser window.", sw(sk, "human", "")),
+        setting("Sign-in needed", "A saved store sign-in expired or was signed out.", sw(sk, "signin", "")),
+        setting("Method switched off", "A trial method was stopped automatically for failing too often.", sw(sk, "autostop", "")),
+        setting("Browser problem", "A checking browser could not start.", sw(sk, "browser", "")),
+        setting("Ping me on these", "Mention your role or you on verification and sign-in messages, since those need you.", sw(d, "ping_status", "")),
+        setting("Blocks in a row before posting", "", num(d, "status_block_after")),
+        setting("Repeat the same message after (minutes)", "", num(d, "status_cooldown_minutes"))),
       h("h2", { text: "Which stores can alert" }),
       h("p", { class: "hint", text: "Untick a store to stop its alerts while still checking it. All ticked means every store." }),
       h("div", { class: "card" }, h("div", { class: "card-body" }, h("div", { class: "wide" }, storeChips))),
@@ -1314,7 +1356,7 @@ function areasEditor() {
     const placeTag = h("span", { class: "hint", text: "" });
     const look = async () => {
       if (!/^\d{5}$/.test(a.zip || "")) { placeTag.textContent = a.zip ? "5 digits" : ""; return; }
-      try { const g = await api("/api/geo?zip=" + a.zip); placeTag.textContent = g.lat !== null ? g.place : (g.ready ? "Unknown ZIP" : "ZIP lookup not installed"); } catch (e) {}
+      try { const g = await api("/api/geo?zip=" + a.zip); geoCache[a.zip] = g; placeTag.textContent = g.lat !== null ? g.place : (g.ready ? "Unknown ZIP" : "ZIP lookup not installed"); drawAreaMap(); } catch (e) {}
     };
     setTimeout(look);
     const radVal = h("span", { class: "radius-val", text: (a.radius_miles || 15) + " mi" });
@@ -1324,7 +1366,7 @@ function areasEditor() {
         oninput: (e) => { a.zip = e.target.value.replace(/\D/g, "").slice(0, 5); touch(); look(); } }), placeTag,
       h("span", { text: "radius" }),
       h("input", { type: "range", min: "1", max: "100", value: String(a.radius_miles || 15), "aria-label": "Radius in miles",
-        oninput: (e) => { a.radius_miles = Number(e.target.value); radVal.textContent = a.radius_miles + " mi"; touch(); } }), radVal,
+        oninput: (e) => { a.radius_miles = Number(e.target.value); radVal.textContent = a.radius_miles + " mi"; touch(); drawAreaMap(); } }), radVal,
       secret(a, "webhook", "Own Discord channel (optional)"),
       h("button", { class: "btn quiet danger", type: "button", text: "Remove", onclick: () => { cfg.areas.splice(i, 1); touch(); render(); } }));
   })) : h("div", { class: "panel empty", text: "No area yet. Add your home ZIP so nearby store shelves can be checked." });
@@ -1418,36 +1460,102 @@ function drawPatterns(p) {
 async function loadPlaces() { try { placesData = await api("/api/places"); drawPlaces(); } catch (e) { toast(e.message, true); } }
 async function loadFound() { try { catalogData = await api("/api/catalog"); drawFound(); } catch (e) { toast(e.message, true); } }
 
-function radar(d) {
-  const areas = (d.areas || []).filter((a) => a.lat !== null);
+const AREA_COLORS = ["#fcd34d", "#fda4af", "#fdba74", "#bef264", "#f0abfc", "#fde68a"];
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs = {}, kids = []) { const e = document.createElementNS(SVG_NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); kids.forEach((c) => e.append(c)); return e; }
+function niceMiles(target) { for (const n of [1, 2, 5, 10, 20, 25, 50, 100, 200]) if (n >= target) return n; return 200; }
+
+/* A drawn map with no outside requests: your areas as circles (to scale), your alert distance, and the stores.
+   areas: [{name, zip, lat, lon, radius}], places: [{name, lat, lon, chain, excluded}], chains: [{key, coverage}] */
+function mapView(areas, places, chains, opts = {}) {
+  areas = (areas || []).filter((a) => a.lat !== null && a.lat !== undefined && a.lon !== null && a.lon !== undefined && a.radius > 0);
   if (!areas.length) return null;
-  const lat0 = areas.reduce((s, a) => s + a.lat, 0) / areas.length, lon0 = areas.reduce((s, a) => s + a.lon, 0) / areas.length;
-  const k = Math.cos(lat0 * Math.PI / 180);
-  const xy = (lat, lon) => [(lon - lon0) * 69.17 * k, (lat - lat0) * 69.17];
-  let extent = 1;
-  areas.forEach((a) => { const [x, y] = xy(a.lat, a.lon); extent = Math.max(extent, Math.abs(x) + a.radius, Math.abs(y) + a.radius); });
-  const W = 560, C = W / 2, sc = (C - 24) / extent;
-  const P = (lat, lon) => { const [x, y] = xy(lat, lon); return [C + x * sc, C - y * sc]; };
-  const ns = "http://www.w3.org/2000/svg";
-  const el = (tag, attrs = {}, kids = []) => { const e = document.createElementNS(ns, tag); for (const [a, v] of Object.entries(attrs)) e.setAttribute(a, v); kids.forEach((c) => e.append(c)); return e; };
-  const svg = el("svg", { viewBox: "0 0 " + W + " " + W, class: "radar", role: "img", "aria-label": "Map of stores around your areas" });
-  areas.forEach((a) => {
-    const [cx, cy] = P(a.lat, a.lon);
-    svg.append(el("circle", { cx, cy, r: a.radius * sc, fill: "var(--act-soft)", "fill-opacity": "0.35", stroke: "var(--act)", "stroke-width": "1.25", "stroke-dasharray": "4 4" }));
-    svg.append(el("path", { d: "M" + (cx - 6) + " " + cy + "h12M" + cx + " " + (cy - 6) + "v12", stroke: "var(--ink)", "stroke-width": "2" }));
-    const t = el("text", { x: cx + 9, y: cy - 8, "font-size": "13", "font-weight": "600", fill: "var(--ink)" }); t.textContent = a.name + " (" + a.radius + " mi)"; svg.append(t);
+  const lat0 = areas.reduce((t, a) => t + a.lat, 0) / areas.length, lon0 = areas.reduce((t, a) => t + a.lon, 0) / areas.length;
+  const kx = 69.17 * Math.cos(lat0 * Math.PI / 180), ky = 69.0;
+  const xy = (lat, lon) => [(lon - lon0) * kx, (lat - lat0) * ky];
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  const reach = (a) => Math.max(a.radius, opts.maxMiles || 0);
+  areas.forEach((a) => { const [x, y] = xy(a.lat, a.lon), r = reach(a); x0 = Math.min(x0, x - r); x1 = Math.max(x1, x + r); y0 = Math.min(y0, y - r); y1 = Math.max(y1, y + r); });
+  const padMi = Math.max(1, 0.08 * Math.max(x1 - x0, y1 - y0)); x0 -= padMi; x1 += padMi; y0 -= padMi; y1 += padMi;
+  const W = 720, wMi = x1 - x0, hMi = y1 - y0, H = Math.round(Math.min(560, Math.max(320, W * hMi / wMi)));
+  const sc = Math.min(W / wMi, H / hMi), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const P = (lat, lon) => { const [x, y] = xy(lat, lon); return [W / 2 + (x - cx) * sc, H / 2 - (y - cy) * sc]; };
+  const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, class: "mapsvg", role: "img", "aria-label": "Map of your areas and the stores near them" });
+  // faint grid so distance is easy to judge
+  const step = niceMiles(Math.max(wMi, hMi) / 8), gx0 = Math.ceil(x0 / step) * step, gy0 = Math.ceil(y0 / step) * step;
+  for (let x = gx0; x <= x1; x += step) svg.append(svgEl("line", { x1: W / 2 + (x - cx) * sc, y1: 0, x2: W / 2 + (x - cx) * sc, y2: H, stroke: "var(--line-soft)", "stroke-width": "1" }));
+  for (let y = gy0; y <= y1; y += step) svg.append(svgEl("line", { x1: 0, y1: H / 2 - (y - cy) * sc, x2: W, y2: H / 2 - (y - cy) * sc, stroke: "var(--line-soft)", "stroke-width": "1" }));
+  const centers = areas.map((a) => P(a.lat, a.lon));
+  areas.forEach((a, i) => {
+    const [px, py] = centers[i], col = AREA_COLORS[i % AREA_COLORS.length];
+    svg.append(svgEl("circle", { cx: px, cy: py, r: a.radius * sc, fill: col, "fill-opacity": "0.12", stroke: col, "stroke-width": "1.6" }));
+    if (opts.maxMiles && opts.maxMiles < a.radius)
+      svg.append(svgEl("circle", { cx: px, cy: py, r: opts.maxMiles * sc, fill: "none", stroke: col, "stroke-width": "1.4", "stroke-dasharray": "5 4" }));
   });
+  const inside = (p) => areas.some((a) => { const [ax, ay] = xy(a.lat, a.lon), [sx, sy] = xy(p.lat, p.lon); return Math.hypot(ax - sx, ay - sy) <= a.radius; });
   const color = { live: "var(--ok-strong)", online: "var(--act)", listed: "var(--faint)" };
-  const chains = Object.fromEntries((d.chains || []).map((c) => [c.key, c]));
-  (d.places || []).forEach((p) => {
-    if (p.lat === null || p.lon === null) return;
-    const [x, y] = P(p.lat, p.lon), cov = (chains[p.chain] || {}).coverage || "listed";
-    const dot = el("circle", { cx: x, cy: y, r: cov === "live" ? 5.5 : 4, fill: color[cov], stroke: "var(--raised)", "stroke-width": "1.5", opacity: p.excluded ? "0.3" : "1" });
-    const tt = el("title"); tt.textContent = p.name + (p.distance !== null ? ", " + p.distance + " mi" : ""); dot.append(tt); svg.append(dot);
+  const byChain = Object.fromEntries((chains || []).map((c) => [c.key, c]));
+  (places || []).forEach((p) => {
+    if (p.lat === null || p.lat === undefined || p.lon === null || p.lon === undefined) return;
+    const [x, y] = P(p.lat, p.lon); if (x < -4 || x > W + 4 || y < -4 || y > H + 4) return;
+    const cov = (byChain[p.chain] || {}).coverage || "listed", out = !inside(p);
+    const dot = svgEl("circle", { cx: x, cy: y, r: cov === "live" ? 5 : 3.8, fill: color[cov], stroke: "var(--bg)", "stroke-width": "1.5", opacity: p.excluded || out ? "0.3" : "1" });
+    dot.append(svgEl("title")); dot.firstChild.textContent = p.name + (p.distance !== null && p.distance !== undefined ? ", " + p.distance + " mi" : "") + (p.excluded ? " (skipped)" : out ? " (outside your areas)" : "");
+    svg.append(dot);
   });
-  return h("div", { class: "panel radar-wrap" }, svg, h("div", { class: "legend" },
+  const placed = [];
+  areas.forEach((a, i) => {   // centers and labels last so nothing covers them
+    const [px, py] = centers[i], col = AREA_COLORS[i % AREA_COLORS.length];
+    svg.append(svgEl("circle", { cx: px, cy: py, r: 6.5, fill: col, stroke: "var(--bg)", "stroke-width": "2.5" }));
+    const label = (a.name || "Area") + (a.zip ? " " + a.zip : "") + " · " + a.radius + " mi";
+    const right = px < W * 0.62, tw = label.length * 7.4;
+    let ty = Math.max(16, py - 12);
+    const clash = (y) => placed.some((q) => Math.abs(q.y - y) < 16 && !(right ? px + 12 > q.x1 : px - 12 - tw > q.x1 || px - 12 < q.x0) && (right ? px + 12 + tw > q.x0 : true) && (right ? px + 12 < q.x1 : true));
+    for (let n = 0; n < 6 && clash(ty); n++) ty += 16;        // two areas close together: stack their labels
+    placed.push({ y: ty, x0: right ? px + 12 : px - 12 - tw, x1: right ? px + 12 + tw : px - 12 });
+    const t = svgEl("text", { x: right ? px + 12 : px - 12, y: ty, "text-anchor": right ? "start" : "end", "font-size": "13", "font-weight": "600", fill: "var(--ink)", stroke: "var(--bg)", "stroke-width": "4", "paint-order": "stroke", "stroke-linejoin": "round" });
+    t.textContent = label; svg.append(t);
+  });
+  // scale bar and north arrow
+  const bar = niceMiles(wMi * 0.2), bw = bar * sc, bx = 16, by = H - 18;
+  svg.append(svgEl("path", { d: "M" + bx + " " + (by - 6) + "v6h" + bw + "v-6", fill: "none", stroke: "var(--ink)", "stroke-width": "2" }));
+  const st = svgEl("text", { x: bx + bw / 2, y: by - 10, "text-anchor": "middle", "font-size": "12", fill: "var(--ink)", stroke: "var(--bg)", "stroke-width": "3", "paint-order": "stroke" }); st.textContent = bar + " mi"; svg.append(st);
+  svg.append(svgEl("path", { d: "M" + (W - 24) + " 38v-22m0 0l-5 8m5-8l5 8", fill: "none", stroke: "var(--ink)", "stroke-width": "2", "stroke-linecap": "round" }));
+  const nt = svgEl("text", { x: W - 24, y: 52, "text-anchor": "middle", "font-size": "12", "font-weight": "600", fill: "var(--ink)" }); nt.textContent = "N"; svg.append(nt);
+  const legend = h("div", { class: "legend" },
+    areas.map((a, i) => h("span", {}, h("i", { style: "background:" + AREA_COLORS[i % AREA_COLORS.length] }), (a.name || "Area") + " circle")),
     h("span", {}, h("i", { style: "background:var(--ok-strong)" }), COVERAGE.live), h("span", {}, h("i", { style: "background:var(--act)" }), COVERAGE.online),
-    h("span", {}, h("i", { style: "background:var(--faint)" }), COVERAGE.listed)));
+    h("span", {}, h("i", { style: "background:var(--faint)" }), COVERAGE.listed),
+    opts.maxMiles ? h("span", {}, "Dashed ring: alert distance " + opts.maxMiles + " mi") : null);
+  return h("div", { class: "panel radar-wrap" }, svg, legend);
+}
+
+function radar(d) {
+  return mapView((d.areas || []).map((a) => ({ name: a.name, zip: a.zip, lat: a.lat, lon: a.lon, radius: a.radius })), d.places, d.chains);
+}
+
+/* The map on Areas & radius: follows what you type before you save. */
+const geoCache = {};
+let areaMapPlaces = null, areaMapBusy = false;
+function drawAreaMap() {
+  const box = $("area-map"); if (!box) return;
+  const want = [...new Set(cfg.areas.map((a) => a.zip).filter((z) => /^\d{5}$/.test(z || "")))];
+  const missing = want.filter((z) => !(z in geoCache));
+  if (missing.length && !areaMapBusy) {
+    areaMapBusy = true;
+    Promise.all(missing.map((z) => api("/api/geo?zip=" + z).then((g) => { geoCache[z] = g; }).catch(() => { geoCache[z] = null; }))).then(() => { areaMapBusy = false; drawAreaMap(); });
+  }
+  if (!areaMapPlaces) { areaMapPlaces = { places: [], chains: [] }; api("/api/places").then((d) => { areaMapPlaces = d; drawAreaMap(); }).catch(() => {}); }
+  const areas = cfg.areas.map((a) => { const g = geoCache[a.zip]; return { name: a.name, zip: a.zip, radius: Number(a.radius_miles) || 15, lat: g ? g.lat : null, lon: g ? g.lon : null }; });
+  const unknown = cfg.areas.filter((a) => /^\d{5}$/.test(a.zip || "") && geoCache[a.zip] && geoCache[a.zip].lat === null).map((a) => a.zip);
+  const view = mapView(areas, areaMapPlaces.places, areaMapPlaces.chains, { maxMiles: notifyCfg().max_miles || 0 });
+  const kids = [];
+  if (view) kids.push(view);
+  else kids.push(h("div", { class: "panel empty", text: !cfg.areas.length ? "Add an area to see it on the map." : missing.length || areaMapBusy ? "Looking up your ZIP codes" : "Type a 5 digit ZIP for an area and it appears here." }));
+  if (areaMapPlaces && areaMapPlaces.geocoder === false) kids.push(h("p", { class: "hint", text: "ZIP lookup is not installed, so the map cannot place your areas. Run setup.ps1 again to add it." }));
+  if (unknown.length) kids.push(h("p", { class: "hint", text: "These ZIP codes were not found: " + unknown.join(", ") }));
+  kids.push(h("p", { class: "hint", text: "Drawn to scale from your ZIP codes, with no outside map service. Stores come from the last store search (Stores near you > Find stores again, after saving). Faded stores are outside your areas or skipped." }));
+  box.replaceChildren(...kids);
 }
 
 function drawPlaces() {
@@ -1562,6 +1670,7 @@ async function mute(key, on) {
 function render() {
   if (!cfg) return;
   const y = window.scrollY;
+  viewSig = viewSigNow();
   $("view").replaceChildren(...views[tab]().flat(Infinity).filter((x) => x !== null && x !== undefined && x !== false));
   document.querySelectorAll("nav.rail button").forEach((b) => b.dataset.tab === tab ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
   counts();
@@ -1590,11 +1699,19 @@ function drawStrip() {
   }
 }
 
+function viewSigNow() { return !status ? "" : JSON.stringify(tab === "methods" ? [status.sessions, status.trials, status.trust, status.history] : tab === "accounts" ? [status.accounts, status.retailers, status.browser] : null); }
 async function poll() {
   try {
     status = await api("/api/status"); drawStrip();
     if (tab === "dash") drawDash();
-    if (tab === "methods" || tab === "accounts") render();
+    if (tab === "methods" || tab === "accounts") {
+      // Rebuild only when this tab's own numbers changed, and never while the person is selecting text or typing,
+      // so a refresh does not wipe a selection, a half-typed field or the scroll position.
+      const sig = viewSigNow();
+      const sel = window.getSelection && String(window.getSelection()).length > 0;
+      const typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) && $("view").contains(document.activeElement);
+      if (sig !== viewSig && !sel && !typing) { viewSig = sig; render(); }
+    }
     if (tab === "times" && status.history_total !== lastHistoryTotal) { lastHistoryTotal = status.history_total; loadPatterns(); }
     if (tab === "places" && placesData && status.places_total !== placesData.places.length) loadPlaces();
     counts();

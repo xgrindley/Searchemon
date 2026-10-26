@@ -1,5 +1,35 @@
 # Changelog
 
+## v3.6 (2026-10-26, test build, includes v3.5)
+- **Dark and light themes for the desktop window.** The window now opens in a dark violet theme that matches the control panel
+  (same ground, raised surfaces, violet accent and cyan for in stock), with a thin violet to cyan gradient line under the top bar.
+  Fields, tables, tabs, scrollbars, dropdowns, checkboxes, menus, the activity log and the block tracker all use the same tonal steps,
+  so nothing is a stark white box any more. **More > Appearance** switches between Dark, Light and Match Windows, and the choice is
+  remembered in data\gui-theme.txt. Text contrast is checked in tests for both themes.
+- **Status channel.** A second Discord webhook (`discord.webhooks.status`) gets everything that is not stock: sign-in lost, human
+  checks, blocked stores and recoveries, methods stopped automatically. Each kind has a switch in Notifications, with a cooldown.
+- **Areas map.** The Areas & radius page draws your areas, radius circles and nearby stores on a map that makes no outside requests.
+- **Control panel fits any window.** Wide tables scroll inside their box instead of being cut off, the side menu narrows for medium
+  windows and becomes a tab bar for small ones, rows and settings wrap, and the top strip no longer overflows or shows text through it.
+  Methods lab and Accounts no longer rebuild every 5 seconds: they refresh only when their numbers change, and never while you are
+  selecting text or typing, so the page stays still and responds faster.
+- **Faster, safe close.** Closing the app hides the window at once, tells every browser to close together instead of one after
+  another, and the store loops share one short wait (before: up to 5 seconds each). Saves still run, and a browser mid-page finishes
+  and closes cleanly.
+- **Runs quietly while you use the PC.** Browsers already sit off screen and never take focus (only sign-in does, when you ask).
+  The app now also runs at below-normal priority so games and calls get the CPU first (`power: low_priority`). Optional
+  `power: keep_awake: true` stops Windows sleeping while it runs.
+- Tests: tests\test_theme.py (contrast, saved choice, and painting a real window when a display is available).
+- Tests: tests\test_shutdown_speed.py (close speed, power settings), test_status.py.
+
+To test v3.6 (PowerShell):
+```
+cd "$HOME\Documents\poke-restock"
+Get-Content .\VERSION
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+`VERSION` should print 3.6. Close the running app first. The window should open dark. Try **More > Appearance > Light** and back.
+
 ## v3.5 (2026-10-26, test build, includes v3.4)
 - **No links needed for page stores.** CVS, GameStop, Costco, Sam's Club, Walgreens, Barnes & Noble, Books-A-Million and
   Safeway now search their own site for Pokemon products (the same automatic product list Target, Best Buy and the others

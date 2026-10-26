@@ -134,6 +134,7 @@ class PanelServer:
             "sessions": {"rows": m.tracker.rows() if m.tracker else [],
                          "profiles": browser.names() if browser else [],
                          "resting": browser.resting() if browser else []},
+            "trials": m.trials.snapshot() if m.trials else None,
             "history_total": len(m.history.events),
             "areas": [{"name": a.name, "zip": a.zip, "radius": a.radius, "lat": a.lat, "lon": a.lon,
                        "place": zip_place(a.zip)} for a in m.cfg.areas],

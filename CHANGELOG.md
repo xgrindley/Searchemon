@@ -1,5 +1,30 @@
 # Changelog
 
+## v2.1 (2026-10-25, test build)
+- New: trial methods. More ways of loading pages, tried one at a time per store so each can be traced.
+  For every store only one method runs at once. Each gets a slice of checks (default 20), the normal method
+  takes its turns too for a fair comparison, and a method a store blocks sits out for 90 minutes while the
+  normal method carries on. If a trial method is blocked, that same check is redone the normal way, so no
+  restock check is lost.
+- Five trial methods are built in, and three are on by default so each result is easy to read:
+  `direct-h2` (plain requests over HTTP/2), `browser-solo` (one steady browser profile instead of rotating)
+  and `browser-own` (your own Chrome only). Off by default and one switch away in the Methods lab:
+  `direct-warm` (arrive via the store front page with its cookies and Referer) and `browser-slow`
+  (rotating profiles at half the pace).
+- Two stealth methods, off by default (switch them on in the Methods lab): `direct-impersonate` sends plain
+  requests through curl_cffi so the TLS/HTTP2 handshake looks like Chrome's, and `browser-stealth` runs a
+  separate "stealth" browser profile on Patchright (Playwright with the automation markers removed; needs
+  Chrome installed). They are traced like the others. `browser-stealth` needs an app restart after it is
+  switched on. Their packages (`curl_cffi`, `patchright`) are in requirements.txt; run `.\setup.ps1` again.
+- Results show in the Methods lab next to the existing methods, a new "Trial methods" panel there lists each
+  method, where it came from, where it is running now and where it is resting, with a switch for each.
+- Every switch and block is also written to `data\trial-log.jsonl` so a run can be traced afterwards.
+- `config.yaml` can set `trials:` (`enabled`, `slice_checks`, `rest_minutes`, `active`, `stores`).
+- `direct-h2` needs one extra package, `httpx[http2]`. Run `.\setup.ps1` again, or install it by hand. Until
+  it is installed that method is skipped and the log says why.
+- Page loads for stores that use page checks are covered (Walmart, GameStop, Costco, Sam's, B&N, BAM, Amazon, Dick's,
+  Safeway, Raley's, Walgreens, CVS, Pokemon Center). API stores (Target, Best Buy, Kroger) are not changed.
+
 ## v2.0 (2026-10-25, stable release)
 - Declared stable by the owner. It is exactly test build v1.2 (saved as build/v1.2), with the version number
   changed to 2.0. Everything listed under v1.2 below is in it.

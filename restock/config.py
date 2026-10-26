@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from .geo import Area, build_areas
+from .trials import DEFAULTS as TRIAL_DEFAULTS
 from .util import normalize_text
 
 ALL_RETAILERS = ("bestbuy", "target", "kroger", "walmart", "pokemoncenter", "gamestop", "costco", "samsclub",
@@ -60,6 +61,8 @@ DEFAULTS: dict[str, Any] = {
         "notify_discord": False,
         "min_interval_seconds": 120,
     },
+    # Ways of loading pages that are tried one at a time per store and traced in the Methods lab.
+    "trials": copy.deepcopy(TRIAL_DEFAULTS),
     "schedule": {
         "learn_from_history": True,
         "fast_factor": 0.5,

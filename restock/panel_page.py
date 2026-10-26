@@ -443,6 +443,36 @@ const field = (label, input, hint, wide) => h("label", { class: "f" + (wide ? " 
 function setting(title, desc, control) { return h("div", { class: "setting" }, h("div", { class: "t" }, h("b", { text: title }), desc ? h("span", { text: desc }) : null), control); }
 function move(arr, i, d) { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; touch(); render(); }
 
+
+function trialPanel(tri) {
+  cfg.trials = cfg.trials || {};
+  cfg.trials.active = cfg.trials.active || [];
+  const t = cfg.trials;
+  const where = {};
+  Object.entries(tri.current || {}).forEach(([store, arm]) => { (where[arm] = where[arm] || []).push(store); });
+  const resting = {};
+  (tri.resting || []).forEach((r) => { (resting[r.arm] = resting[r.arm] || []).push(r.store + " (" + r.minutes + " min)"); });
+  const rows = (tri.arms || []).map((a) => h("div", { class: "setting" },
+    h("div", { class: "t" },
+      h("b", { text: a.label + (a.control ? " (normal method, always in the rotation)" : "") }),
+      h("span", { text: a.idea }),
+      h("span", { text: "Idea from: " + a.source }),
+      a.unavailable ? h("span", { style: "color:var(--warn)", text: "Cannot run yet: " + a.unavailable }) : null,
+      where[a.key] ? h("span", { text: "In use now at: " + where[a.key].join(", ") }) : null,
+      resting[a.key] ? h("span", { style: "color:var(--warn)", text: "Resting after a block at: " + resting[a.key].join(", ") }) : null),
+    a.control ? h("span", { class: "hint", text: a.family === "browser" ? "browser stores" : "plain-request stores" })
+      : h("label", { class: "switch" }, h("input", { type: "checkbox", checked: t.active.includes(a.key), "aria-label": "Try " + a.label,
+          onchange: (e) => { t.active = e.target.checked ? [...new Set([...t.active, a.key])] : t.active.filter((x) => x !== a.key); touch(); } }), "Try it")));
+  return h("div", {},
+    h("div", { class: "settings-list" },
+      setting("Run trials", "Off keeps every store on its normal method only.", sw(t, "enabled", "")),
+      setting("Checks per turn", "How many checks a method gets before the next one takes over.",
+        h("input", { type: "number", min: "5", max: "200", value: String(t.slice_checks || 20), "aria-label": "Checks per turn",
+          oninput: (e) => { t.slice_checks = Math.max(5, Number(e.target.value) || 20); touch(); } }))),
+    h("div", { class: "settings-list", style: "margin-top:12px" }, rows),
+    h("p", { class: "hint", text: "Turn on only a few at a time so each result is easy to read. Changes apply after you save. A full trace of every switch and block is kept in data\\trial-log.jsonl." }));
+}
+
 /* ---------- views ---------- */
 const views = {
   dash() {
@@ -667,7 +697,10 @@ const views = {
       m.checks += r.checks; m.blocks += r.blocks; m.streak += r.streak; m.best = Math.max(m.best, r.best); });
     const methods = Object.values(by).map((m) => Object.assign(m, { per: m.blocks ? m.checks / m.blocks : null }))
       .sort((a, b) => (b.per === null ? 1e9 + b.checks : b.per) - (a.per === null ? 1e9 + a.checks : a.per));
-    const label = (m) => m === "direct" ? "Plain requests" : m === "pool" ? "Browser pool" : "Browser: " + m;
+    const tri = (status && status.trials) || { arms: [], current: {}, resting: [], enabled: false, slice_checks: 20 };
+    const armName = {};
+    (tri.arms || []).forEach((a) => { armName[a.key] = a.label; });
+    const label = (m) => armName[m] || (m === "direct" ? "Plain requests" : m === "pool" ? "Browser pool" : "Browser: " + m);
     const totalChecks = methods.reduce((t, m) => t + m.checks, 0), totalBlocks = methods.reduce((t, m) => t + m.blocks, 0);
     const top = methods.find((m) => m.checks >= 5) || methods[0];
     const maxPer = Math.max(1, ...methods.map((m) => m.per === null ? m.checks : m.per));
@@ -708,6 +741,9 @@ const views = {
       ] : h("div", { class: "panel empty", text: "No checks recorded yet. Numbers appear once the monitor has run for a few minutes." }),
       (ses.resting || []).length ? [h("h2", { text: "Resting right now" }), h("div", { class: "panel" }, h("ul", { class: "feed" },
         ses.resting.map((r) => h("li", {}, h("b", { text: r.profile }), " on " + r.site + ": back in about " + (r.minutes >= 90 ? Math.round(r.minutes / 60) + " h" : r.minutes + " min")))))] : null,
+      h("h2", { text: "Trial methods" }),
+      h("p", { class: "lede", text: "Extra ways of loading pages, tried one at a time so each can be traced. For every store only one method runs at once: each gets a slice of " + tri.slice_checks + " checks, the normal method takes its turns too for a fair comparison, and a method a store blocks sits out for a while. Results land in the tables above." }),
+      trialPanel(tri),
       h("h2", { text: "Profiles and tests" }),
       h("div", { class: "card" }, h("div", { class: "card-body" }, h("div", { class: "wide" },
         h("p", { style: "margin:0 0 8px", text: "Active browser profiles: " + ((ses.profiles || []).join(", ") || "none") + ". Add or change them in config.yaml under browser: profiles, then restart the app." }),

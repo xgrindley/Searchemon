@@ -164,9 +164,19 @@ class Retailer:
         self._raise(info, _retry_after(resp) if info.kind == "rate_limit" else None)
         raise AssertionError("unreachable")
 
-    def _via_browser(self, url: str) -> FetchResult:
+    def post_via_browser(self, url: str, payload: dict, referer: str = "") -> FetchResult:
+        """POST JSON from inside the store's own page in the checking browser (needed where
+        a plain request is refused)."""
+        if not (self.browser and self.browser.usable):
+            raise Blocked(f"{self.display}: needs the checking browser, which is off", 1800)
+        return self._via_browser(url, post=payload, referer=referer)
+
+    def _via_browser(self, url: str, post: dict | None = None, referer: str = "") -> FetchResult:
         try:
-            res = self.browser.fetch(url)  # type: ignore[union-attr]
+            if post is None:
+                res = self.browser.fetch(url)  # type: ignore[union-attr]
+            else:
+                res = self.browser.fetch(url, post=post, referer=referer)  # type: ignore[union-attr]
         except BrowserUnavailable as exc:
             raise Blocked(f"{self.display}: {exc}", 1800) from exc
         self.last_via = "browser"

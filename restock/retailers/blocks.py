@@ -20,7 +20,11 @@ _STRONG = (
     ("PerimeterX", ("px-captcha", "perimeterx", "press &amp; hold", "press & hold", "_pxhd")),
     ("Imperva", ("_incapsula_resource", "incapsula incident", "blocked by our security service",
                  "powered by imperva", "imperva.com/")),
-    ("Cloudflare", ("cf-chl-", "/cdn-cgi/challenge-platform", "cf_chl_opt")),
+    # Cloudflare also adds a harmless "/cdn-cgi/challenge-platform/.../jsd/main.js" script to
+    # ordinary pages it protects (GameStop's among them), so only the markers that appear on a
+    # real challenge page count here.
+    ("Cloudflare", ("cf_chl_opt", "orchestrate/chl_page", "cf-browser-verification", "challenge-error-text",
+                    "checking your browser before accessing", "<title>just a moment...")),
     ("DataDome", ("captcha-delivery.com", "geo.captcha-delivery")),
     ("Amazon", ("/errors/validatecaptcha", "api-services-support@amazon.com", "enter the characters you see below")),
     ("Akamai", ("errors.edgesuite.net", "sec-if-cpt-container", "akamai bot manager")),
@@ -41,6 +45,7 @@ class BlockInfo:
     kind: str            # "rate_limit", "challenge", "denied", "queue"
     needs_human: bool    # a CAPTCHA or press-and-hold that only a person should solve
     retry_after: float = 0   # seconds the site itself asked us to wait, when it says so
+    hint: str = ""           # a plain-words next step shown with the message
 
     @property
     def hard(self) -> bool:
@@ -58,6 +63,8 @@ class BlockInfo:
             msg += f". It asked for a wait of about {self.retry_after / 3600:.0f} hours"
         if self.hard:
             msg += ". This kind of block usually lifts within a few hours to a day"
+        if self.hint:
+            msg += f". {self.hint}"
         return msg
 
 
@@ -99,12 +106,14 @@ def classify(status: int, text: str, headers: dict | None = None) -> BlockInfo |
         if any(m in low for m in marks):
             vendor = name
             break
+    on_page = vendor is not None
     if vendor is None and len(low) < 20000 and not any(h in low for h in _PRODUCT_HINTS):
         for name, marks in _WEAK:
             if any(m in low for m in marks) and status >= 400:
                 vendor = name
                 break
-    if vendor is None:
+    if vendor is None and status >= 400:
+        # The Server header alone only says who hosts the site. On a normal 200 page it proves nothing.
         server = headers.get("server", "").lower()
         if "akamai" in server or "akamaighost" in server:
             vendor = "Akamai"
@@ -118,7 +127,7 @@ def classify(status: int, text: str, headers: dict | None = None) -> BlockInfo |
                                         "verify you are"))
         if vendor == "Imperva" and not human and ("error 15" in low or "blocked by our security service" in low):
             return BlockInfo(vendor, "denied", False)
-        return BlockInfo(vendor, "challenge" if (human or status != 403) else "denied", human)
+        return BlockInfo(vendor, "challenge" if (human or status != 403 or (vendor == "Cloudflare" and on_page)) else "denied", human)
     if status in (401, 403):
         return BlockInfo(vendor or "Generic", "denied", False)
     return None

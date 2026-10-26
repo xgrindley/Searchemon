@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.2 (2026-10-25, test build)
+- Fixed a false "wants a quick human check" on GameStop. Cloudflare adds a harmless script
+  (`/cdn-cgi/challenge-platform/.../jsd/main.js`) to ordinary pages it protects, and the app took it for a
+  challenge. Only markers that appear on a real challenge page count now, and a "Server: cloudflare" or
+  Akamai header alone no longer marks a normal 200 page as blocked.
+- GameStop now tries your own Chrome first (added to `browser.own_chrome_sites`; built in, so an old
+  config.yaml picks it up too). Run start-my-chrome.ps1 and leave that window open.
+- GameStop store stock by area (experimental): with in-store checking on, each GameStop product link is also
+  checked for pickup stock around every area ZIP and radius, and stores with stock alert like Target's.
+  GameStop does not publish this lookup, so two likely request shapes are tried and the one that answers is
+  remembered. If neither is readable the app logs it once and saves the answer to data\debug.
+- CVS store counts by area: CVS's own "Check more stores" list returns the shelf count for every store
+  around a ZIP (for example 5 at one store, 1 at another). With in-store checking on, each CVS product
+  link is asked about every area ZIP through your own Chrome, stores inside the area radius with stock
+  alert, and the count and pickup flag are shown. It uses the same request CVS's website makes (found by
+  watching the page); `retailers.cvs.api_key` can override the site key if CVS changes it.
+- Safeway: no counts found. Safeway only shows in stock or out of stock for your chosen store, so the app
+  keeps checking that.
+
+## v1.1 (2026-10-25, test build)
+- Your own Chrome now joins while the app is running: start it with start-my-chrome.ps1 at any time and
+  checks pick it up within about 15 seconds. No restart needed. If you close it, it is forgotten and
+  rejoins when it is running again.
+- When CVS or Dick's refuse the app's own browsers and your Chrome is not running, the message now
+  says so and names start-my-chrome.ps1, instead of only "refused the request".
 ## v1.0 (2026-10-25, first stable release)
 - Declared stable by the owner. It is exactly test build v0.6 (saved as build/v0.6), with the version number
   changed to 1.0. Everything listed under v0.1 to v0.6 below is in it.

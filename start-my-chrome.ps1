@@ -5,7 +5,8 @@
 # Stores like CVS and Dick's refuse the monitor's own automated browsers but usually accept an
 # ordinary Chrome. This opens a normal Chrome window with its own profile (kept in data\my-chrome),
 # so your everyday Chrome, passwords and history are never touched. Leave the window open
-# (minimizing is fine), then start or restart the monitor. It notices this Chrome by itself.
+# (minimizing is fine). The monitor notices this Chrome by itself within seconds, whether it was
+# started before or after the monitor.
 param([int]$Port = 9222)
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
@@ -25,7 +26,6 @@ if (-not $chrome) {
 try {
     $null = Invoke-WebRequest "http://127.0.0.1:$Port/json/version" -UseBasicParsing -TimeoutSec 2
     Write-Host "Your monitor Chrome is already running on port $Port." -ForegroundColor Green
-    Write-Host "If the monitor was started before it, restart the monitor so it picks it up."
     exit 0
 } catch { }
 
@@ -44,7 +44,7 @@ for ($i = 0; $i -lt 20; $i++) {
     try {
         $null = Invoke-WebRequest "http://127.0.0.1:$Port/json/version" -UseBasicParsing -TimeoutSec 2
         Write-Host "Chrome is ready on port $Port (this PC only)." -ForegroundColor Green
-        Write-Host "Leave it open, then start the monitor:  powershell -ExecutionPolicy Bypass -File .\run.ps1"
+        Write-Host "Leave it open. The monitor picks it up within seconds (start the monitor with .\run.ps1 if it is not running)."
         exit 0
     } catch { }
 }

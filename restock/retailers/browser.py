@@ -11,6 +11,7 @@ API is not thread-safe. Retailer threads hand it jobs and wait for results.
 """
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import logging
 import os
@@ -87,6 +88,8 @@ def _force_foreground(hint: str) -> None:
         pass
 
 OWN_CHROME = "my-chrome"
+# Stores that always try your own Chrome first (added to browser.own_chrome_sites).
+DEFAULT_OWN_SITES = ("cvs.com", "dickssportinggoods.com", "gamestop.com")
 
 
 def _port_open(port: int) -> bool:
@@ -143,8 +146,14 @@ class BrowserWorker:
                 for d, p in list(self.pending.items())]
 
     # ---- public API (any thread) ---------------------------------------------------
-    def fetch(self, url: str, timeout: float = 120, ask: bool = True) -> FetchResult:
-        res = self._submit(lambda: self._fetch(url, ask), timeout)
+    def fetch(self, url: str, timeout: float = 120, ask: bool = True, post: dict | None = None,
+              referer: str = "") -> FetchResult:
+        """Load a page. With `post`, send that JSON to `url` from inside a page on the same site
+        (so the site's own cookies and session go with it) and return the answer."""
+        if post is not None:
+            res = self._submit(lambda: self._post(url, post, referer, ask), timeout)
+        else:
+            res = self._submit(lambda: self._fetch(url, ask), timeout)
         res.profile = self.name
         return res
 
@@ -326,6 +335,33 @@ class BrowserWorker:
         self.pages[domain] = page
         return page
 
+    def _post(self, url: str, payload: dict, referer: str, ask: bool = True) -> FetchResult:
+        """POST JSON from a page on the store's own site, the way the site's own scripts do."""
+        domain = urlsplit(url).netloc.lower()
+        if domain in self.pending:
+            return self._fetch(referer or url, ask)       # a person is still being asked to verify
+        gap = max(SAME_SITE_GAP_S, self.link_gap()) - (time.time() - self.last_load.get(domain, 0))
+        if gap > 0:
+            time.sleep(gap)
+        page = self._page_for(domain)
+        if urlsplit(page.url).netloc.lower() != domain:
+            page.goto(referer or f"https://{domain}/", wait_until="domcontentloaded", timeout=45000)
+            try:
+                page.wait_for_load_state("load", timeout=10000)
+            except Exception:
+                pass
+        out = page.evaluate(
+            """async ([u, body]) => {
+                 const r = await fetch(u, {method: 'POST', credentials: 'include',
+                   headers: {'accept': 'application/json', 'content-type': 'application/json'},
+                   body: JSON.stringify(body)});
+                 return {status: r.status, text: await r.text()};
+               }""", [url, payload])
+        self.last_load[domain] = time.time()
+        status, text = int(out.get("status") or 0), out.get("text") or ""
+        info = classify(status, text) if status >= 400 or text.lstrip().startswith("<") else None
+        return FetchResult(status, text, url, info, via=self.name)
+
     def _fetch(self, url: str, ask: bool = True) -> FetchResult:
         domain = urlsplit(url).netloc.lower()
         now = time.time()
@@ -461,6 +497,10 @@ class BrowserPool:
                  on_human=None, on_verified=None, tracker=None):
         self._raw = raw_cfg
         self._bcfg = raw_cfg.get("browser") or {}
+        self._data_dir = data_dir
+        self._on_human, self._on_verified = on_human, on_verified
+        self._own_looked = 0.0
+        self._attach_lock = threading.Lock()
         self.log = log
         self.tracker = tracker
         self.rest: dict[tuple[str, str], float] = {}
@@ -545,18 +585,53 @@ class BrowserPool:
         return [{"profile": p, "site": d, "minutes": int((t - now) / 60) + 1}
                 for (p, d), t in self.rest.items() if t > now]
 
+    # ---- your own Chrome ---------------------------------------------------------------
+    def _own_chrome_sites(self) -> list[str]:
+        mine = [str(x).lower() for x in (self.bcfg.get("own_chrome_sites") or [])]
+        return mine + [d for d in DEFAULT_OWN_SITES if d not in mine]
+
+    def _uses_own_chrome(self, site: str) -> bool:
+        return any(site == x or site.endswith("." + x) for x in self._own_chrome_sites())
+
+    def _maybe_attach_own_chrome(self) -> None:
+        """If you start your own Chrome after the app is already running, join it here, so
+        nothing needs restarting. Looks at most every 15 seconds."""
+        port = int(self.bcfg.get("own_chrome_port") or 0)
+        with self._attach_lock:
+            now = time.time()
+            if not port or now - self._own_looked < 15:
+                return
+            # A Chrome that was closed leaves a dead entry behind; drop it so a new one can join.
+            self.workers = [w for w in self.workers if not (getattr(w, "cdp_url", "") and w.failed)]
+            if any(getattr(w, "cdp_url", "") for w in self.workers):
+                return
+            self._own_looked = now
+            if not _port_open(port):
+                return
+            self._attach_own(port)
+
+    def _attach_own(self, port: int) -> None:
+        worker = BrowserWorker(
+            self._raw, self._data_dir, self.log, self._on_human, self._on_verified, name=OWN_CHROME,
+            cdp_url=f"http://127.0.0.1:{port}", profile_dir=os.path.join(self._data_dir, "browser-profiles", OWN_CHROME))
+        worker.on_reopen = self.on_reopen
+        self.workers.append(worker)
+        self.log.info("Your own Chrome is running on port %d, so it joined the checking browsers", port)
+
     # ---- checking -------------------------------------------------------------------
-    def fetch(self, url: str, timeout: float = 120) -> FetchResult:
+    def fetch(self, url: str, timeout: float = 120, post: dict | None = None, referer: str = "") -> FetchResult:
         domain = urlsplit(url).netloc.lower()
         site = domain.removeprefix("www.")
+        extra = {"post": post, "referer": referer} if post is not None else {}
         now = time.time()
+        self._maybe_attach_own_chrome()
         live = [w for w in self.workers if w.usable]
         if not live:
             raise BrowserUnavailable(self.failed or "Browser checking is off or Playwright is not installed")
         start = self.cursor.get(domain, 0) % len(live)
         order = live[start:] + live[:start]
         mine = [w for w in live if getattr(w, "cdp_url", "")]
-        sites = [str(x).lower() for x in (self.bcfg.get("own_chrome_sites") or [])]
+        sites = self._own_chrome_sites()
         if mine and any(site == x or site.endswith("." + x) for x in sites):
             order = mine + [w for w in order if w not in mine]
         ready = [w for w in order if self.rest.get((w.name, domain), 0) <= now
@@ -564,7 +639,16 @@ class BrowserPool:
         waiting = [w for w in order if any(p["domain"] == domain for p in w.waiting_domains())]
         last: FetchResult | None = None
         for n, w in enumerate(ready):
-            res = w.fetch(url, timeout, ask=(n == len(ready) - 1 and not waiting))
+            try:
+                res = w.fetch(url, timeout, ask=(n == len(ready) - 1 and not waiting), **extra)
+            except Exception as exc:
+                if not getattr(w, "cdp_url", ""):
+                    raise
+                # Your own Chrome was closed or went away. Forget it; it rejoins when it is running again.
+                w.failed = f"Your own Chrome is not reachable: {str(exc).splitlines()[0][:100]}"
+                self.log.info("Your own Chrome stopped answering (%s); it rejoins when it is running again",
+                              str(exc).splitlines()[0][:80])
+                continue
             last = res
             blocked = bool(res.block and res.block.kind != "queue")
             if self.tracker:
@@ -579,13 +663,19 @@ class BrowserPool:
             self.rest[(w.name, domain)] = time.time() + rest
             self.log.info("%s: profile '%s' was blocked (%s); resting it for %d min and trying another",
                           site, w.name, res.block.message(site), rest // 60)
+        need_own = self._uses_own_chrome(site) and not any(getattr(w, "cdp_url", "") for w in live)
+        tip = ("This store usually allows your own Chrome. Start it with start-my-chrome.ps1 "
+               "and checks join it within seconds") if need_own else ""
         if last is not None:
+            if tip and last.block is not None:
+                last.block = dataclasses.replace(last.block, hint=tip)
             return last
         # Every profile is resting or waiting on a person: report the soonest return.
         if waiting:
-            return waiting[0].fetch(url, timeout)
-        soonest = min(t for (p, d), t in self.rest.items() if d == domain) - now
-        return FetchResult(0, "", url, BlockInfo("Generic", "rate_limit", False, retry_after=max(60, soonest)),
+            return waiting[0].fetch(url, timeout, **extra)
+        rests = [t for (p, d), t in self.rest.items() if d == domain]
+        soonest = (min(rests) - now) if rests else 60
+        return FetchResult(0, "", url, BlockInfo("Generic", "rate_limit", False, retry_after=max(60, soonest), hint=tip),
                            via="pool")
 
     def show_window(self) -> None:

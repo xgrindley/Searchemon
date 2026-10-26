@@ -131,10 +131,10 @@ browser:
     # Attach to a Chrome you started yourself (real signed-in profile). Start it with:
     #   chrome.exe --remote-debugging-port=9222 --user-data-dir="C:\chrome-restock"
     # - {name: my-chrome, cdp_url: "http://127.0.0.1:9222"}
-  # Your own Chrome. Run start-my-chrome.ps1, then start (or restart) the app: it notices Chrome
-  # on this port and uses it first for the stores below. Set the port to 0 to turn this off.
+  # Your own Chrome. Run start-my-chrome.ps1: the app notices Chrome on this port (even while it is
+  # running) and uses it first for the stores below. Set the port to 0 to turn this off.
   own_chrome_port: 9222
-  own_chrome_sites: [cvs.com, dickssportinggoods.com]
+  own_chrome_sites: [cvs.com, dickssportinggoods.com, gamestop.com]
   tabs_per_site: 3             # a store's pages rotate through this many tabs (1 to 6)
   show_window: false           # false keeps it off screen until a store needs you
   headless: false              # headless gets blocked more often; leave false

@@ -53,10 +53,10 @@ DEFAULTS: dict[str, Any] = {
         "tabs_per_site": 3,
         "headless": False,
         "ask_me_to_verify": True,
-        # Your own Chrome, started with start-my-chrome.ps1. When it is running at launch it joins
+        # Your own Chrome, started with start-my-chrome.ps1. Whenever it is running it joins
         # the profiles and gets these stores first, since a real Chrome is refused least.
         "own_chrome_port": 9222,
-        "own_chrome_sites": ["cvs.com", "dickssportinggoods.com"],
+        "own_chrome_sites": ["cvs.com", "dickssportinggoods.com", "gamestop.com"],
         "notify_discord": False,
         "min_interval_seconds": 120,
     },

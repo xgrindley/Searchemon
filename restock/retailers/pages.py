@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import html as htmllib
 import json
+import random
 import re
 from urllib.parse import urlsplit
 
@@ -224,11 +225,144 @@ class PokemonCenter(WebPage):
         return [{"kind": "queue", "site": self.name, "display": self.display, "active": active, "url": self.HOME}]
 
 
+_GS_BASE = "https://www.gamestop.com/on/demandware.store/Sites-gamestop-us-Site/default/"
+# GameStop does not publish its store-stock call, so a few likely shapes are tried in turn and the
+# first one that returns store rows is remembered. If none is readable, the response is saved
+# to data\\debug so the reader can be adjusted.
+_GS_ENDPOINTS = (
+    _GS_BASE + "Stores-FindStores?showMap=false&radius={radius}&postalCode={zip}&products={pid}:1",
+    _GS_BASE + "Stores-InventorySearch?pid={pid}&radius={radius}&postalCode={zip}&showMap=false",
+)
+_GS_ID = ("storeId", "storeID", "storeNumber", "ID", "id")
+_GS_QTY = ("storeQuantity", "quantity", "availableQuantity", "ats", "inventory", "qty")
+_GS_FLAG = ("inStockAtStore", "inStock", "available", "isAvailable")
+_GS_OUT = ("out_of_stock", "outofstock", "not_available", "unavailable", "none", "sold_out")
+
+
+def gamestop_product_id(ident: str) -> str:
+    m = re.search(r"/(\d{4,})(?:\.html)?(?:[/?#]|$)", ident)
+    return m.group(1) if m else (ident if ident.isdigit() else "")
+
+
+def _pick(node: dict, keys) -> object:
+    for k in keys:
+        if node.get(k) not in (None, ""):
+            return node[k]
+    return None
+
+
+def json_from_page(text: str):
+    """A JSON answer loaded in a browser arrives wrapped in a page; pull the JSON back out."""
+    body = htmllib.unescape(TAGS.sub("", text or "")).strip()
+    for a, b in (("{", "}"), ("[", "]")):
+        i, j = body.find(a), body.rfind(b)
+        if 0 <= i < j:
+            try:
+                return json.loads(body[i:j + 1])
+            except ValueError:
+                continue
+    return None
+
+
+def parse_gamestop_stores(data, area_name: str = "") -> list:
+    """Store rows with stock out of whatever shape GameStop answers with. A row counts when it has
+    a store number and says there is stock (a count above zero, a yes flag, or a level word)."""
+    from ..models import StoreStock
+    found: dict[str, StoreStock] = {}
+    for node in _walk(data):
+        sid = _pick(node, _GS_ID)
+        if sid is None or isinstance(sid, (dict, list)):
+            continue
+        qty_raw = _pick(node, _GS_QTY)
+        flag = _pick(node, _GS_FLAG)
+        level_raw = _pick(node, ("stockLevel", "availabilityStatus", "availability", "status"))
+        if qty_raw is None and flag is None and level_raw is None:
+            continue
+        try:
+            qty = int(float(qty_raw)) if qty_raw is not None else None
+        except (TypeError, ValueError):
+            qty = None
+        level = normalize_text(str(level_raw or "")).replace(" ", "_")
+        if qty is not None and qty > 0:
+            ok = True
+        elif flag is not None:
+            ok = str(flag).lower() in ("true", "1", "yes", "y")
+        else:
+            ok = bool(level) and not any(o in level for o in _GS_OUT) and any(
+                w in level for w in ("in_stock", "instock", "low", "limited", "available", "orderable"))
+        if not ok:
+            continue
+        addr = node.get("storeAddress") or node.get("address") or node.get("address1") or ""
+        if isinstance(addr, dict):
+            addr = addr.get("address1") or addr.get("street") or ""
+        dist = _pick(node, ("storeDistanceMiles", "distance", "distanceMiles"))
+        try:
+            dist = float(dist) if dist is not None else None
+        except (TypeError, ValueError):
+            dist = None
+        zip_ = str(_pick(node, ("storeZip", "postalCode", "zip", "zipCode")) or "")[:5]
+        lat, lon = _pick(node, ("latitude", "lat")), _pick(node, ("longitude", "lng", "lon"))
+        found[str(sid)] = StoreStock(
+            store_id=str(sid),
+            name=str(_pick(node, ("storeName", "name")) or f"GameStop {sid}"),
+            distance=dist, qty=qty if qty and qty > 0 else None,
+            address=str(addr).split(",")[0],
+            pickup=True if _pick(node, ("pickupEligible", "inStorePickup")) in (True, "true", 1) else None,
+            zip=zip_, lat=float(lat) if lat not in (None, "") else None,
+            lon=float(lon) if lon not in (None, "") else None,
+            level="low" if "low" in level else "", via_area=area_name, chain="gamestop")
+    return list(found.values())
+
+
 class GameStop(WebPage):
     name = "gamestop"
     display = "GameStop"
     domains = ("gamestop.com",)
     own_seller_names = ("gamestop",)
+    supports_in_store = True
+    _store_ep = -1             # which entry of _GS_ENDPOINTS worked
+    _warned_stores = False
+
+    def store_stock(self, pid: str) -> list:
+        allowed = {str(s) for s in self.rcfg.get("store_ids") or [] if str(s).strip()}
+        found: dict[str, object] = {}
+        tried_any = False
+        for area in self.areas:
+            order = ([self._store_ep] if self._store_ep >= 0 else []) + [
+                i for i in range(len(_GS_ENDPOINTS)) if i != self._store_ep]
+            for i in order:
+                url = _GS_ENDPOINTS[i].format(zip=area.zip, radius=int(area.radius), pid=pid)
+                resp = self.fetch_html(url)
+                tried_any = True
+                data = json_from_page(resp.text)
+                rows = parse_gamestop_stores(data, area.name) if data is not None else []
+                has_rows = any(isinstance(n, dict) and _pick(n, _GS_ID) is not None for n in _walk(data)) if data is not None else False
+                if rows or has_rows:
+                    self._store_ep = i
+                    for r in rows:
+                        if allowed and r.store_id not in allowed:
+                            continue
+                        prev = found.get(r.store_id)
+                        if prev is None or (r.distance or 999) < (prev.distance or 999):
+                            found[r.store_id] = r
+                    break
+                self.pause(1.0)
+            self.pause(self.link_delay())
+        if tried_any and self._store_ep < 0 and not self._warned_stores:
+            self._warned_stores = True
+            self.log.warning("GameStop store stock: no readable answer from GameStop's store lookup. "
+                             "Saved the last response to data\\debug so the reader can be adjusted.")
+            self.dump(f"stores_{pid}", resp.text[:200000], force=True)
+        return sorted(found.values(), key=lambda s: s.distance if s.distance is not None else 999)
+
+    def check_ids(self, ids: list[str], in_store: bool) -> dict[str, StockResult]:
+        out = super().check_ids(ids, in_store)
+        if in_store and self.in_store_enabled():
+            for ident, res in out.items():
+                pid = gamestop_product_id(ident)
+                if pid:
+                    res.stores = self.store_stock(pid)
+        return out
 
 
 class Costco(WebPage):
@@ -356,8 +490,60 @@ class Walgreens(WebPage):
         return f"https://www.walgreens.com/store/c/-/ID={pid}-product"
 
 
+_CVS_STOCK_URL = "https://www.cvs.com/RETAGPV3/Inventory/V1/getStoreDetailsAndInventory"
+# The key CVS's own web page sends with every store lookup. It is the same for every visitor;
+# retailers.cvs.api_key overrides it if CVS ever changes it.
+_CVS_PUBLIC_KEY = "a2ff75c6-2da7-4299-929d-d670d827ab4a"
+
+
+def cvs_product_id(ident: str) -> str:
+    m = re.search(r"prodid-(\d+)", ident)
+    return m.group(1) if m else (ident if ident.isdigit() else "")
+
+
+def cvs_stock_request(pid: str, zip_code: str, api_key: str = _CVS_PUBLIC_KEY) -> dict:
+    return {"getStoreDetailsAndInventoryRequest": {
+        "header": {"apiKey": api_key, "channelName": "WEB", "deviceToken": "%016x" % random.getrandbits(64),
+                   "deviceType": "DESKTOP", "responseFormat": "JSON", "securityType": "apiKey",
+                   "source": "CVS_WEB", "appName": "CVS_WEB", "lineOfBusiness": "RETAIL", "type": "rdp"},
+        "productId": pid, "geolatitude": "", "geolongitude": "", "addressLine": zip_code}}
+
+
+def parse_cvs_stores(data, area_name: str = "", radius: float | None = None) -> list:
+    """Stores with stock out of CVS's nearby-store answer: shelf count, pickup and distance per store."""
+    from ..models import StoreStock
+    rows = data.get("atgResponse") if isinstance(data, dict) else None
+    out = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        try:
+            qty = int(r.get("Qty") or 0)
+        except (TypeError, ValueError):
+            qty = 0
+        in_stock = qty > 0 or str(r.get("bohStatus", "")).lower() == "in stock"
+        try:
+            dist = float(r.get("dt")) if r.get("dt") not in (None, "") else None
+        except (TypeError, ValueError):
+            dist = None
+        if not in_stock or (radius and dist is not None and dist > radius):
+            continue
+        try:
+            pick_qty = int((r.get("bopus") or {}).get("Qty") or 0)
+        except (TypeError, ValueError):
+            pick_qty = 0
+        city = str(r.get("City") or "").title()
+        out.append(StoreStock(
+            store_id=str(r.get("storeId") or ""), name=f"CVS {city}".strip(), distance=dist,
+            qty=qty if qty > 0 else None, address=str(r.get("storeAddress") or "").title(),
+            pickup=pick_qty > 0, zip=str(r.get("Zipcode") or "")[:5], via_area=area_name, chain="cvs",
+            level="low" if 0 < qty <= 2 else ""))
+    return [x for x in out if x.store_id]
+
+
 class CVS(WebPage):
-    """CVS online listing. Accepts a full product URL or the numeric prodid."""
+    """CVS online listing, plus shelf counts at stores around your area ZIPs. Accepts a full
+    product URL or the numeric prodid."""
     name = "cvs"
     display = "CVS"
     domains = ("cvs.com",)
@@ -366,6 +552,45 @@ class CVS(WebPage):
         if ident.startswith("http"):
             return ident
         return f"https://www.cvs.com/shop/-prodid-{ident.removeprefix('prodid-')}"
+
+    supports_in_store = True
+    _warned_stores = False
+
+    def store_stock(self, pid: str, referer: str) -> list:
+        allowed = {str(x) for x in self.rcfg.get("store_ids") or [] if str(x).strip()}
+        key = str(self.rcfg.get("api_key") or _CVS_PUBLIC_KEY)
+        found: dict[str, object] = {}
+        for area in self.areas:
+            resp = self.post_via_browser(_CVS_STOCK_URL, cvs_stock_request(pid, area.zip, key), referer)
+            data = None
+            try:
+                data = json.loads(resp.text)
+            except ValueError:
+                pass
+            if not isinstance(data, dict) or "atgResponse" not in data:
+                if not self._warned_stores:
+                    self._warned_stores = True
+                    self.log.warning("CVS store stock: unreadable answer for ZIP %s (status %s). Saved it to data\\debug.",
+                                     area.zip, resp.status)
+                    self.dump(f"stores_{pid}", resp.text[:100000], force=True)
+                continue
+            for r in parse_cvs_stores(data, area.name, area.radius):
+                if allowed and r.store_id not in allowed:
+                    continue
+                prev = found.get(r.store_id)
+                if prev is None or (r.distance or 999) < (prev.distance or 999):
+                    found[r.store_id] = r
+            self.pause(self.link_delay())
+        return sorted(found.values(), key=lambda x: x.distance if x.distance is not None else 999)
+
+    def check_ids(self, ids: list[str], in_store: bool) -> dict[str, StockResult]:
+        out = super().check_ids(ids, in_store)
+        if in_store and self.in_store_enabled():
+            for ident, res in out.items():
+                pid = cvs_product_id(ident)
+                if pid:
+                    res.stores = self.store_stock(pid, res.url)
+        return out
 
 
 SITE_CLASSES = (PokemonCenter, GameStop, Costco, SamsClub, BarnesAndNoble, BooksAMillion, Amazon, DicksSportingGoods,

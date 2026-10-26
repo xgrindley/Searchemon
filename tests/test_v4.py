@@ -353,3 +353,51 @@ class TabsDelayVersionTests(unittest.TestCase):
         self.assertEqual(version_label("1.1"), "v1.1 test build")
         self.assertEqual(version_label("2.0"), "v2.0 stable")
         self.assertEqual(version_label(""), "")
+
+
+class OwnChromeJoinTests(unittest.TestCase):
+    def pool(self, *workers, port=9222):
+        with tempfile.TemporaryDirectory() as d:
+            p = BrowserPool({"browser": {"profiles": [{"name": "a"}], "own_chrome_port": port,
+                                         "own_chrome_sites": ["cvs.com"]}}, d, LOG, tracker=BlockTracker(d))
+        p.workers = list(workers)
+        return p
+
+    def test_own_chrome_started_later_joins_without_a_restart(self):
+        from unittest import mock
+        a = FakeWorker("a")
+        p = self.pool(a)
+        with mock.patch("restock.retailers.browser._port_open", return_value=True):
+            p._maybe_attach_own_chrome()
+            p._own_looked = 0
+            p._maybe_attach_own_chrome()      # already joined: no second copy
+        self.assertEqual([w.name for w in p.workers], ["a", "my-chrome"])
+        self.assertEqual(p.workers[1].cdp_url, "http://127.0.0.1:9222")
+
+    def test_nothing_joins_when_chrome_is_not_running(self):
+        from unittest import mock
+        p = self.pool(FakeWorker("a"))
+        with mock.patch("restock.retailers.browser._port_open", return_value=False):
+            p._maybe_attach_own_chrome()
+        self.assertEqual(len(p.workers), 1)
+
+    def test_blocked_store_that_wants_own_chrome_says_so(self):
+        p = self.pool(FakeWorker("a", True), FakeWorker("b", True), port=0)
+        res = p.fetch("https://www.cvs.com/x")
+        self.assertIn("start-my-chrome.ps1", res.block.message("CVS"))
+        res = p.fetch("https://www.cvs.com/x")      # both resting now
+        self.assertIn("start-my-chrome.ps1", res.block.message("CVS"))
+        other = self.pool(FakeWorker("a", True), port=0).fetch("https://www.target.com/x")
+        self.assertNotIn("start-my-chrome", other.block.message("Target"))
+
+    def test_dead_own_chrome_is_skipped_and_forgotten(self):
+        class Dead(FakeWorker):
+            cdp_url = "http://127.0.0.1:9222"
+
+            def fetch(self, url, timeout=120, ask=True):
+                raise RuntimeError("Target page, context or browser has been closed")
+        dead, a = Dead("my-chrome"), FakeWorker("a")
+        p = self.pool(a, dead, port=0)
+        res = p.fetch("https://www.cvs.com/x")
+        self.assertIsNone(res.block)
+        self.assertTrue(dead.failed)

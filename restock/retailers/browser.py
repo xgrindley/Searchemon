@@ -103,6 +103,20 @@ DEFAULT_OWN_SITES = ("cvs.com", "dickssportinggoods.com", "gamestop.com", "samsc
                      "macys.com", "kohls.com")
 
 
+HEAVY = {"image", "media", "font"}
+
+
+def _skip_heavy(route) -> None:
+    """For the text-only method: pictures, video and fonts are not needed to read stock or price."""
+    try:
+        if route.request.resource_type in HEAVY:
+            route.abort()
+        else:
+            route.continue_()
+    except Exception:
+        pass
+
+
 def _port_open(port: int) -> bool:
     """True when something on this PC is listening on the port (your own Chrome, ready for DevTools)."""
     try:
@@ -181,16 +195,17 @@ class BrowserWorker:
 
     # ---- public API (any thread) ---------------------------------------------------
     def fetch(self, url: str, timeout: float = 120, ask: bool = True, post: dict | None = None,
-              referer: str = "", page_get: bool = False, wait_re: str = "") -> FetchResult:
+              referer: str = "", page_get: bool = False, wait_re: str = "", light: bool = False) -> FetchResult:
         """Load a page. With `post` (JSON) or `page_get`, call `url` from inside a page on the
         store's own site, so the site's cookies and session go with it, and return the answer.
         wait_re: for pages that build their content with script after loading (most store search pages),
-        wait up to WAIT_FOR_S seconds until the page text matches this pattern."""
+        wait up to WAIT_FOR_S seconds until the page text matches this pattern.
+        light: skip pictures, video and web fonts (the "text only" trial method)."""
         if post is not None or page_get:
             res = self._submit(lambda: self._in_page("POST" if post is not None else "GET", url, post, referer, ask),
                                timeout)
         else:
-            res = self._submit(lambda: self._fetch(url, ask, wait_re), timeout)
+            res = self._submit(lambda: self._fetch(url, ask, wait_re, light), timeout)
         res.profile = self.name
         return res
 
@@ -517,7 +532,7 @@ class BrowserWorker:
                 pass
         return html
 
-    def _fetch(self, url: str, ask: bool = True, wait_re: str = "") -> FetchResult:
+    def _fetch(self, url: str, ask: bool = True, wait_re: str = "", light: bool = False) -> FetchResult:
         domain = urlsplit(url).netloc.lower()
         now = time.time()
 
@@ -547,12 +562,26 @@ class BrowserWorker:
             time.sleep(gap)
 
         page = self._page_for(domain)
-        resp = page.goto(url, wait_until="domcontentloaded", timeout=45000)
-        self.last_load[domain] = time.time()
+        routed = False
+        if light:
+            try:
+                page.route("**/*", _skip_heavy)
+                routed = True
+            except Exception:
+                pass
         try:
-            page.wait_for_load_state("load", timeout=10000)
-        except Exception:
-            pass
+            resp = page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            self.last_load[domain] = time.time()
+            try:
+                page.wait_for_load_state("load", timeout=10000)
+            except Exception:
+                pass
+        finally:
+            if routed:
+                try:
+                    page.unroute("**/*", _skip_heavy)
+                except Exception:
+                    pass
         status = resp.status if resp else 0
         headers = resp.headers if resp else {}
         html = self._html(page)
@@ -834,7 +863,7 @@ class BrowserPool:
 
     # ---- checking -------------------------------------------------------------------
     def fetch(self, url: str, timeout: float = 120, post: dict | None = None, referer: str = "",
-              page_get: bool = False, pick: str = "", label: str = "", wait_re: str = "") -> FetchResult:
+              page_get: bool = False, pick: str = "", label: str = "", wait_re: str = "", light: bool = False) -> FetchResult:
         """Load a page in one of the checking browsers.
 
         pick is for trial methods: "solo" stays on one steady profile instead of rotating, "own" uses
@@ -846,6 +875,8 @@ class BrowserPool:
         extra = {"post": post, "referer": referer, "page_get": page_get} if in_page else ({"wait_re": wait_re} if wait_re else {})
         if post is None:
             extra.pop("post", None)
+        if light and not in_page:
+            extra["light"] = True
         now = time.time()
         self._maybe_attach_own_chrome()
         if pick != "stealth" and self._uses_own_chrome(site):

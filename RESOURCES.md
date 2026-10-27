@@ -15,6 +15,14 @@ accounts, and let a person finish checks.
 | klura-ai/klura (BSL 1.1, not open source until its change date) | Turns a recorded browser session into a reusable call: it finds the request the site's own page makes and replays it, either directly or from inside the live tab, validates the answer's shape, and hands CAPTCHAs and 2FA to a person | Ideas used (v2.3: learn-traffic.ps1, learned endpoints). No code copied | "Learn from traffic" and "replay the page's own request from inside the page" fit our rules and replace guessing at store endpoints. Its checks that an answer has the expected shape match what we want for trust. Its stealth driver with fingerprint patches is not used, and its license forbids reusing the code in a competing service anyway |
 | anti-captcha.com | Paid CAPTCHA-solving service (people and software solve a CAPTCHA you send them) | Noted only, not built | Kept as a reference at your request. The app does not call it, and there is no integration. When a store wants a person, the app still asks you to finish the check |
 
+| jef/streetmerchant (MIT) | The best-known open-source restock monitor (graphics cards, consoles); per-store "add to cart" / "sold out" labels, a timestamp on every link, low-bandwidth mode, ordinary page visits between product checks, per-store back-off that halves again on success, and forwarding CAPTCHAs to a person | Ideas used (v4.1: three trial methods, buy-button reading) | Its labels, cache-buster, low-bandwidth and "captcha deterrent" ideas are honest ways to load or read a page, so they became trial methods and a fallback. Back-off that eases off on success was already here (each good check speeds a store back up by 20%). Its CAPTCHA forwarding matches what we already do (the check waits for you) |
+| nearyou/pokemon-stock-monitor | Small Python Pokemon monitor: requests + BeautifulSoup, rotating User-Agents, a cache-buster query, plus or minus 20% interval jitter, 1.5 to 3.5 s between products, "add to cart" / "sold out" text checks, restock-time notes, and advice to use VPNs, proxies or CAPTCHA services | Ideas used (v4.1: cache-buster method, buy-button reading) | The cache-buster and text checks fit. Interval jitter and gaps between products were already here (jitter_seconds, per-site gaps). Rotating User-Agents is disguising who is asking, so not used. Proxies and CAPTCHA services are not used (standing rule). Its restock-time claims are unverified, so the app keeps learning restock times from its own history instead |
+| HarperCT/pokemonAvaliabilityBrisbane | Brisbane (Australia) checker for Big W, Kmart and a game shop through their stock APIs; opens the Big W front page first to collect cookies | Idea used (v4.1: the "browse the front page" method) | Its stores are Australian, so none of its endpoints apply. The front-page-first habit is shared with streetmerchant and became part of a trial method |
+| Reptop/PokeStock | SvelteKit + Firebase community map of Pokemon vending machines, stocked by people's reports | Not used | A community reporting site, not a monitor. Nothing to take for store checks |
+| kadarius0719/drip-drop-pokemon (from the restock-alert topic) | Personal Pokemon TCG drop tracker: Best Buy API, Target RedSky, release-date reminders, and the r/PokemonTCGDeals feed as an early warning; refuses to evade anti-bot systems | Ideas used (v4.1: community tips, newest set names) | Reading r/PokemonTCGDeals (a public page, no account) became community tips that check matching products at once and add linked products. Its pointer to TCGCSV became the daily newest-set-names search. Same stance as ours on anti-bot evasion |
+| tcgcsv.com | Free daily mirror of TCGplayer's catalog (sets, products, prices) | Used (v4.1, one request a day) | The Pokemon set list (category 3) gives the newest set names for store searches. Read once a day with a named User-Agent, as its rules ask |
+| github.com/topics/restock-alert | Topic page listing restock monitors | Looked at | Besides drip-drop-pokemon, it lists ENCHIGO/apple-pickup-watcher, jamesccupps/UnifiStockWatcher, shali10/vps-monitor, hh-io/refurb-sentry and Mohammed-Shajith/Rewards_Watcher. All watch other kinds of stores (Apple, Ubiquiti, VPS hosts, rewards gift cards), so only their names are recorded here |
+
 ## Implemented as trial methods (v2.1)
 
 Each is switched on or off in the Methods lab, runs one at a time per store, and is traced in
@@ -29,6 +37,14 @@ Each is switched on or off in the Methods lab, runs one at a time per store, and
 | direct-impersonate | PortSwigger/bypass-bot-detection | TLS and HTTP/2 fingerprint of Chrome, via the curl_cffi library | Burp Suite itself |
 | browser-stealth | undetected-chromedriver, SeleniumBase UC mode, CloakBrowser | Hiding automation markers, via Patchright in its own profile | Fake canvas/WebGL/audio values, third-party browser binaries |
 | browser-slow | CrowdSec | Half the pace on a store while it runs | None |
+| direct-fresh (v4.1) | jef/streetmerchant, nearyou/pokemon-stock-monitor | A throwaway time stamp on each link so no cache answers with an old page; the stamp never shows in links or alerts | None |
+| browser-light (v4.1) | jef/streetmerchant | Low-bandwidth mode: no pictures, video or fonts, so less traffic per check | Its ad blocker |
+| browser-warm (v4.1) | jef/streetmerchant, HarperCT/pokemonAvaliabilityBrisbane | Open the store's front page now and then before a product, like browsing | Searching unrelated words (its "deterrent" searches) |
+
+New methods are switched on once by themselves after an update, so every method gets checked and scored.
+Once every method at a store has about 8 recent checks, the best one there gets about four normal turns for each
+turn the others get (they keep short turns, so a change at the store is still noticed). A method that keeps failing
+is still stopped by itself, and your own on/off choice always wins.
 
 ## What we took from them (the honest part)
 

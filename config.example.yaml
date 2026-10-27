@@ -74,6 +74,11 @@ discovery:
   items_per_cycle: {target: 6, bestbuy: 20, kroger: 50, walmart: 0, dicks: 3}
   places: true                   # map nearby stores weekly (store finders + OpenStreetMap)
 
+community:
+  reddit: true                   # read new r/PokemonTCGDeals posts every 5 min; a restock post checks matching products at once
+  new_sets: true                 # once a day, add the newest set names (from tcgcsv.com) to the store searches
+  discord: false                 # also post each community tip to your status channel
+
 retailers:
   target:
     enabled: true

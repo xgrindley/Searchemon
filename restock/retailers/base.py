@@ -8,7 +8,7 @@ import random
 import re
 import time
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 
@@ -32,6 +32,20 @@ TRIALS = None   # set by the engine: a trials.TrialPlan (which method each store
 
 PAGE_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 WARM_EVERY_S = 30 * 60              # how often the "arrive via the front page" method revisits the front page
+STAMP = "_"                         # the throwaway cache-buster the "never a cached copy" method adds
+
+
+def add_stamp(url: str) -> str:
+    """The link with a throwaway time stamp, so no cache can answer with an old copy."""
+    parts = urlsplit(url)
+    query = parse_qsl(parts.query, keep_blank_values=True) + [(STAMP, str(int(time.time() * 1000)))]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
+
+
+def drop_stamp(url: str) -> str:
+    parts = urlsplit(url)
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != STAMP]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 def set_tracker(tracker) -> None:
@@ -78,6 +92,7 @@ class Retailer:
         self._h2 = None                 # HTTP/2 client for the direct-h2 trial method
         self._warm_session = None       # its own cookies, so the trial never changes the normal session
         self._warmed: dict[str, float] = {}
+        self._bwarmed: dict[str, float] = {}   # front-page visits by the "browse the front page" method
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": UA,
@@ -206,8 +221,8 @@ class Retailer:
         if arm.family == "browser":
             return self._browser_arm(arm, url)
         try:
-            resp = {"direct-h2": self._h2_get, "direct-impersonate": self._impersonate_get}.get(
-                arm.key, self._warm_get)(url)
+            resp = {"direct-h2": self._h2_get, "direct-impersonate": self._impersonate_get,
+                    "direct-fresh": self._fresh_get}.get(arm.key, self._warm_get)(url)
         except _ArmUnavailable as exc:
             TRIALS.mark_unavailable(arm.key, str(exc))
             TRIALS.skip(self.name, arm, str(exc))
@@ -233,15 +248,23 @@ class Retailer:
 
     def _browser_arm(self, arm, url: str) -> FetchResult | None:
         pool = self.browser
-        if arm.key == "browser-slow":
-            # Same checking as normal; the engine checks this store half as often while it runs.
+        if arm.key in ("browser-slow", "browser-light", "browser-warm"):
+            # The normal browser rotation, changed in one way each: half the pace (the engine checks this store half
+            # as often), no pictures or fonts, or a front-page visit now and then before the product.
             try:
-                res = self._via_browser(url)
+                if arm.key == "browser-warm":
+                    self._browse_front(url, arm.key)
+                res = self._via_browser(url, light=arm.key == "browser-light",
+                                        label=arm.key if arm.key != "browser-slow" else "")
             except Blocked as exc:
                 if exc.waiting_for_human:
                     raise
                 TRIALS.note(self.name, arm, False, "blocked")
-                raise
+                if arm.key == "browser-slow":
+                    raise
+                self.log.info("%s: trial method '%s' was blocked; using the normal method this time", self.display, arm.key)
+                time.sleep(random.uniform(3, 8))
+                return None
             TRIALS.note(self.name, arm, True)
             return res
         pick = {"browser-own": "own", "browser-stealth": "stealth"}.get(arm.key, "solo")
@@ -270,6 +293,20 @@ class Retailer:
             return None
         TRIALS.note(self.name, arm, True)
         return res
+
+    def _browse_front(self, url: str, label: str) -> None:
+        """Open the store's front page first, at most every WARM_EVERY_S, the way a person arrives."""
+        parts = urlsplit(url)
+        if parts.path in ("", "/") or time.time() - self._bwarmed.get(parts.netloc, 0) < WARM_EVERY_S:
+            return
+        self._via_browser(f"{parts.scheme}://{parts.netloc}/", label=label)
+        self._bwarmed[parts.netloc] = time.time()
+        time.sleep(random.uniform(2.0, 5.0))
+
+    def _fresh_get(self, url: str) -> tuple:
+        r = self.session.get(add_stamp(url), timeout=PAGE_TIMEOUT_S, headers={
+            "Accept": PAGE_ACCEPT, "Cache-Control": "no-cache", "Pragma": "no-cache"})
+        return r.status_code, r.text, dict(r.headers), drop_stamp(r.url)
 
     def _h2_get(self, url: str) -> tuple:
         if self._h2 is None:
@@ -369,12 +406,14 @@ class Retailer:
         return self._via_browser(url, post=payload, referer=referer)
 
     def _via_browser(self, url: str, post: dict | None = None, referer: str = "",
-                     pick: str = "", label: str = "", wait_re: str = "") -> FetchResult:
+                     pick: str = "", label: str = "", wait_re: str = "", light: bool = False) -> FetchResult:
         try:
             if post is None:
-                extra = {"pick": pick, "label": label} if pick else {}
+                extra = {"pick": pick, "label": label} if (pick or label) else {}
                 if wait_re:
                     extra["wait_re"] = wait_re
+                if light:
+                    extra["light"] = True
                 res = self.browser.fetch(url, **extra)  # type: ignore[union-attr]
             else:
                 res = self.browser.fetch(url, post=post, referer=referer)  # type: ignore[union-attr]

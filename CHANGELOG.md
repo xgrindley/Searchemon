@@ -1,6 +1,31 @@
 # Changelog
 
 ## v4.1 (test build, in progress)
+- **Community restock tips.** The app reads new posts on r/PokemonTCGDeals every 5 minutes (a public page: no account, nothing
+  about you is sent, an honest User-Agent naming the app). A post that names one of your stores ("[Target] Phantasmal Flames ETB")
+  gets the matching products there checked at once and every cycle for an hour, and a post that links straight to a product at
+  one of your stores adds it to Found for you (tracking codes removed). The first read only learns what is already posted, and if
+  Reddit refuses, the next try waits 30 min, then longer, up to 6 hours. Tips are listed on Found for you, with switches to turn
+  them off or also post them to your status channel. Idea from kadarius0719/drip-drop-pokemon.
+- **Store searches use the newest set names.** Once a day the Pokemon set list is read from tcgcsv.com (one request), and each
+  discovery refresh adds one of the sets released in the last 8 months, or announced, by name ("pokemon phantasmal flames") to
+  the rotating product-type searches.
+- **Three new connection methods from other restock monitors, scored like the rest:** plain requests that never get a cached
+  copy (a throwaway time stamp on the link, from streetmerchant and nearyou), the browser with no pictures, video or fonts
+  (streetmerchant's low-bandwidth mode), and the browser opening the store's front page now and then before a product
+  (streetmerchant's deterrent visits, HarperCT's front-page-first). They are switched on once by themselves after this update,
+  shown under their own heading in Method control, and stopped by themselves if they keep failing.
+- **Rotate to what works best once everything is scored.** When every method at a store has about 8 recent checks, the best one
+  there gets about four normal turns for each short turn the others get (was at most two). The Methods page marks such stores
+  "Scored" and names the method getting most turns.
+- **Pages with no stock data are read by their buy button.** When a product page carries no structured stock data and you set
+  no words of your own, the stretch of page under the product's heading is read: "sold out", "notify me" and the like mean out of
+  stock, "add to cart" or "pre-order" means in stock. Buttons further down (recommended products) do not count. Such results say
+  "In stock (from the page's buy button)".
+- RESOURCES.md lists streetmerchant, nearyou/pokemon-stock-monitor, HarperCT/pokemonAvaliabilityBrisbane, Reptop/PokeStock,
+  drip-drop-pokemon, tcgcsv.com and the restock-alert topic, with what was taken and what was left out (rotating User-Agents,
+  proxies, CAPTCHA services).
+- Methods page: the "Scored" badge wraps on phones instead of widening the page.
 - **Found for you shows price against MSRP.** Each store's listing shows the store's price, the MSRP, and how far apart they are
   ("85% over MSRP", "At MSRP"), colored by your limit for that store: within it, over it, or far over it.
 - **Checks adapt to what each store actually does with a product.** Every check that finds a listing unavailable, or priced past

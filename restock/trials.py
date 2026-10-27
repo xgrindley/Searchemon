@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from .util import atomic_write_json, read_json
 
 TRACE_FILE = "trial-log.jsonl"
+OTHERS = "From other restock monitors"
 STATE_FILE = "trial-state.json"
 KEEP_EVENTS = 30
 MIN_FOR_BEST = 10          # checks a method needs before it can be called one of the best
@@ -44,6 +45,7 @@ class Arm:
     source: str            # where the idea came from
     control: bool = False  # the way the app already worked; always takes its turn for a fair comparison
     interval_factor: float = 1.0
+    group: str = "Built in"  # where the idea came from, for grouping in the Methods lab
 
 
 CATALOG: list[Arm] = [
@@ -79,13 +81,34 @@ CATALOG: list[Arm] = [
     Arm("browser-slow", "Browser, half the pace", "browser",
         "Rotating profiles, but checks this store half as often.",
         "CrowdSec: slower traffic is blocked less", interval_factor=2.0),
+    # From other restock monitors (v4.1). Each is an ordinary way to load a page, scored and rotated like the rest.
+    Arm("direct-fresh", "Plain requests, never a cached copy", "direct",
+        "The normal request with a throwaway time stamp on the link (&_=<time>), so no cache between you and the "
+        "store can hand back an old 'sold out' page. The stamp is dropped again before the link is shown or saved.",
+        "jef/streetmerchant (timestamp URL parameter) and nearyou/pokemon-stock-monitor (cache-buster)",
+        group=OTHERS),
+    Arm("browser-light", "Browser, text only (no pictures)", "browser",
+        "The normal browser checking, but pictures, video and web fonts are not downloaded. Pages load faster and "
+        "each check sends far less traffic, which is what a store's rate limits count.",
+        "jef/streetmerchant (low-bandwidth mode)", group=OTHERS),
+    Arm("browser-warm", "Browser, browse the front page now and then", "browser",
+        "Every half hour or so the browser opens the store's front page before the product, so the session looks "
+        "like someone browsing rather than a script that only ever opens product pages.",
+        "jef/streetmerchant (captcha deterrent: ordinary page visits between product checks); "
+        "HarperCT/pokemonAvaliabilityBrisbane (front page first for cookies)", group=OTHERS),
 ]
 BY_KEY = {a.key: a for a in CATALOG}
 
 # The stealth methods (direct-impersonate, browser-stealth) are off until you switch them on.
 # Only a few are on by default, so each can be traced on its own. Turn others on in the
 # Methods lab, or in config.yaml under trials: active.
-DEFAULT_ACTIVE = ["direct-h2", "browser-solo", "browser-own"]
+DEFAULT_ACTIVE = ["direct-h2", "browser-solo", "browser-own", "direct-fresh", "browser-light", "browser-warm"]
+# Methods added in a later version are switched on once, by themselves, so they get checked and scored next to the
+# others. After that the usual rules decide: auto-balance gives the best one at each store most of the turns, a
+# method that keeps failing is stopped, and your own on/off choice is never overridden again.
+INTRODUCED = {"direct-fresh": "4.1", "browser-light": "4.1", "browser-warm": "4.1"}
+SETTLED_TOP = 4.0          # turn length for the best method at a store once every method there has been scored
+SETTLED_N = 8              # recent checks (older ones count a little less) each method needs before that
 DEFAULTS = {
     "enabled": True,
     "slice_checks": 20,       # checks an arm gets before the next takes over
@@ -127,8 +150,29 @@ class TrialPlan:
         """Use these settings, but keep the saved on/off choices: after the first change made with the
         buttons, the saved list wins over config.yaml, so a restart brings back what you had."""
         self.raw = raw_cfg
+        self._introduce()
         if "active" in self.saved:
             raw_cfg.setdefault("trials", {})["active"] = list(self.saved["active"])
+
+    def _introduce(self) -> None:
+        """Switch on, once, the methods added since this PC last ran (see INTRODUCED)."""
+        seen = set(self.saved.get("introduced") or [])
+        new = [k for k in INTRODUCED if k not in seen]
+        if not new:
+            return
+        self.saved["introduced"] = sorted(seen | set(new))
+        if "active" in self.saved:
+            if (self.raw.get("trials") or {}).get("enabled", True) is False:
+                self._save()
+                return          # you switched trials off: nothing is turned on behind your back
+            active = list(self.saved["active"])
+            for k in new:
+                if k not in active:
+                    active.append(k)
+                    self.saved["window"][k] = {"attempts": 0, "fails": 0, "since": round(time.time())}
+                    self._event("new", k, "new in version " + INTRODUCED[k])
+            self.saved["active"] = active
+        self._save()
 
     def _save(self) -> None:
         try:
@@ -192,11 +236,17 @@ class TrialPlan:
         if not self.cfg.get("auto_balance", True) or not known:
             return {a.key: 1.0 for a in arms}
         top = max(known)
+        # Once every method here has been checked and scored, rotate toward the one working best: it gets twice
+        # the usual extra turns. The others still get their (short) turns, so a change at the store is noticed.
+        hi = SETTLED_TOP if self._settled(store, arms) else 2.0
         out = {}
         for a in arms:
             sc = scores[a.key]
-            out[a.key] = 1.0 if sc is None else floor + (2.0 - floor) * ((sc / top) ** 3 if top > 0 else 0)
+            out[a.key] = 1.0 if sc is None else floor + (hi - floor) * ((sc / top) ** 3 if top > 0 else 0)
         return out
+
+    def _settled(self, store: str, arms: list[Arm]) -> bool:
+        return len(arms) >= 2 and all(self._rate(store, a.key)[1] >= SETTLED_N for a in arms)
 
     def _turn_length(self, store: str, arms: list[Arm], arm: Arm) -> int:
         base = int(self.cfg.get("slice_checks") or 20)
@@ -397,7 +447,7 @@ class TrialPlan:
                     continue
                 w = self._weights(store, arms)
                 total = sum(w.values()) or 1.0
-                out.append({"store": store, "arms": [
+                out.append({"store": store, "settled": self._settled(store, arms), "arms": [
                     {"key": a.key, "label": a.label, "share": round(100 * w[a.key] / total),
                      "rate": None if self._rate(store, a.key)[0] is None else round(100 * self._rate(store, a.key)[0]),
                      "n": round(self._rate(store, a.key)[1])} for a in sorted(arms, key=lambda x: -w[x.key])]})
@@ -425,7 +475,7 @@ class TrialPlan:
             "auto_stop": bool(c.get("auto_stop", True)),
             "stop_after": int(c.get("stop_after") or 25),
             "stop_fail_pct": int(c.get("stop_fail_pct") or 50),
-            "arms": [{"key": a.key, "label": a.label, "family": a.family, "idea": a.idea, "source": a.source,
+            "arms": [{"key": a.key, "label": a.label, "family": a.family, "idea": a.idea, "source": a.source, "group": a.group,
                       "control": a.control, "on": a.control or a.key in active,
                       "unavailable": self.unavailable.get(a.key, ""),
                       "attempts": win.get(a.key, {}).get("attempts", 0), "fails": win.get(a.key, {}).get("fails", 0),

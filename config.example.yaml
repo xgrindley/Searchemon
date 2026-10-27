@@ -94,6 +94,7 @@ ebay:                            # eBay deals and fair market value (Products > 
   enabled: false
   app_id: ""                     # optional free key from developer.ebay.com (Production keyset); without it the public search page is read
   cert_id: ""
+  fetch_mode: auto               # auto, browser or direct: how the public search page is loaded when no key is set
   interval_minutes: 30
   products_per_check: 4
   queries: []                    # extra eBay searches

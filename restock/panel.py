@@ -583,6 +583,9 @@ class _Handler(BaseHTTPRequestHandler):
                     return self._json(200, {"ok": True, "changed": n, "message":
                                             ("Ignored at every store. It stays ignored after restarts." if ignored
                                              else "Tracking it again at every store.")})
+                elif action == "ebay_test":
+                    ok, msg = m.market.test_key()
+                    return self._json(200, {"ok": ok, "message": msg})
                 elif action == "ebay_now":
                     threading.Thread(target=m.market_tick, daemon=True).start()
                     return self._json(200, {"ok": True, "message": "Checking eBay now. Results appear here in a minute or two."})

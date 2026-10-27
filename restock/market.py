@@ -54,7 +54,9 @@ NOT_SEALED = re.compile(r"(?i)\b(box only|empty|no cards|no packs|read desc|read
                         r"\d+ ?x |case of|japanese|korean|chinese)\b")
 SHIP_CAP = 15.0                 # shipping over max(this, half the price) is egregious
 DEFAULTS = {"enabled": False, "app_id": "", "cert_id": "", "interval_minutes": 30, "products_per_check": 4,
-            "queries": [], "deal_pct": 90, "alert_max_risk": "low", "us_only": True}
+            "queries": [], "deal_pct": 90, "alert_max_risk": "low", "us_only": True,
+            "fetch_mode": "auto"}
+BLOCKED_PAGE = re.compile(r"(?i)pardon our interruption|security measure|verify yourself|captcha|access denied|unusual traffic")
 
 
 def ebay_cfg(raw: dict) -> dict:
@@ -278,9 +280,19 @@ class Market:
         self.http.headers.update({"User-Agent": f"Searchemon/{version}", "Accept-Language": "en-US,en;q=0.9"})
         self._token: tuple[str, float] = ("", 0.0)
         self.problem = ""
+        self.browser = None             # the checking browsers, set by the engine
+        self._key_id = self._key_now()
 
-    def attach(self, raw: dict) -> None:
+    def attach(self, raw: dict, browser=None) -> None:
         self.raw = raw
+        if browser is not None:
+            self.browser = browser
+        self._token = ("", 0.0) if self._key_id != self._key_now() else self._token
+        self._key_id = self._key_now()
+
+    def _key_now(self) -> tuple:
+        c = ebay_cfg(self.raw)
+        return (c.get("app_id"), c.get("cert_id"))
 
     # ---- TCGplayer market prices (tcgcsv.com) --------------------------------------------------------
     def refresh_tcg(self, now: float | None = None) -> bool:
@@ -366,11 +378,50 @@ class Market:
             if r.status_code != 200:
                 raise RuntimeError(f"eBay answered {r.status_code}")
             return [from_api(i) for i in r.json().get("itemSummaries") or []]
-        r = self.http.get(EBAY_HTML.format(q=quote_plus(query)), timeout=30,
-                          headers={"Accept": "text/html,application/xhtml+xml"})
-        if r.status_code != 200:
-            raise RuntimeError(f"eBay answered {r.status_code}")
-        return from_html(r.text)
+        return from_html(self._page(EBAY_HTML.format(q=quote_plus(query))))
+
+    def _page(self, url: str) -> str:
+        """The public search page. Plain request first; the checking browser when eBay turns the request away
+        (or always, or never, by the fetch_mode setting)."""
+        mode = str(ebay_cfg(self.raw).get("fetch_mode") or "auto")
+        text, status = "", 0
+        if mode != "browser":
+            r = self.http.get(url, timeout=30, headers={"Accept": "text/html,application/xhtml+xml"})
+            text, status = r.text, r.status_code
+            good = status == 200 and "s-card" in text and not BLOCKED_PAGE.search(text[:6000])
+            if good:
+                return text
+            if mode == "direct":
+                raise RuntimeError(f"eBay answered {status}" if status != 200 else "eBay sent a check page")
+        if self.browser is None:
+            if status != 200:
+                raise RuntimeError(f"eBay answered {status or 'nothing'} and the checking browser is off")
+            return text
+        try:
+            res = self.browser.fetch(url, timeout=90, wait_re="s-card|s-item")
+        except Exception as exc:        # browser off, not installed, closed
+            raise RuntimeError(f"eBay turned the plain request away and the browser could not help ({str(exc)[:60]})")
+        if res.status != 200 or BLOCKED_PAGE.search(res.text[:6000]):
+            raise RuntimeError(f"eBay answered {res.status} in the browser too")
+        return res.text
+
+    def test_key(self) -> tuple[bool, str]:
+        """Ask eBay for a token with the saved App ID and Cert ID, then run one tiny search."""
+        c = ebay_cfg(self.raw)
+        if not (c.get("app_id") and c.get("cert_id")):
+            return False, "Add both the App ID and the Cert ID first."
+        self._token = ("", 0.0)
+        try:
+            tok = self._bearer()
+            r = self.http.get(EBAY_SEARCH, params={"q": "pokemon booster box", "limit": 1},
+                              headers={"Authorization": f"Bearer {tok}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"}, timeout=30)
+        except Exception as exc:
+            self.problem = str(exc)[:120]
+            return False, f"eBay refused the key: {self.problem}. Use the Production keyset, not Sandbox."
+        if r.status_code == 200:
+            self.problem = ""
+            return True, "eBay accepted the key. Listings now come from eBay's own data, with seller feedback and shipping."
+        return False, f"eBay accepted the sign-in but the search answered {r.status_code}. Production keys must be enabled (see the eBay developer page)."
 
     def value(self, product: str, msrp: float | None, listings: list[dict]) -> dict:
         """Fair value for one product from matching eBay listings and TCGplayer."""

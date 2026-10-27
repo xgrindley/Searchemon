@@ -1,6 +1,9 @@
 # Changelog
 
 ## v5.1 (test build, in progress)
+- **eBay is now a card in Stores & keys.** Enter the App ID and Cert ID (Production keyset), press Test the key to see if eBay accepts it, and
+  choose how the public eBay page loads when there is no key: plain, the checking browser, or plain first and the browser if eBay
+  shows a check page. Having only one of the two keys is reported as a setup problem.
 - **Store rankings (Stock near me > Store rankings).** Every check that finds stock now times it: when a product appeared at a store
   (or online), how many units were there at first and at most, and when it sold out. From that, each store gets restocks a week,
   units per delivery, how fast it sells out, units sold an hour (where counts are shown), its usual restock day and hour, and a

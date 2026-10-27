@@ -147,5 +147,37 @@ class MarketTests(unittest.TestCase):
         self.assertIn("Risk: low", " ".join(f["name"] for f in e["fields"]))
 
 
+class KeyAndBrowserTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_key_test_reports_both_outcomes(self):
+        m = mk.Market({"ebay": {"app_id": "a", "cert_id": ""}}, self.dir, LOG)
+        self.assertFalse(m.test_key()[0])
+        m.attach({"ebay": {"app_id": "a", "cert_id": "b"}})
+        m.http.post = lambda *a, **k: mock.Mock(json=lambda: {"access_token": "t", "expires_in": 7200})
+        m.http.get = lambda *a, **k: mock.Mock(status_code=200)
+        self.assertTrue(m.test_key()[0])
+        m.http.post = lambda *a, **k: mock.Mock(json=lambda: {"error_description": "invalid_client"})
+        m.attach({"ebay": {"app_id": "a", "cert_id": "c"}})         # new key clears the saved token
+        ok, msg = m.test_key()
+        self.assertFalse(ok)
+        self.assertIn("Production", msg)
+
+    def test_blocked_page_falls_back_to_the_browser(self):
+        m = mk.Market({"ebay": {}}, self.dir, LOG)
+        m.http.get = lambda *a, **k: mock.Mock(status_code=200, text="<html>Pardon Our Interruption</html>")
+        m.browser = mock.Mock()
+        m.browser.fetch.return_value = mock.Mock(status=200, text='<li class="s-card">ok</li>')
+        self.assertIn("s-card", m._page("https://www.ebay.com/sch/i.html?_nkw=x"))
+        m.browser.fetch.assert_called_once()
+        m.raw = {"ebay": {"fetch_mode": "direct"}}
+        with self.assertRaises(RuntimeError):
+            m._page("https://www.ebay.com/sch/i.html?_nkw=x")
+
+
 if __name__ == "__main__":
     unittest.main()

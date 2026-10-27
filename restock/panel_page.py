@@ -1453,6 +1453,24 @@ const views = {
           h("summary", { text: missingKey ? "Needs a free key to work" : "Options for this store" }),
           h("div", { class: "card-body", style: "padding:10px 0 4px" }, extra(r))) : null);
     };
+    const ebayKeyCard = () => {
+      const e = cfg.ebay = cfg.ebay || {};
+      const hasKey = !!(e.app_id && e.cert_id);
+      const mode = h("select", { "aria-label": "How eBay pages load", onchange: (ev) => { e.fetch_mode = ev.target.value; touch(); } },
+        [["auto", "Automatic: plain first, browser if blocked"], ["browser", "Always use the browser"], ["direct", "Plain requests only"]]
+          .map(([v, t]) => h("option", { value: v, text: t, selected: (e.fetch_mode || "auto") === v })));
+      return h("div", { class: "card" + (e.enabled ? "" : " off") },
+        h("div", { class: "card-head" }, sw(e, "enabled", ""), h("b", { style: "flex:1", text: "eBay" }),
+          h("span", { class: "hint", text: "Listings under fair market value, with a seller risk score (Products > eBay deals)" })),
+        e.enabled ? h("details", { class: "more", style: "margin:0 14px 10px", open: !hasKey },
+          h("summary", { text: hasKey ? "Options for eBay" : "Optional free key for exact seller data" }),
+          h("div", { class: "card-body", style: "padding:10px 0 4px" },
+            field("App ID (Client ID)", text(e, "app_id", { placeholder: "From developer.ebay.com > Application Keys" }), "Use the Production keyset, not Sandbox."),
+            field("Cert ID (Client secret)", secret(e, "cert_id", "")),
+            field("Without a key, load eBay pages", mode, "Only used when no key is set. The browser gets past most eBay check pages."),
+            h("div", { class: "wide" }, h("button", { class: "btn", type: "button", text: "Test the key", onclick: async () => {
+              try { if (dirty()) return toast("Save your changes first; the test uses saved keys.", true); const r = await api("/api/action", { action: "ebay_test" }); toast(r.message, !r.ok); } catch (ex) { toast(ex.message, true); } } })))) : null);
+    };
     return [
       h("h1", { text: "Stores & keys" }),
       h("p", { class: "lede", text: "Turn stores on or off, add the free keys some need, and choose how website-based stores are loaded. How often each store is checked is on the next tab." }),
@@ -1489,6 +1507,7 @@ const views = {
       block("web", (r) => [modeField(r),
         field("Page says in stock when it shows", lines(r, "in_stock_text", { placeholder: "add to cart" }), "Only used on pages without built-in stock data"),
         field("Page says sold out when it shows", lines(r, "out_of_stock_text", { placeholder: "out of stock\nsold out" }))], "Any other product link"),
+      ebayKeyCard(),
       h("h2", { text: "Finding products and stores on its own" }),
       h("div", { class: "settings-list" },
         setting("Find products automatically", "Track every sealed Pokemon product these stores list, not only the ones you add.", sw(dsc, "enabled", "")),

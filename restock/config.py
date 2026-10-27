@@ -426,6 +426,9 @@ def validate(cfg: Config) -> list[str]:
     k = cfg.retailer_cfg("kroger")
     if k.get("enabled") and not (k.get("client_id") and k.get("client_secret")):
         problems.append("Kroger is on but has no client_id/client_secret (free at developer.kroger.com).")
+    e = cfg.raw.get("ebay") or {}
+    if e.get("enabled") and bool(e.get("app_id")) != bool(e.get("cert_id")):
+        problems.append("eBay has only one of the App ID and Cert ID. Add both (Production keyset) or clear both.")
     if not cfg.watchlist and not cfg.searches and not (cfg.raw.get("discovery") or {}).get("enabled", True):
         problems.append("Product list, searches and automatic discovery are all empty or off: nothing to check.")
     return problems

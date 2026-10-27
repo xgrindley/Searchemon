@@ -164,7 +164,7 @@ class Monitor:
         if fresh or not hasattr(self, "market"):
             from .util import app_version as _v
             self.market = Market(self.cfg.raw, self.cfg.data_dir, self.log, _v() or "5")
-        self.market.attach(self.cfg.raw)
+        self.market.attach(self.cfg.raw, getattr(self, "browser", None))
         self.market.log = self.log
         if fresh or not hasattr(self, "community"):
             from .util import app_version
@@ -196,6 +196,7 @@ class Monitor:
             self.browser.on_reopen = self._browser_reopened
         else:
             self.browser.raw = self.cfg.raw
+        self.market.browser = self.browser
         if getattr(self, "compare", None) is None:
             self.compare = SideBySide(self.cfg.data_dir, self.log, self.browser)
         else:

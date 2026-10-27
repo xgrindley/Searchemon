@@ -20,7 +20,7 @@ from .geo import nearest_area, place_point
 from .history import History, Schedule
 from .places import PlaceFinder
 from .models import StockResult
-from .notify import DiscordNotifier, Toaster
+from .notify import DiscordNotifier, Toaster, web_link
 from .retailers import REGISTRY, route_url
 from .retailers.base import Blocked, Retailer
 from .retailers.blocks import BlockInfo
@@ -31,6 +31,7 @@ from .retailers.browser import BrowserPool
 from .sessions import BlockTracker
 from .scan import ZipScan
 from .sellers import SellerWatch
+from .community import Community
 from .accounts import AccountTracker
 from .history_store import StoreHistory
 from .trials import TrialPlan
@@ -148,6 +149,10 @@ class Monitor:
         else:
             self._discovery_tried.clear()       # settings changed: let discovery try again with them
         self.log = make_logger(self.cfg.data_dir, self.console)
+        if fresh or not hasattr(self, "community"):
+            from .util import app_version
+            self.community = Community(self.cfg.data_dir, self.log, app_version() or "4")
+        self.community.log = self.log
         with self.snap_lock:
             self.retailer_status.clear()
         self.notifier = DiscordNotifier(self.cfg.discord, self.log, self.cfg.areas)
@@ -370,6 +375,72 @@ class Monitor:
             self._check_browser_problems()
             stop.wait(180)
 
+    # ---- signals from outside the stores (see community.py) ------------------------------------
+    def _community_cfg(self) -> dict:
+        c = self.cfg.raw.get("community") or {}
+        return c if isinstance(c, dict) else {}
+
+    def _community_loop(self, stop: threading.Event) -> None:
+        if stop.wait(45):
+            return
+        while not stop.is_set():
+            try:
+                self.community_tick()
+            except Exception as exc:          # never let a feed problem stop anything else
+                self.log.info("Community tips: %s", exc)
+            stop.wait(60)
+
+    def community_tick(self) -> list[dict]:
+        c = self._community_cfg()
+        if c.get("new_sets", True):
+            self.community.refresh_sets()
+        if not c.get("reddit", True):
+            return []
+        tips = self.community.poll_feed()
+        for tip in tips:
+            self.use_tip(tip)
+        return tips
+
+    def use_tip(self, tip: dict) -> None:
+        """A restock post: add a linked product at one of your stores to Found for you, and check the matching
+        listings at the stores it names right away (and every cycle for an hour)."""
+        stores = [s for s in tip.get("stores") or [] if s in self.retailers]
+        added: list[str] = []
+        link = tip.get("link") or ""
+        if link:
+            name, pid = route_url(link)
+            if name in self.retailers and name != "web" and pid:
+                r = self.retailers[name]
+                res = StockResult(name, r.display, str(pid), tip.get("product") or tip.get("title", ""), link,
+                                  online_status="UNCHECKED", source="community tip")
+                key = f"{name}:{pid}"
+                known = key in self.catalog.items
+                self.catalog.merge(name, [res], self.cfg.raw, mark_run=False)
+                if not known and key in self.catalog.items:
+                    self.catalog.items[key]["found_via"] = "community tip"
+                    added.append(key)
+                if name not in stores:
+                    stores.append(name)
+        woke = self.catalog.wake_matching(stores, tip.get("product") or tip.get("title", ""))
+        for key in added:
+            if key not in woke:
+                woke.append(key)
+                self.catalog.items[key]["next_due"] = 0
+        self.community.note_used(tip, len(woke), added)
+        names = ", ".join(self.retailers[s].display for s in stores) or "no store you monitor"
+        self.info(f"Community tip ({names}): {tip.get('title', '')[:120]}"
+                  + (f". Checking {len(woke)} matching listing(s) now." if woke else "."))
+        if self._community_cfg().get("discord", False) and self.notifier.status_enabled:
+            text = (f"{tip.get('title', '')}\n" + (f"Store link: {web_link(link)}\n" if link else "")
+                    + (f"Post: {tip['post']}\n" if tip.get("post") else "")
+                    + (f"Checking {len(woke)} matching listing(s) at {names} now." if woke else
+                       "None of your found listings match it yet."))
+            threading.Thread(target=lambda: self.notifier.status("Community tip", text, "tip"), daemon=True).start()
+        for s in stores:
+            ev = self.wake.get(s)
+            if ev is not None and woke and not (self.health.get(s) or {}).get("block_streak"):
+                ev.set()                      # check now, unless that store is pushing back
+
     def profile_clear_bot(self, profile: str, site: str | None = None) -> tuple[bool, str]:
         """Delete the cookies stores use to remember a bad opinion of a checking browser (Akamai, PerimeterX,
         Cloudflare). Sign-ins stay."""
@@ -449,6 +520,9 @@ class Monitor:
             t.start()
             self.threads.append(t)
             t = threading.Thread(target=self._accounts_loop, args=(stop,), daemon=True, name="accounts")
+            t.start()
+            self.threads.append(t)
+            t = threading.Thread(target=self._community_loop, args=(stop,), daemon=True, name="community")
             t.start()
             self.threads.append(t)
             self.info(f"Monitoring started: {', '.join(r.display for r in self.retailers.values()) or 'no retailers enabled'}")
@@ -793,6 +867,10 @@ class Monitor:
         turn = self._type_turn.get(r.name, 0)
         self._type_turn[r.name] = turn + 2
         extra = [TYPE_QUERIES[(turn + i) % len(TYPE_QUERIES)] for i in range(2)]
+        sets = self.community.set_names() if self._community_cfg().get("new_sets", True) else []
+        if sets:
+            # ...and one of the newest sets by name ("pokemon phantasmal flames"), also rotating.
+            extra.append("pokemon " + sets[(turn // 2) % len(sets)].lower())
         queries = list(dict.fromkeys(list(d.get("queries") or ["pokemon trading card game"]) + extra))
         failures = 0
         for q in queries:

@@ -205,6 +205,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--act); outline: n
 .setting .t span { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); }
 .mc-row { display: grid; grid-template-columns: minmax(0,1.6fr) repeat(3, minmax(70px,.5fr)) auto; gap: 12px; align-items: center; padding: 12px 16px; background: var(--raised); }
 .mc-row + .mc-row { margin-top: 2px; }
+.mc-group { padding: 10px 16px 6px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .mc-row .n { font-weight: 600; font-variant-numeric: tabular-nums; }
 .mc-row .k { display: block; font-size: 12px; color: var(--muted); }
 .mc-row .nm b { display: block; }
@@ -685,7 +686,7 @@ function methodControl(tri, rows) {
   const onCount = arms.filter((a) => a.on).length;
   const ruleText = "A method that is on is switched off by itself once it has had more than " + tri.stop_after + " attempts and " + tri.stop_fail_pct + "% or more of them failed or were blocked.";
   const when = (t) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-  const kindText = { off: "switched off by you", on: "switched on by you", auto_stop: "stopped automatically" };
+  const kindText = { off: "switched off by you", on: "switched on by you", auto_stop: "stopped automatically", new: "switched on to be tried (new in this version)" };
   return [
     h("h2", { text: "Method control" }),
     h("p", { class: "lede", text: "Turn trial methods on or off here. Changes take effect at once and are remembered, so after a restart everything is as you left it. " + (tri.auto_stop ? ruleText : "Automatic stopping is off.") }),
@@ -695,13 +696,14 @@ function methodControl(tri, rows) {
       h("button", { class: "btn primary", type: "button", text: "Keep only the best 3", onclick: () => trialAct({ action: "trial_bulk", mode: "best" }) }),
       h("button", { class: "btn", type: "button", text: "Turn off all trials", onclick: () => trialAct({ action: "trial_bulk", mode: "off" }) }),
       h("span", { class: "hint", text: onCount + " of " + arms.length + " trial methods on. The best are ranked by how rarely they fail (at least 10 checks)." })),
-    h("div", { class: "panel", style: "overflow:hidden" }, arms.map((a) => {
+    h("div", { class: "panel", style: "overflow:hidden" }, arms.map((a, i) => {
       const m = by[a.key] || { checks: 0, blocks: 0 };
+      const head = (i === 0 || arms[i - 1].group !== a.group) ? h("div", { class: "mc-group", text: a.group || "Built in" }) : null;
       const pct = m.checks ? Math.round(100 * m.blocks / m.checks) : null;
       const prog = Math.min(100, Math.round(100 * a.attempts / Math.max(1, tri.stop_after + 1)));
       const failPct = a.attempts ? Math.round(100 * a.fails / a.attempts) : 0;
       const state = a.unavailable ? "Cannot run yet" : a.stopped ? "Stopped automatically" : a.on ? "On" : "Off";
-      return h("div", { class: "mc-row" + (a.on ? "" : " off") },
+      const row = h("div", { class: "mc-row" + (a.on ? "" : " off") },
         h("div", { class: "nm" },
           h("b", {}, a.label, a.best ? h("span", { class: "badge live", style: "display:inline-block;margin-left:8px", text: "Best so far" }) : null),
           h("span", { text: state + (a.on ? " | " + (a.family === "browser" ? "browser stores" : "plain-request stores") : "") }),
@@ -714,10 +716,12 @@ function methodControl(tri, rows) {
           h("div", { class: "mc-bar" }, h("i", { class: failPct >= tri.stop_fail_pct && a.attempts > 5 ? "bad" : failPct >= tri.stop_fail_pct / 2 ? "warn" : "", style: "width:" + prog + "%" }))),
         h("button", { class: "btn" + (a.on ? "" : " primary"), type: "button", text: a.on ? "Turn off" : "Turn on",
           "aria-label": (a.on ? "Turn off " : "Turn on ") + a.label, onclick: () => trialAct({ action: "trial_toggle", key: a.key, on: !a.on }) }));
+      return head ? [head, row] : row;
     })),
     h("h3", { text: "How checks are shared out right now" }),
     (tri.balance || []).length ? h("div", { class: "panel" }, h("ul", { class: "feed" }, tri.balance.map((b) =>
       h("li", {}, h("b", { text: (RETAILERS[b.store] || b.store) + ": " }),
+        b.settled ? h("span", { class: "badge live", style: "display:inline-block;margin-right:8px;white-space:normal;max-width:100%", text: "Scored: most turns go to " + b.arms[0].label }) : null,
         b.arms.map((a) => a.label + " " + a.share + "%" + (a.rate === null ? " (still learning)" : " (" + a.rate + "% loaded recently)")).join("  |  "))))) :
       h("div", { class: "panel empty", text: tri.auto_balance ? "Still learning. Once a method has had about 6 recent checks at a store, the ones that work get more of that store's checks and the ones that fail get fewer." : "Auto-balance is off, so every method gets equal turns." }),
     h("h3", { text: "What happened" }),
@@ -880,6 +884,7 @@ const views = {
       h("p", { class: "lede", text: "Pokemon products the monitor found by searching store catalogs, grouped across stores. They are checked automatically, the most wanted types first. Ignore any you don't care about." }),
       h("div", { class: "toolbar" }, q, typeSel, rSel, ign, h("button", { class: "btn", type: "button", text: "Search stores now", onclick: async () => {
         try { await api("/api/action", { action: "rediscover" }); toast("Searching store catalogs now"); setTimeout(loadFound, 8000); } catch (e) { toast(e.message, true); } } })),
+      h("div", { id: "found-community" }),
       h("div", { id: "found-body" }, h("div", { class: "panel empty", text: "Loading products" })),
     ];
   },
@@ -1933,7 +1938,36 @@ function storeAllowance(retailer) {
   const v = own !== undefined && own !== null && own !== "" ? Number(own) : Number((cfg.settings || {}).msrp_tolerance_pct || 0);
   return isFinite(v) ? v : 0;
 }
+/* Community tips (r/PokemonTCGDeals) and the newest set names, folded away above the product list. */
+function drawCommunity() {
+  const box = $("found-community"); if (!box || !catalogData) return;
+  const c = cfg.community = cfg.community || {};
+  ["reddit", "new_sets"].forEach((k) => { if (c[k] === undefined) c[k] = true; });
+  const cm = catalogData.community || { tips: [], sets: [] };
+  const ago = (t) => { const m = Math.max(0, Math.round((Date.now() / 1000 - t) / 60)); return m < 60 ? m + " min ago" : Math.round(m / 60) + " h ago"; };
+  const tips = (cm.tips || []).slice(0, 8);
+  const summary = (c.reddit ? (tips.length ? tips.length + " recent community tip" + (tips.length === 1 ? "" : "s") : "Community tips on") : "Community tips off")
+    + (c.new_sets && (cm.sets || []).length ? ", searching for " + cm.sets.length + " new sets" : "");
+  box.replaceChildren(h("details", { class: "more", style: "margin:0 0 14px", open: foundState.community || false,
+    ontoggle: (e) => { foundState.community = e.target.open; saveFound(); } },
+    h("summary", { text: summary }),
+    h("div", { style: "margin-top:8px" },
+      h("div", { class: "settings-list" },
+        setting("Community restock tips", "Reads new posts on r/PokemonTCGDeals every 5 minutes (a public page; no account, nothing about you is sent). A post naming one of your stores gets the matching products there checked at once, and a direct product link is added here.", sw(c, "reddit", "")),
+        setting("Search for the newest sets by name", "Once a day, adds the sets released in the last few months (from tcgcsv.com) to the store searches, so new products turn up sooner.", sw(c, "new_sets", "")),
+        setting("Post tips to my status channel", "Also send each community tip to your Discord status webhook.", sw(c, "discord", ""))),
+      cm.feed_problem ? h("p", { class: "hint", style: "color:var(--warn);margin:10px 0 0", text: "Reddit did not answer last time (" + cm.feed_problem + "). It is tried again later by itself." }) : null,
+      (cm.sets || []).length ? h("p", { class: "hint", style: "margin:10px 0", text: "Newest sets searched for: " + cm.sets.join(", ") }) : null,
+      tips.length ? h("div", { class: "panel" }, h("ul", { class: "feed" }, tips.map((t) => h("li", {},
+        h("b", { text: ago(t.t) + ": " }), t.post ? extLink(t.post, t.title) : t.title,
+        t.link ? [" ", extLink(t.link, "(store link)")] : null,
+        h("span", { class: "hint", text: "  " + ((t.stores || []).map((s) => RETAILERS[s] || s).join(", ") || "no store you monitor")
+          + (t.woke ? ", checked " + t.woke + " matching listing" + (t.woke === 1 ? "" : "s") : "") + ((t.added || []).length ? ", added here" : "") }))))) :
+        h("p", { class: "hint", style: "margin:10px 0 0", text: c.reddit ? "No restock posts since the monitor started reading the feed. The first read only learns what is already there." : "" }))));
+}
+
 function drawFound() {
+  drawCommunity();
   const body = $("found-body"); if (!body || !catalogData) return;
   const ts = $("found-type");
   if (ts && ts.options.length <= 1) {

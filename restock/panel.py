@@ -337,8 +337,11 @@ class PanelServer:
                 l["url"] = clean_url(l.get("url", ""))
                 l["type_alert"] = types.get(l.get("type") or "other", {}).get("alert", True)
         d = m.cfg.raw.get("discovery") or {}
+        community = m.community.view()
+        for t in community["tips"]:
+            t["link"] = clean_url(t.get("link", ""))
         return {"groups": groups, "runs": m.catalog.runs, "enabled": bool(d.get("enabled", True)),
-                "retailers": d.get("retailers") or []}
+                "retailers": d.get("retailers") or [], "community": community}
 
     def places(self) -> dict:
         m = self.monitor

@@ -180,7 +180,9 @@ and the raw responses land in `data\debug` for fixing.
 
 - The control panel answers only on this PC. Its fonts and maps are served by the app itself, with no outside requests.
 - The app talks to the stores you switch on, your Discord webhook, OpenStreetMap for store locations, and GitHub when you run
-  `update.ps1`. There is no telemetry and no account.
+  `update.ps1`. It also reads two public lists, which you can switch off under Products > Found for you: new posts on
+  r/PokemonTCGDeals every 5 minutes (community restock tips) and the Pokemon set list on tcgcsv.com once a day (newest set
+  names for store searches). Both are plain reads with no account; nothing about you is sent. There is no telemetry.
 - Links the app produces have tracking parameters removed and open with no referrer.
 - `config.yaml` (your webhooks and keys) and `data\` stay on your PC and are in `.gitignore`. Never paste a webhook URL into a file
   that gets committed.

@@ -18,6 +18,7 @@ from .util import atomic_write_json, normalize_text, normalize_upc, read_json
 FORGET_AFTER_S = 21 * 86400      # a listing not seen in searches for 3 weeks is dropped
 HOT_FOR_S = 6 * 3600             # an item seen in stock recently is checked every cycle
 BOOST_FOR_S = 2 * 3600           # the same product at other stores is checked every cycle for a while after a restock
+TIP_BOOST_S = 3600               # a product named in a community restock post is checked every cycle for an hour
 
 # How often a found listing is checked adapts to what that store actually does with it. Every check that finds it
 # out of stock (or priced far over MSRP) is a "miss". The first few misses cost nothing; after that the wait before
@@ -196,6 +197,31 @@ class Catalog:
                     self._wake(v)                 # restocked elsewhere: this store may be next
                     n += 1
         return n
+
+    def wake_matching(self, stores: list[str], title: str, limit: int = 5) -> list[str]:
+        """A community post says this product is in stock at these stores: check the listings that match it at
+        those stores every cycle for a while, starting now. A listing matches when it shares two name words with
+        the post ("phantasmal flames"), or one name word and the same product type. Returns the keys woken."""
+        from .community import name_words
+        words = name_words(title)
+        kind = classify(title).type_key
+        if not stores or not words:
+            return []
+        now = time.time()
+        scored = []
+        with self.lock:
+            for key, v in self.items.items():
+                if v["retailer"] not in stores or v.get("status") == "ignored":
+                    continue
+                shared = len(words & name_words(v.get("title", "")))
+                same = bool(kind and kind != "other" and v.get("type") == kind)
+                if shared >= 2 or (shared and same):
+                    scored.append((shared * 2 + same, key))
+            woke = [k for _, k in sorted(scored, reverse=True)[:limit]]
+            for key in woke:
+                self.items[key]["boost_until"] = max(self.items[key].get("boost_until", 0), now + TIP_BOOST_S)
+                self._wake(self.items[key])
+        return woke
 
     def set_status(self, key: str, status: str) -> int:
         """Ignore or track a product. The choice covers the same product at every store and is remembered

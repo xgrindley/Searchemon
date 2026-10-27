@@ -31,6 +31,29 @@ TAGS = re.compile(r"<[^>]+>")
 
 IN_STOCK = ("instock", "limitedavailability", "preorder", "presale", "onlineonly", "instoreonly")
 OUT_STOCK = ("outofstock", "soldout", "discontinued", "backorder")
+# A page with no stock data at all is read by its buy buttons, the way other monitors do (streetmerchant's per-store
+# "add to cart" / "sold out" labels, nearyou's text checks). Only the stretch of the page right after the product's
+# own heading is read, so an "Add to cart" on a recommended product further down does not count, and any sign of
+# "sold out" there wins over a buy button.
+BUY_WORDS = ("add to cart", "add to bag", "add to basket", "buy now", "pre order now", "preorder now")
+GONE_WORDS = ("out of stock", "sold out", "currently unavailable", "not available", "no longer available", "coming soon",
+              "notify me", "email me when", "get notified", "unavailable online", "temporarily unavailable", "discontinued")
+H1 = re.compile(r"<h1[\s>]", re.I)
+SCRIPTS = re.compile(r"<(script|style|noscript)\b[^>]*>.*?</\1\s*>", re.S | re.I)
+BUYBOX_CHARS = 12000
+
+
+def stock_from_buttons(html: str) -> str | None:
+    """'in', 'out' or None, from the buy area under the product heading (see BUY_WORDS)."""
+    m = H1.search(html or "")
+    if not m:
+        return None
+    text = f" {normalize_text(page_text(SCRIPTS.sub(' ', html[m.start():m.start() + BUYBOX_CHARS])))} "
+    if any(f" {w} " in text for w in GONE_WORDS):
+        return "out"
+    if any(f" {w} " in text for w in BUY_WORDS):
+        return "in"
+    return None
 
 KNOWN_SITES = {
     "pokemoncenter.com": "Pokemon Center",
@@ -125,6 +148,9 @@ def parse_product_page(html: str, patterns: dict | None = None) -> dict:
             info["status"] = "out"
         elif any(p and p in text for p in ins):
             info["status"] = "in"
+    elif info["status"] is None:
+        info["status"] = stock_from_buttons(html)
+        info["from_buttons"] = info["status"] is not None
     return info
 
 
@@ -403,7 +429,8 @@ class WebPage(Retailer):
                 online=status == "in",
                 online_status=("In store only" if info.get("store_only") else
                                "Pre-order" if info.get("preorder") and status == "in" else
-                               {"in": "In stock", "out": "Out of stock"}.get(status, "Unknown (no stock data on page)")),
+                               ("In stock (from the page's buy button)" if info.get("from_buttons") and status == "in" else
+                                {"in": "In stock", "out": "Out of stock"}.get(status, "Unknown (no stock data on page)"))),
                 image=info["image"],
                 third_party=self.third_party(info.get("seller")),
                 seller=str(info.get("seller") or "")[:80],

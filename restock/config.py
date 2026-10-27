@@ -139,6 +139,9 @@ DEFAULTS: dict[str, Any] = {
         "items_per_cycle": {"target": 6, "bestbuy": 20, "kroger": 50, "walmart": 0, "dicks": 3},
         "places": True,
     },
+    # Signals from outside the stores (community.py): restock posts on r/PokemonTCGDeals make matching products due
+    # for a check at once; the newest set names join the store searches. discord: also post each tip to the status channel.
+    "community": {"reddit": True, "new_sets": True, "discord": False},
 }
 
 

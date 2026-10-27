@@ -19,6 +19,31 @@ FORGET_AFTER_S = 21 * 86400      # a listing not seen in searches for 3 weeks is
 HOT_FOR_S = 6 * 3600             # an item seen in stock recently is checked every cycle
 BOOST_FOR_S = 2 * 3600           # the same product at other stores is checked every cycle for a while after a restock
 
+# How often a found listing is checked adapts to what that store actually does with it. Every check that finds it
+# out of stock (or priced far over MSRP) is a "miss". The first few misses cost nothing; after that the wait before
+# the next check doubles every few misses, up to a day, so a listing a store never has is still looked at daily but
+# no longer takes a turn every round. Anything that suggests movement resets it: stock at this store, a restock of
+# the same product at another store, the price changing, or the store's search showing it again with a new price.
+FREE_MISSES = 5                  # misses before checks start to space out
+STEP_MISSES = 5                  # the wait doubles every this many further misses
+FIRST_WAIT_S = 30 * 60
+MAX_WAIT_S = 24 * 3600
+PRIORITY_HEAD_S = 600            # head start per priority level when choosing what to check next
+
+
+def wait_after(misses: int) -> float:
+    """Seconds to wait before checking a listing again after this many misses in a row."""
+    if misses < FREE_MISSES:
+        return 0.0
+    return min(MAX_WAIT_S, FIRST_WAIT_S * 2 ** ((misses - FREE_MISSES) // STEP_MISSES))
+
+
+def _moved(old, new) -> bool:
+    """A price change worth noticing (more than 3%, or a price appearing or disappearing)."""
+    if not old or not new:
+        return bool(old) != bool(new)
+    return abs(float(new) - float(old)) / float(old) > 0.03
+
 
 class Catalog:
     def __init__(self, data_dir: str):
@@ -109,7 +134,9 @@ class Catalog:
                         item["status"] = "ignored"        # you ignored this product before (here or at another store)
                     elif not first_run:
                         new.append(item)
-                item.update({"title": r.title, "last_seen": now, "price": r.price,
+                if r.price and _moved(item.get("price"), r.price):
+                    self._wake(item)              # the store's search shows a new price: worth a look soon
+                item.update({"title": r.title, "last_seen": now, "price": r.price or item.get("price"),
                              "type": c.type_key, "type_label": c.type_label, "msrp": c.msrp})
                 if r.upc:
                     item["upc"] = normalize_upc(r.upc)
@@ -123,11 +150,33 @@ class Catalog:
         self.save()
         return new
 
-    def note_stock(self, res: StockResult) -> None:
+    @staticmethod
+    def _wake(item: dict) -> None:
+        item["misses"] = min(int(item.get("misses") or 0), FREE_MISSES - 1)
+        item["next_due"] = 0
+
+    def note_stock(self, res: StockResult, over_cap: bool = False) -> None:
+        """Record a check of a found listing and set when it is next due (see wait_after). over_cap: in stock but
+        priced past your limit, which for checking purposes is as good as out of stock."""
         item = self.items.get(res.key)
-        if item is not None:
-            if res.in_stock:
-                item["last_in_stock"] = time.time()
+        if item is None:
+            return
+        now = time.time()
+        with self.lock:
+            item["checks"] = int(item.get("checks") or 0) + 1
+            item["last_checked"] = now
+            moved = res.price is not None and _moved(item.get("price"), res.price)
+            if res.in_stock and not over_cap:
+                item["last_in_stock"] = now
+                item["hits"] = int(item.get("hits") or 0) + 1
+                item["misses"] = 0
+                item["next_due"] = 0
+            else:
+                item["misses"] = int(item.get("misses") or 0) + 1
+                item["over_cap"] = int(item.get("over_cap") or 0) + (1 if over_cap else 0)
+                item["next_due"] = now + wait_after(item["misses"])
+                if moved:
+                    self._wake(item)              # the price changed: something is happening, back to the normal pace
             item["price"] = res.price if res.price is not None else item.get("price")
             item["status_text"] = res.status_text()
 
@@ -144,6 +193,7 @@ class Catalog:
             for key, v in self.items.items():
                 if key != res.key and v["retailer"] != me["retailer"] and norm(v) == mine and v.get("status") != "ignored":
                     v["boost_until"] = until
+                    self._wake(v)                 # restocked elsewhere: this store may be next
                     n += 1
         return n
 
@@ -187,11 +237,21 @@ class Catalog:
             return []
         now = time.time()
         hot = [v for v in items if now - v.get("last_in_stock", 0) < HOT_FOR_S or v.get("boost_until", 0) > now]
-        rest = [v for v in items if v not in hot]
-        start = self.cursor.get(retailer, 0) % max(len(rest), 1)
-        picked = (rest[start:] + rest[:start])[: max(0, n - len(hot))]
-        self.cursor[retailer] = start + len(picked)
-        return hot + picked
+        # Of the rest, only listings that are due (see wait_after), the longest-waiting first. Wanted types count as
+        # having waited PRIORITY_HEAD_S longer per priority level, so they come up more often, but nothing is starved.
+        due = [v for v in items if v not in hot and float(v.get("next_due") or 0) <= now]
+        due.sort(key=lambda v: float(v.get("last_checked") or 0) - (9 - int(v.get("priority", 9))) * PRIORITY_HEAD_S)
+        return hot + due[: max(0, n - len(hot))]
+
+    def schedule_view(self, v: dict) -> dict:
+        """How often a listing is being checked, in words, for the control panel."""
+        misses, now = int(v.get("misses") or 0), time.time()
+        wait = max(0.0, float(v.get("next_due") or 0) - now)
+        if misses < FREE_MISSES or wait <= 0:
+            return {"pace": "normal", "text": ""}
+        over = int(v.get("over_cap") or 0)
+        why = f"not available the last {misses} checks" + (f" ({over} of them priced over your limit)" if over else "")
+        return {"pace": "slow", "text": f"Checked less often: {why}. Next check in {_span(wait)}."}
 
     def cross_queries(self, retailer: str, n: int) -> list[str]:
         """Search words for products found at other stores but not yet at this one: the UPC where known (a
@@ -221,5 +281,11 @@ class Catalog:
             g = v.get("upc") or normalize_text(v["title"]).replace("pokemon trading card game", "pokemon tcg")
             entry = groups.setdefault(g, {"title": v["title"], "type_label": v.get("type_label", ""),
                                           "msrp": v.get("msrp"), "priority": v.get("priority", 9), "listings": []})
-            entry["listings"].append({"key": key, **v})
+            entry["listings"].append({"key": key, **v, "schedule": self.schedule_view(v)})
         return sorted(groups.values(), key=lambda e: (e["priority"], e["title"]))
+
+
+def _span(seconds: float) -> str:
+    if seconds < 90 * 60:
+        return f"{max(1, round(seconds / 60))} min"
+    return f"{seconds / 3600:.0f} h"

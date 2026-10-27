@@ -114,6 +114,8 @@ retailers:
   raleys: {enabled: true, interval_seconds: 300, fetch_mode: auto}
   walgreens: {enabled: true, api_key: "", interval_seconds: 240, fetch_mode: auto}   # api_key (developer.walgreens.com) is optional: adds exact store locations only, no stock
   cvs: {enabled: true, interval_seconds: 240, fetch_mode: auto}
+  macys: {enabled: true, interval_seconds: 600, fetch_mode: auto}   # finds Pokemon products by itself, in the browser
+  kohls: {enabled: true, interval_seconds: 600, fetch_mode: auto}
   web:
     enabled: true              # any other product link
     interval_seconds: 180

@@ -13,7 +13,7 @@ from .trials import DEFAULTS as TRIAL_DEFAULTS
 from .util import normalize_text, replace_file
 
 ALL_RETAILERS = ("bestbuy", "target", "kroger", "walmart", "pokemoncenter", "gamestop", "costco", "samsclub",
-                 "barnesandnoble", "booksamillion", "amazon", "dicks", "safeway", "raleys", "walgreens", "cvs", "web")
+                 "barnesandnoble", "booksamillion", "amazon", "dicks", "safeway", "raleys", "walgreens", "cvs", "macys", "kohls", "web")
 
 DEFAULTS: dict[str, Any] = {
     "discord": {
@@ -119,6 +119,8 @@ DEFAULTS: dict[str, Any] = {
         "raleys": {"enabled": True, "interval_seconds": 300, "fetch_mode": "auto"},
         "walgreens": {"enabled": True, "api_key": "", "interval_seconds": 240, "fetch_mode": "auto"},
         "cvs": {"enabled": True, "interval_seconds": 240, "fetch_mode": "auto"},
+        "macys": {"enabled": True, "interval_seconds": 600, "fetch_mode": "auto"},
+        "kohls": {"enabled": True, "interval_seconds": 600, "fetch_mode": "auto"},
         "web": {"enabled": True, "interval_seconds": 180, "fetch_mode": "auto"},
     },
     "jitter_seconds": 20,

@@ -14,7 +14,10 @@ Read this first when picking the project back up. Newest entries at the top of e
 ## Decisions
 - GitHub pushes only after the user tests and approves a build (2026-10-25). Until then work stays local and is synced to the PC folder only. Stable (main) is a separate, later word from the user.
 - UI direction chosen: B, Glass Aurora (2026-10-25). Control panel (panel_page.py) carries the rich visuals; the tkinter window stays lightweight and only gets what is needed. No external fonts (privacy).
-- Stealth trials (direct-impersonate, browser-stealth) added in v2.6 on request, off by default. No CAPTCHA solving or proxy rotation built.
+- Stealth trials (direct-impersonate, browser-stealth) added in v2.6 on request, off by default.
+- v5.0 (2026-10-26): the user lifted the remaining restrictions. Rotating User-Agents (direct-ua), proxies (direct-proxy,
+  browser-proxy, separate never-signed-in "proxy" profile), a VPN reconnect command (config.yaml only, never from the panel,
+  since it runs a program) and CAPTCHA services (2Captcha, Anti-Captcha, CapSolver; captcha.py) are built in and scored.
 - Per-store MSRP allowance (`msrp_tolerance_pct` per retailer) instead of changing the MSRP.
 - Blocks are per browser session, not per IP, so rotate profiles and rest the blocked one.
 - Browser profile 1 keeps the old `data\browser-profile` folder; others live in `data\browser-profiles\<name>`.

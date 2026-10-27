@@ -2,9 +2,10 @@
 
 Runs Microsoft Edge (built into Windows) or Chrome through Playwright with its
 own profile in data/browser-profile, loading product pages the way you would.
-It does not disguise itself: no fingerprint spoofing, no CAPTCHA-solving
-services, no proxy rotation. When a site wants a human check, the window comes
-on screen, you solve it once, and the cookies it sets let checking continue.
+When a site wants a human check, a CAPTCHA service you set up answers it if it
+can (see captcha.py); otherwise the window comes on screen, you solve it once,
+and the cookies it sets let checking continue. A separate "proxy" profile can
+go through your proxies (see network.py); stealth runs on its own profile.
 
 All Playwright calls happen on one dedicated thread, because Playwright's sync
 API is not thread-safe. Retailer threads hand it jobs and wait for results.
@@ -145,8 +146,9 @@ class BrowserWorker:
                  on_human: Callable[[str, str, BlockInfo], None] | None = None,
                  on_verified: Callable[[str], None] | None = None,
                  name: str = "edge", channel: str = "", cdp_url: str = "", profile_dir: str = "",
-                 stealth: bool = False):
-        self.stealth = stealth           # runs on patchright instead of playwright; only used by the stealth trial
+                 stealth: bool = False, proxy: str = ""):
+        self.stealth = stealth
+        self.proxy = proxy               # the "proxy" profile only: the proxy it goes through right now           # runs on patchright instead of playwright; only used by the stealth trial
         self.raw = raw_cfg
         self.bcfg = raw_cfg.get("browser") or {}
         self.name = name
@@ -271,6 +273,20 @@ class BrowserWorker:
         else:
             left = " Some files were still in use; close any window of that browser and press Reset again."
         return f"Reset '{self.name}': its saved cookies and sign-ins were deleted and it starts fresh on the next check.{left}"
+
+    def switch_proxy(self, proxy: str) -> None:
+        """Close this browser so its next check starts again through another proxy (the proxy profile only)."""
+        if proxy == self.proxy:
+            return
+        self.stop()
+        self.thread = None
+        self.ctx = None
+        self.closed = False
+        self.failed = ""
+        self.pages.clear()
+        self.tabs.clear()
+        self.pending.clear()
+        self.proxy = proxy
 
     def request_stop(self) -> None:
         if self.thread and self.thread.is_alive():
@@ -416,6 +432,9 @@ class BrowserWorker:
             args.append(f"--window-position={OFFSCREEN},{OFFSCREEN}")
         kwargs = dict(user_data_dir=self.profile_dir, headless=bool(self.bcfg.get("headless", False)),
                       args=args, no_viewport=True, locale="en-US")
+        if self.proxy:
+            from ..network import playwright_proxy
+            kwargs["proxy"] = playwright_proxy(self.proxy)
         tried = []
         for ch in dict.fromkeys([channel, "msedge", "chrome", "chromium"]):
             try:
@@ -601,6 +620,17 @@ class BrowserWorker:
                 if html and not classify(200, html):
                     info, status = None, 200
                     break
+
+        if wants_person(info):
+            # A CAPTCHA service you set up may answer it, so the check carries on without you.
+            from .. import captcha as _cap
+            solver = _cap.SOLVER
+            if solver is not None and solver.attempt(page, domain.removeprefix("www."), url):
+                html = self._html(page)
+                info = classify(200, html) if html else info
+                solver.outcome(domain.removeprefix("www."), not (info and info.kind != "queue"))
+                if info is None or info.kind == "queue":
+                    return FetchResult(200, html, page.url, info, via=self.name)
 
         if wants_person(info) and ask and self.bcfg.get("ask_me_to_verify", True):
             self.pending[domain] = {"page": page, "since": time.time(), "url": url, "reminded": time.time()}
@@ -791,6 +821,22 @@ class BrowserPool:
             self.workers.append(worker)
             self.log.info("The stealth browser profile was added")
 
+    def proxy_worker(self, proxy: str):
+        """The separate 'proxy' browser profile, going through this proxy (created the first time it is wanted,
+        moved to another proxy when asked). It is never used by normal checks and never signed in to anything."""
+        with self._attach_lock:
+            w = next((w for w in self.workers if getattr(w, "proxy", "")), None)
+            if w is None:
+                folder = os.path.join(self._data_dir, "browser-profiles", "proxy")
+                w = BrowserWorker(self._raw, self._data_dir, self.log, self._on_human, self._on_verified,
+                                  name="proxy", channel="chrome", profile_dir=folder, proxy=proxy)
+                w.on_reopen = self.on_reopen
+                self.workers.append(w)
+                self.log.info("The proxy browser profile was added")
+        if w.proxy != proxy:
+            w.switch_proxy(proxy)
+        return w
+
     # ---- your own Chrome ---------------------------------------------------------------
     def _own_chrome_sites(self) -> list[str]:
         mine = [str(x).lower() for x in (self.bcfg.get("own_chrome_sites") or [])]
@@ -879,10 +925,11 @@ class BrowserPool:
             extra["light"] = True
         now = time.time()
         self._maybe_attach_own_chrome()
-        if pick != "stealth" and self._uses_own_chrome(site):
+        if pick not in ("stealth", "proxy") and self._uses_own_chrome(site):
             self._ensure_own_chrome()
         # The stealth profile is only for its own trial; normal checks never touch it.
-        live = [w for w in self.workers if w.usable and (bool(getattr(w, "stealth", False)) == (pick == "stealth"))]
+        live = [w for w in self.workers if w.usable and (bool(getattr(w, "stealth", False)) == (pick == "stealth"))
+                and (bool(getattr(w, "proxy", "")) == (pick == "proxy"))]
         if not live:
             raise BrowserUnavailable(self.failed or "Browser checking is off or Playwright is not installed")
         start = self.cursor.get(domain, 0) % len(live)
@@ -910,7 +957,7 @@ class BrowserPool:
             order = mine + [w for w in order if w not in mine]
         ready = [w for w in order if self.rest.get((w.name, domain), 0) <= now
                  and not any(p["domain"] == domain for p in w.waiting_domains())]
-        if pick == "stealth":
+        if pick in ("stealth", "proxy"):
             pass
         elif pick == "own":
             ready = [w for w in ready if getattr(w, "cdp_url", "")]

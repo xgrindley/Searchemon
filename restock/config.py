@@ -142,6 +142,10 @@ DEFAULTS: dict[str, Any] = {
     # Signals from outside the stores (community.py): restock posts on r/PokemonTCGDeals make matching products due
     # for a check at once; the newest set names join the store searches. discord: also post each tip to the status channel.
     "community": {"reddit": True, "new_sets": True, "discord": False},
+    # Other identities and addresses (network.py): used by the trial methods direct-ua, direct-proxy and browser-proxy.
+    "network": {"user_agents": [], "proxies": [], "vpn_reconnect_command": "", "vpn_after_blocks": 3, "vpn_min_minutes": 30},
+    # CAPTCHA-solving service (captcha.py). Off until a service and key are set.
+    "captcha": {"service": "", "api_key": "", "max_per_day": 30, "stores": []},
 }
 
 

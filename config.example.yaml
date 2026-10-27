@@ -79,6 +79,21 @@ community:
   new_sets: true                 # once a day, add the newest set names (from tcgcsv.com) to the store searches
   discord: false                 # also post each community tip to your status channel
 
+network:                         # used by the trial methods direct-ua, direct-proxy and browser-proxy
+  user_agents: []                # empty = a built-in list of current desktop browsers
+  proxies: []                    # one per line: host:port, host:port:user:pass, http://user:pass@host:port or socks5://host:port
+                                 # (most VPNs also give you a SOCKS5 proxy address; SOCKS needs: pip install "requests[socks]")
+  vpn_reconnect_command: ""      # set here only (never from the panel). Runs after a store is blocked vpn_after_blocks times
+                                 # in a row, at most every vpn_min_minutes. Example: "C:\Program Files\Mullvad VPN\resources\mullvad.exe" reconnect
+  vpn_after_blocks: 3
+  vpn_min_minutes: 30
+
+captcha:                         # a CAPTCHA-solving service answers CAPTCHAs in the checking browsers instead of waiting for you
+  service: ""                    # 2captcha | anticaptcha | capsolver (empty = off)
+  api_key: ""
+  max_per_day: 30                # never send more than this many in a day
+  stores: []                     # only these sites (e.g. cvs.com, amazon.com); empty = any
+
 retailers:
   target:
     enabled: true

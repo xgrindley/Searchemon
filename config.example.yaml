@@ -14,6 +14,8 @@ discord:
     # have its own webhook and gets only the stores inside that area.
     online: ""
     in_store: ""
+    review: ""       # skipped Pokemon merchandise (t-shirts, model kits) with Accept / Mute links
+    ebay: ""         # eBay listings under fair value from low-risk sellers
     # Optional: send a store to its own channel. Anything not listed uses default.
     # target: ""
     # pokemoncenter: ""
@@ -87,6 +89,16 @@ network:                         # used by the trial methods direct-ua, direct-p
                                  # in a row, at most every vpn_min_minutes. Example: "C:\Program Files\Mullvad VPN\resources\mullvad.exe" reconnect
   vpn_after_blocks: 3
   vpn_min_minutes: 30
+
+ebay:                            # eBay deals and fair market value (Products > eBay deals)
+  enabled: false
+  app_id: ""                     # optional free key from developer.ebay.com (Production keyset); without it the public search page is read
+  cert_id: ""
+  interval_minutes: 30
+  products_per_check: 4
+  queries: []                    # extra eBay searches
+  deal_pct: 90                   # a deal costs at most this % of fair value
+  alert_max_risk: low            # low | medium | high
 
 captcha:                         # a CAPTCHA-solving service answers CAPTCHAs in the checking browsers instead of waiting for you
   service: ""                    # 2captcha | anticaptcha | capsolver (empty = off)

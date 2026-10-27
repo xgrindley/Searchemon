@@ -189,6 +189,29 @@ def parse_amazon(html: str) -> dict:
 SLUG_NOISE = re.compile(r"(?:^|-)(?:prodid|prod|id|ean|sku)-?\d+$|[-.]?\d{5,}$|\.(?:html?|jsp|aspx?|php)$", re.I)
 
 
+# Bits of store listing text that are not part of a product's name: "600+ bought in last month", prices, "reg $19.99 Sale",
+# ratings ("2.1 2.06 out of 5 stars (17)"), delivery lines ("Shipping arrives Tue, Nov 3 Ships free - exclusions apply").
+LISTING_NOISE = re.compile(
+    r"(?i)(\b(sponsored|best seller|amazon'?s choice|overall pick|limited time deal|top rated|new at|"
+    r"sale|clearance|list price:?|typical price:?|save \d+%|reg)\b|"
+    r"\d[\d,.]*k?\+? bought in (the )?(last|past) month|"
+    r"(\d(\.\d+)? ){0,2}\d(\.\d+)? out of 5 stars( \(\d[\d,]*\))?|"
+    r"\$\s?\d[\d,]*(\.\d\d)?)")
+LISTING_TAIL = re.compile(r"(?i)\s(shipping arrives|ships free|free (shipping|delivery)|arrives by|pick ?up today|"
+                          r"order pickup|same day delivery|only \d+ left|in stock at)\b.*$")
+
+
+def clean_listing_title(title: str) -> str:
+    t = htmllib.unescape(htmllib.unescape(title or "")).replace("\xa0", " ")
+    t = LISTING_TAIL.sub("", LISTING_NOISE.sub(" ", t))
+    return re.sub(r"\s{2,}", " ", t).strip(" -|,.")
+
+
+# A search page that plainly says it found nothing (then the browser is not tried for the same words).
+NO_RESULTS = re.compile(r"(?i)don.t have any matches|no results (were )?found|no matches for|we couldn.t find any|"
+                        r"did not match any products|0 results for|no products found|sorry, we couldn.t find")
+
+
 def slug_title(path: str) -> str:
     """A readable product name out of a product link, for pages that show no text next to the link."""
     parts = [p for p in re.split(r"[/;?]", path.split("?")[0]) if p and "=" not in p]    # skip ID=prod123-product
@@ -222,7 +245,7 @@ def parse_listing(html: str, product_re, base: str) -> list[tuple[str, str]]:
             return
         url = raw if raw.startswith("http") else base + (raw if raw.startswith("/") else "/" + raw)
         url = clean_url(url)
-        title = (title or "").strip()
+        title = clean_listing_title(title)
         if len(title) < 8:
             title = slug_title(urlsplit(url).path) or title
         key = urlsplit(url).path.lower().rstrip("/")
@@ -275,6 +298,9 @@ class WebPage(Retailer):
 
     category_urls: tuple[str, ...] = ()         # pages that list the store's Pokemon products (newest first), no query needed
     search_in_browser = False                   # the results are built by script, so only a real browser shows them
+    search_wait_re = ""                         # what to wait for in the browser (default: any product link)
+    search_by_upc = True                        # the store's search finds a product by its barcode
+    search_budget = 0                           # most searches per discovery refresh (0 = no limit)
     NAME_LINKS = 10                             # links with no product name: open up to this many to read the name
     CATEGORY_TTL_S = 1800
 
@@ -301,10 +327,14 @@ class WebPage(Retailer):
         browser = getattr(self, "browser", None)
         usable = lambda: bool(browser and browser.usable)       # noqa: E731
         resp = None
+        wait = getattr(self, "search_wait_re", "") or wait
         if not (self.search_in_browser or getattr(self, "_listing_needs_browser", False)) or not usable():
             resp = self.fetch_html(url)
             items = self.read_listing(resp.text)
-            if items or not usable() or (self.last_via == "browser" and not wait):
+            # Links to other things on the page (menus, recommendations) are not results: only Pokemon ones count.
+            relevant = [i for i in items if "pokemon" in normalize_text(i[1] or i[0]).replace("pok mon", "pokemon")]
+            said_none = resp.status < 400 and bool(NO_RESULTS.search(page_text((resp.text or "")[:600000])[:200000]))
+            if relevant or said_none or not usable() or (self.last_via == "browser" and not wait):
                 return items, resp
         if usable():
             try:
@@ -317,7 +347,8 @@ class WebPage(Retailer):
                 resp = self.fetch_html(url)      # the browser could not start: a plain request is better than nothing
                 return self.read_listing(resp.text), resp
             items = self.read_listing(resp.text)
-            if items and not self.search_in_browser and not getattr(self, "_listing_needs_browser", False):
+            relevant = [i for i in items if "pokemon" in normalize_text(i[1] or i[0]).replace("pok mon", "pokemon")]
+            if relevant and not self.search_in_browser and not getattr(self, "_listing_needs_browser", False):
                 self._listing_needs_browser = True
                 self.log.info("%s: its search results only show in a real browser, so searches use the browser from now on",
                               self.display)
@@ -365,11 +396,21 @@ class WebPage(Retailer):
             names[items[i][0]] = items[i][1] or names.get(items[i][0], "")
             self.pause(self.link_delay())
         items = [(u, t) for u, t in items if t]
+        pokemon = [t for _, t in items if "pokemon" in normalize_text(t)]
+        if resp is not None and resp.status == 404 and len(resp.text or "") < 500 and not items:
+            # A bare "Not Found" for the store's own search page (Barnes & Noble does this to automated visits) is a
+            # refusal, not an empty search: stop searching there for a while instead of trying every query.
+            self.dump("search", resp.text or "", force=True)
+            raise Blocked(f"{self.display} answered its own search page with a bare 'Not Found' (a refusal)", 3600)
         if resp is not None:
-            self.dump("search", (resp.text or "")[:4_000_000], force=not items)
+            self.dump("search", (resp.text or "")[:4_000_000], force=not pokemon)
             if not items:
                 self.log.info("%s search for '%s' showed no product links (status %s, %d characters). "
                               "A copy of the page is in data\\debug.", self.display, query[:40], resp.status, len(resp.text or ""))
+            elif not pokemon and not query[:1].isdigit():
+                self.log.info("%s search for '%s' showed %d links but none to Pokemon products (for example: %s). "
+                              "A copy of the page is in data\\debug.", self.display, query[:40], len(items),
+                              "; ".join(t[:40] for _, t in items[:3]))
         self.pause(self.link_delay())
         out = []
         for u, t in items[:limit]:
@@ -623,6 +664,9 @@ class Costco(WebPage):
     # The older ".product.123.html" links and the newer "/p/-/name/123" ones.
     product_re = re.compile(r"\.product\.\d+\.html|/p/-/[a-z0-9-]+/\d{6,}", re.I)
     search_in_browser = True
+    # The page shows other products (recommendations) before the results arrive, so wait for a Pokemon one.
+    search_wait_re = r"pok[a-z%0-9]{0,6}mon[a-z0-9%-]*(\.product\.\d+\.html|/\d{6,})"
+    search_by_upc = False
 
 
 class SamsClub(WebPage):
@@ -631,8 +675,10 @@ class SamsClub(WebPage):
     domains = ("samsclub.com",)
     supports_search = True
     search_url = "https://www.samsclub.com/s/{q}"
-    product_re = re.compile(r"/(?:ip|p)/[a-z0-9-]+/[a-z0-9]+", re.I)
+    # Not "/cp/..." (menu pages): only a product link that starts with /ip/ or /p/.
+    product_re = re.compile(r"(?<![a-z])/(?:ip|p)/[a-z0-9-]*[a-z][a-z0-9-]*/[a-z0-9]{5,}", re.I)
     own_seller_names = ("sam s club", "sams club")
+    search_by_upc = False         # its search finds nothing for a barcode
 
 
 class BarnesAndNoble(WebPage):
@@ -792,7 +838,10 @@ class Walgreens(WebPage):
     supports_search = True
     search_url = "https://www.walgreens.com/search/results.jsp?Ntt={q}"
     product_re = re.compile(r"/store/c/[a-z0-9-]+/ID=prod\d+-product", re.I)
-    search_in_browser = True
+    # Plain requests load Walgreens fine (32 of 32 in your trial numbers) while its browser visits get refused, so
+    # searches start plain and only use the browser when the plain page shows nothing.
+    search_in_browser = False
+    search_budget = 2             # Akamai: a burst of searches gets the whole connection refused, at CVS too
 
     @property
     def key(self) -> str:
@@ -897,6 +946,7 @@ class CVS(WebPage):
     search_url = "https://www.cvs.com/search?searchTerm={q}"
     product_re = re.compile(r"/shop/[a-z0-9-]+-prodid-\d+", re.I)
     search_in_browser = True
+    search_budget = 2             # Akamai: see Walgreens
 
     def url_for(self, ident: str) -> str:
         if ident.startswith("http"):

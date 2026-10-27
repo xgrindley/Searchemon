@@ -74,6 +74,10 @@ class DiscordNotifier:
         # The "status" channel is for everything that is not stock: sign-in needed, blocks, method changes.
         # It is kept out of the restock routing so a stock alert can never land there.
         self.status_url = self.hooks.pop("status", "")
+        # The "review" channel lists Pokemon things that were skipped as not card product, with Accept / Mute links.
+        self.review_url = self.hooks.pop("review", "")
+        # The "ebay" channel gets good-priced eBay listings with their seller risk.
+        self.ebay_url = self.hooks.pop("ebay", "")
         self.status_ping = bool(discord_cfg.get("ping_status", False))
         self.role = str(discord_cfg.get("mention_role_id") or "").strip()
         self.user = str(discord_cfg.get("mention_user_id") or "").strip()
@@ -101,6 +105,44 @@ class DiscordNotifier:
                  "footer": {"text": "Status"}, "timestamp": dt.datetime.now(dt.timezone.utc).isoformat()}
         return self._post(self.status_url, {"username": self.username, "content": content, "embeds": [embed],
                                             "allowed_mentions": allowed})
+
+    def review(self, entries: list[dict]) -> bool:
+        """Skipped products for you to accept or mute. entries: {title, reason, store, url, price, accept, mute}."""
+        if not (self.review_url and entries):
+            return False
+        lines = []
+        for e in entries[:10]:
+            link = web_link(e.get("url"))
+            name = f"[{e['title'][:90]}]({link})" if link else e["title"][:90]
+            price = f" ${e['price']:.2f}" if e.get("price") else ""
+            lines.append(f"**{name}**\n{e.get('store', '')}{price} | skipped as {e.get('reason', '')}\n"
+                         f"[Accept]({e['accept']})  |  [Mute]({e['mute']})")
+        more = f"\n...and {len(entries) - 10} more on the control panel (Products > To review)." if len(entries) > 10 else ""
+        embed = {"title": f"To review: {len(entries)} skipped Pokemon product{'s' if len(entries) != 1 else ''}",
+                 "description": ("\n\n".join(lines) + more)[:4000], "color": GREY,
+                 "footer": {"text": "Accept tracks it like card product. Mute hides it for good. Links open your control panel."},
+                 "timestamp": dt.datetime.now(dt.timezone.utc).isoformat()}
+        return self._post(self.review_url, {"username": self.username, "embeds": [embed], "allowed_mentions": {"parse": []}})
+
+    def ebay(self, deals: list[dict]) -> bool:
+        """eBay listings priced under fair value from sellers that pass the risk check."""
+        if not (self.ebay_url and deals):
+            return False
+        embeds = []
+        for d in deals[:5]:
+            fields = [{"name": "Price", "value": f"${d['total']:.2f}" + (f" (${d['price']:.2f} + ${d['shipping']:.2f} shipping)"
+                                                                          if d.get("shipping") else " with free shipping"), "inline": True}]
+            if d.get("fair"):
+                fields.append({"name": "Fair value", "value": f"${d['fair']:.2f} ({d['pct_fair']}% of it)", "inline": True})
+            fields.append({"name": "Seller", "value": f"{d.get('seller') or 'unknown'}: {d.get('feedback') if d.get('feedback') is not None else '?'} ratings, "
+                                                      f"{d.get('positive') if d.get('positive') is not None else '?'}% positive", "inline": False})
+            fields.append({"name": f"Risk: {d['level']} ({d['risk']}/100)", "value": "; ".join(d.get("why") or []) or "no red flags found",
+                           "inline": False})
+            embeds.append({"title": f"eBay: {d['title']}"[:256], "url": web_link(d.get("url")), "fields": fields,
+                           "color": GREEN if d["level"] == "low" else 0xF1C40F,
+                           "footer": {"text": f"Matched {d.get('product', '')}"[:200]},
+                           "timestamp": dt.datetime.now(dt.timezone.utc).isoformat()})
+        return self._post(self.ebay_url, {"username": self.username, "embeds": embeds, "allowed_mentions": {"parse": []}})
 
     def routes(self, res: StockResult, new_online: bool = True, new_stores: bool = True) -> list[tuple[str, StockResult]]:
         """Which channels an alert goes to, and what each one shows.
@@ -259,6 +301,10 @@ class DiscordNotifier:
                         "Buy online now and pick up instead of driving around.")
         elif res.stores and not res.online:
             desc.append("On the shelf in store (not orderable for pickup). Call ahead or go soon.")
+        if res.visit_plan:
+            desc.append(res.visit_plan)
+        if res.online and res.online_hint:
+            desc.append(f"Online it is {res.online_hint}.")
         if res.stores and all(s.low for s in res.stores):
             desc.append("Low counts can be wrong (items already sold or misplaced), so call the store first.")
         if res.preorder:
@@ -296,6 +342,8 @@ class DiscordNotifier:
                 line += ", pickup today"
             elif st.pickup is False:
                 line += ", in store only"
+            if st.hint:
+                line += f" ({st.hint})"
             if st.store_id in new:
                 line = "NEW " + line
             if st.address:

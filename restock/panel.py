@@ -182,6 +182,7 @@ class PanelServer:
         self.httpd.daemon_threads = True
         self.listening_lan = self.lan
         threading.Thread(target=lambda: self.httpd.serve_forever(poll_interval=0.1), daemon=True, name="panel").start()
+        self.monitor.panel_base = self.lan_url or self.url      # where Accept / Mute links in Discord point
         self.monitor.info(f"Control panel: {self.url}" + (f"  (phone: {', '.join(f'http://{a}:{self.port}/' for a in lan_addresses()) or self.lan_url})" if self.lan else ""))
         if self.lan:
             self.monitor.info("If the phone cannot open it, Windows Firewall is the usual cause: see Stores & keys > Phone access for the one command that fixes it")
@@ -422,6 +423,24 @@ class _Handler(BaseHTTPRequestHandler):
         return self.client_address[0] in ("127.0.0.1", "::1")
 
     # ---- routes ---------------------------------------------------------------------
+    def _review_link(self, path: str):
+        """An Accept or Mute link from the review channel in Discord. Each link is signed for one product and one
+        choice (review.py), so it needs no PIN and can do nothing else."""
+        import html as htmllib
+        parts = path.strip("/").split("/")
+        m = self.panel.monitor
+        if len(parts) != 4 or not m.review.check(parts[2], parts[1], parts[3]):
+            return self._send(403, b"This link is not valid.", "text/plain")
+        ok, msg = m.review.decide(parts[2], parts[1])
+        if ok and parts[1] == "accept":
+            threading.Thread(target=m.rediscover_soon, daemon=True).start()
+        page = ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+                "<meta name=referrer content=no-referrer><title>Searchemon</title>"
+                "<body style='font:16px system-ui;background:#120d24;color:#ece8ff;padding:32px;max-width:640px;margin:auto'>"
+                f"<h2>{'Done' if ok else 'Not changed'}</h2><p>{htmllib.escape(msg)}</p>"
+                "<p><a style='color:#9ad7ff' href='/'>Open the control panel</a></p></body>")
+        return self._send(200 if ok else 404, page.encode(), "text/html; charset=utf-8")
+
     def do_GET(self):
         if not self._host_ok():
             return self._send(403, b"Forbidden", "text/plain")
@@ -444,6 +463,8 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             return self.wfile.write(body)
+        if path.startswith("/r/"):
+            return self._review_link(path)
         if not self._authed():
             return self._json(401, {"error": "PIN required"})
         try:
@@ -469,10 +490,23 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json(200, self.panel.catalog())
         if path == "/api/places":
             return self._json(200, self.panel.places())
+        if path == "/api/market":
+            return self._json(200, {**self.panel.monitor.market.view(), "webhook": bool(self.panel.monitor.notifier.ebay_url)})
+        if path == "/api/review":
+            return self._json(200, {"rows": self.panel.monitor.review.rows(), "counts": self.panel.monitor.review.counts(),
+                                    "webhook": bool(self.panel.monitor.notifier.review_url)})
         if path == "/api/sellers":
             return self._json(200, {"rows": self.panel.monitor.sellers.rows()})
         if path == "/api/types":
             return self._json(200, self.panel.types())
+        if path == "/api/stockreport":
+            q = parse_qs(urlsplit(self.path).query)
+            try:
+                days = max(1, min(180, int((q.get("days") or ["60"])[0])))
+            except ValueError:
+                days = 60
+            area = (q.get("area") or [""])[0]
+            return self._json(200, self.panel.monitor.stockwatch.report(days, area))
         if path == "/api/patterns":
             q = parse_qs(urlsplit(self.path).query)
             retailer = (q.get("retailer") or [""])[0] or None
@@ -549,6 +583,14 @@ class _Handler(BaseHTTPRequestHandler):
                     return self._json(200, {"ok": True, "changed": n, "message":
                                             ("Ignored at every store. It stays ignored after restarts." if ignored
                                              else "Tracking it again at every store.")})
+                elif action == "ebay_now":
+                    threading.Thread(target=m.market_tick, daemon=True).start()
+                    return self._json(200, {"ok": True, "message": "Checking eBay now. Results appear here in a minute or two."})
+                elif action == "review_decide":
+                    ok, msg = m.review.decide(str(body.get("id")), str(body.get("choice")))
+                    if ok and body.get("choice") == "accept":
+                        threading.Thread(target=m.rediscover_soon, daemon=True).start()
+                    return self._json(200, {"ok": ok, "message": msg})
                 elif action == "seller_mode":
                     ok = m.sellers.set_mode(str(body.get("key")), str(body.get("mode")))
                     return self._json(200, {"ok": ok, "message": {"block": "Seller blocked.", "allow": "Seller allowed.",

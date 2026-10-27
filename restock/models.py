@@ -19,6 +19,7 @@ class StoreStock:
     via_area: str = ""           # the area the retailer was asked about (its distance is from that ZIP)
     area: str = ""               # the closest of your areas that contains this store
     chain: str = ""              # chain key for store exclusions (target, bestbuy, kroger)
+    hint: str = ""               # what past restocks here say, e.g. "usually sold out in 25 min"
 
     @property
     def low(self) -> bool:
@@ -70,6 +71,9 @@ class StockResult:
     msrp: float | None = None
     ref_msrp: float | None = None     # MSRP to show in alerts (own MSRP, else the product type's)
     note: str = ""
+    stores_checked: bool = False      # this check looked at store shelves (so a store missing from stores is sold out)
+    online_hint: str = ""             # e.g. "usually sold out online in 12 min"
+    visit_plan: str = ""              # which store to go to first, from how fast each sells out
 
     @property
     def key(self) -> str:

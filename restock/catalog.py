@@ -12,12 +12,13 @@ import threading
 import time
 
 from .models import StockResult
-from .tcg import classify, type_settings
+from .tcg import Classified, classify, type_settings
 from .util import atomic_write_json, normalize_text, normalize_upc, read_json
 
 FORGET_AFTER_S = 21 * 86400      # a listing not seen in searches for 3 weeks is dropped
 HOT_FOR_S = 6 * 3600             # an item seen in stock recently is checked every cycle
 BOOST_FOR_S = 2 * 3600           # the same product at other stores is checked every cycle for a while after a restock
+NOT_REVIEWED = ("not a Pokemon product", "non-English product", "no trading card signal in title")
 TIP_BOOST_S = 3600               # a product named in a community restock post is checked every cycle for an hour
 
 # How often a found listing is checked adapts to what that store actually does with it. Every check that finds it
@@ -46,6 +47,11 @@ def _moved(old, new) -> bool:
     return abs(float(new) - float(old)) / float(old) > 0.03
 
 
+def reviewable(reason: str) -> bool:
+    """Pokemon things skipped for being something other than card product (clothing, model kits, plush...)."""
+    return bool(reason) and reason not in NOT_REVIEWED
+
+
 class Catalog:
     def __init__(self, data_dir: str):
         self.path = os.path.join(data_dir, "catalog.json")
@@ -57,6 +63,11 @@ class Catalog:
         # choice holds at every store, survives restarts, and still applies when a store's link for it changes.
         self.rejected: dict[str, dict] = saved.get("rejected", {})
         self.cursor: dict[str, int] = {}
+        self.review = None        # set by the engine: the ReviewQueue (skipped Pokemon merchandise, your Accept / Mute)
+        self.skipped: list[tuple[str, StockResult, str]] = []   # (store, listing, why) not tracked since the last look
+        from .retailers.pages import clean_listing_title
+        for v in self.items.values():     # names saved before listing text was cleaned ("$24.99 New at ... out of 5 stars")
+            v["title"] = clean_listing_title(v.get("title", "")) or v.get("title", "")
         changed = self.purge_non_tcg()
         with self.lock:
             # Ignores made before this was remembered per product: carry them over.
@@ -94,8 +105,14 @@ class Catalog:
         """Drop saved listings the classifier no longer accepts (for example a sticker book that an
         older version tracked as a collection box). Returns how many were removed."""
         with self.lock:
-            drop = [k for k, v in self.items.items()
-                    if not classify(str(v.get("title") or ""), allow_non_english=True).is_tcg]
+            drop = []
+            for k, v in self.items.items():
+                c = classify(str(v.get("title") or ""), allow_non_english=True)
+                if not c.is_tcg and not v.get("accepted"):
+                    drop.append(k)
+                    if reviewable(c.reason):     # shown in To review, so you can still accept it
+                        self.skipped.append((v["retailer"], StockResult(v["retailer"], v.get("retailer_name", ""), str(v.get("id") or k.split(":", 1)[-1]),
+                                                                        v["title"], v.get("url", "") or "", price=v.get("price")), c.reason))
             for k in drop:
                 del self.items[k]
         return len(drop)
@@ -110,6 +127,11 @@ class Catalog:
     def seeded(self, retailer: str) -> bool:
         return retailer in self.runs
 
+    def take_skipped(self) -> list[tuple[str, StockResult, str]]:
+        with self.lock:
+            out, self.skipped = self.skipped, []
+        return out
+
     def merge(self, retailer: str, results: list[StockResult], raw_cfg: dict, mark_run: bool) -> list[dict]:
         """Add classified listings. Returns the ones never seen before (empty on the very first run)."""
         allow_other_lang = bool((raw_cfg.get("settings") or {}).get("allow_non_english"))
@@ -121,8 +143,17 @@ class Catalog:
         with self.lock:
             for r in results:
                 c = classify(r.title, allow_non_english=allow_other_lang, msrp_overrides=overrides)
-                if not c.is_tcg or r.third_party:
+                if r.third_party:
                     continue
+                accepted = False
+                if not c.is_tcg:
+                    if self.review is not None and self.review.accepted(r.title):
+                        accepted = True
+                        c = Classified(True, "other", "Other card product", None, "", c.language, 6)   # you accepted it
+                    else:
+                        if reviewable(c.reason):
+                            self.skipped.append((retailer, r, c.reason))
+                        continue
                 key = f"{retailer}:{r.product_id}"
                 item = self.items.get(key)
                 if item is None:
@@ -141,6 +172,8 @@ class Catalog:
                              "type": c.type_key, "type_label": c.type_label, "msrp": c.msrp})
                 if r.upc:
                     item["upc"] = normalize_upc(r.upc)
+                if accepted:
+                    item["accepted"] = True
                 if item.get("status") != "ignored" and self._is_rejected(item):
                     item["status"] = "ignored"
             for key in [k for k, v in self.items.items() if v["retailer"] == retailer
@@ -279,7 +312,7 @@ class Catalog:
         why = f"not available the last {misses} checks" + (f" ({over} of them priced over your limit)" if over else "")
         return {"pace": "slow", "text": f"Checked less often: {why}. Next check in {_span(wait)}."}
 
-    def cross_queries(self, retailer: str, n: int) -> list[str]:
+    def cross_queries(self, retailer: str, n: int, use_upc: bool = True) -> list[str]:
         """Search words for products found at other stores but not yet at this one: the UPC where known (a
         store's search usually jumps straight to that product), else the first words of the title. A different
         batch is returned each time, so over a few refreshes every product gets looked for."""
@@ -289,8 +322,12 @@ class Catalog:
                 continue
             if all(l.get("status") == "ignored" for l in g["listings"]):
                 continue
+            from .retailers.pages import clean_listing_title
             first = next((l for l in g["listings"] if l.get("upc")), g["listings"][0])
-            q = first.get("upc") or " ".join(str(g["title"]).split()[:9])
+            words = " ".join(clean_listing_title(str(g["title"])).split()[:9])
+            q = (first.get("upc") if use_upc else "") or words
+            if not q or (not use_upc and "pokemon" not in normalize_text(q)):
+                continue
             if q and q not in wanted:
                 wanted.append(q)
         if not wanted or n <= 0:

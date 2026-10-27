@@ -17,6 +17,8 @@ _TRACKING_KEYS = {
     "irgwc", "irclickid", "clickid", "sharedid", "ranmid", "raneaid", "ransiteid",
     "wmlspartner", "sourceid", "veh", "cmp", "cmpid", "intcmp", "lnm", "cpng",
     "loc", "acid", "s_kwcid", "ef_id", "twclid", "ttclid", "yclid", "_ga", "_gl",
+    "mkevt", "mkcid", "mkrid", "campid", "toolid", "customid", "_trkparms", "_trksid", "chn", "norover", "itmmeta",
+    "amdata", "epid_ref", "srsltid",
 }
 _TRACKING_PREFIXES = ("utm_", "pk_", "mtm_", "hsa_")
 
@@ -31,6 +33,8 @@ def clean_url(url: str | None) -> str:
         for k, v in parse_qsl(parts.query, keep_blank_values=True)
         if k.lower() not in _TRACKING_KEYS and not k.lower().startswith(_TRACKING_PREFIXES)
     ]
+    if (parts.hostname or "").endswith("ebay.com") and parts.path.startswith("/itm/"):
+        query = []                    # an eBay item link needs nothing but its number; the rest is tracking
     local = (parts.hostname or "") in ("127.0.0.1", "localhost", "::1")
     scheme = "https" if parts.scheme == "http" and not local else parts.scheme  # never send a product link in the clear
     return urlunsplit((scheme, parts.netloc, parts.path, urlencode(query), ""))

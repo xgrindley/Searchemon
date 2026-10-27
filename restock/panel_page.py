@@ -205,6 +205,13 @@ input:focus, textarea:focus, select:focus { border-color: var(--act); outline: n
 .setting .t span { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); }
 .mc-row { display: grid; grid-template-columns: minmax(0,1.6fr) repeat(3, minmax(70px,.5fr)) auto; gap: 12px; align-items: center; padding: 12px 16px; background: var(--raised); }
 .mc-row + .mc-row { margin-top: 2px; }
+.review-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.rv-main { flex: 1 1 280px; min-width: 0; overflow-wrap: anywhere; }
+.rv-btns { display: flex; gap: 8px; }
+.rk-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.rk-tile { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--raised); }
+.rk-tile .k { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+table.rank td { vertical-align: top; }
 .mc-group { padding: 10px 16px 6px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .mc-row .n { font-weight: 600; font-variant-numeric: tabular-nums; }
 .mc-row .k { display: block; font-size: 12px; color: var(--muted); }
@@ -572,8 +579,8 @@ function counts() {
 /* The menu: seven plain sections; pages that belong together share a section and get tabs at the top. */
 const GROUPS = [
   { key: "home", tabs: [["dash", "Home"]] },
-  { key: "near", tabs: [["places", "Stores with stock"], ["scan", "Scan a ZIP"]] },
-  { key: "products", tabs: [["found", "Found for you"], ["watch", "Your own links"], ["search", "Keyword searches"], ["filters", "Prices & filters"]] },
+  { key: "near", tabs: [["places", "Stores with stock"], ["rank", "Store rankings"], ["scan", "Scan a ZIP"]] },
+  { key: "products", tabs: [["found", "Found for you"], ["review", "To review"], ["ebay", "eBay deals"], ["watch", "Your own links"], ["search", "Keyword searches"], ["filters", "Prices & filters"]] },
   { key: "alerts", tabs: [["notify", "Discord alerts"]] },
   { key: "areas", tabs: [["areas", "My areas"]] },
   { key: "stores", tabs: [["retail", "Stores & keys"], ["speed", "How often"], ["accounts", "Sign-ins"]] },
@@ -878,6 +885,54 @@ const views = {
         h("div", {}, h("h2", { text: "Recent alerts" }), h("div", { class: "panel" }, h("ul", { class: "feed", id: "alerts" })),
           h("details", { class: "more" }, h("summary", { text: "Technical log (for troubleshooting)" }),
             h("div", { class: "panel" }, h("ul", { class: "feed log", id: "activity" }))))),
+    ];
+  },
+
+  ebay() {
+    const e = cfg.ebay = cfg.ebay || {};
+    setTimeout(loadMarket);
+    return [
+      h("h1", { text: "eBay deals" }),
+      h("p", { class: "lede", text: "Fair market value for the products the monitor tracks, from what eBay sellers ask (price plus shipping, with very high, very low and huge-shipping listings left out) and TCGplayer's market price. Each listing gets a risk score from its seller's feedback and its own red flags, so a cheap listing from a risky seller is not mistaken for a deal." }),
+      h("div", { class: "settings-list" },
+        setting("Check eBay", "Every half hour, a few of your products are looked up on eBay in turn.", sw(e, "enabled", "")),
+        setting("eBay App ID", "Optional. A free developer key (developer.ebay.com > Application Keys > Production) gives exact seller and shipping data. Without it the public search page is read.", text(e, "app_id", { placeholder: "App ID (Client ID)" })),
+        setting("eBay Cert ID", "The secret that comes with the App ID.", secret(e, "cert_id", "Cert ID (Client Secret)")),
+        setting("A deal is at most this % of fair value", "90 means at least 10% under fair value.",
+          h("input", { type: "number", min: "30", max: "150", value: String(e.deal_pct || 90), "aria-label": "Deal percent",
+            oninput: (ev) => { e.deal_pct = Number(ev.target.value) || 90; touch(); } })),
+        setting("Alert only up to this risk", "Low is the safe choice.",
+          h("select", { "aria-label": "Highest risk", onchange: (ev) => { e.alert_max_risk = ev.target.value; touch(); } },
+            [["low", "Low risk only"], ["medium", "Low and medium"], ["high", "Any risk"]].map(([v, t]) => h("option", { value: v, text: t, selected: (e.alert_max_risk || "low") === v })))),
+        setting("Also look up", "Extra searches, one per line (for example a product no store lists yet).", lines(e, "queries", { rows: 2, placeholder: "Pokemon TCG Mega Greninja ex Premium Collection", "aria-label": "Extra eBay searches", style: "min-width:260px" }))),
+      h("div", { class: "toolbar", style: "margin-top:10px" }, h("button", { class: "btn primary", type: "button", text: "Check eBay now", onclick: async () => {
+        try { const r = await api("/api/action", { action: "ebay_now" }); toast(r.message); setTimeout(loadMarket, 60000); } catch (ex) { toast(ex.message, true); } } })),
+      h("div", { id: "market-body" }, h("div", { class: "panel empty", text: "Loading" })),
+    ];
+  },
+
+  review() {
+    setTimeout(loadReview);
+    const tabsRow = h("div", { class: "toolbar", id: "review-filter" });
+    return [
+      h("h1", { text: "To review" }),
+      h("p", { class: "lede", text: "Pokemon things the monitor found but skipped because they are not card product: t-shirts, model kits, plush, books. Accept one to track it like card product; Mute it and it is never listed again. Your choices are saved on this PC, and the same buttons are in the review channel on Discord." }),
+      tabsRow,
+      h("div", { id: "review-body" }, h("div", { class: "panel empty", text: "Loading" })),
+    ];
+  },
+
+  rank() {
+    const days = h("select", { "aria-label": "Period", onchange: (e) => { rankState.days = e.target.value; store.set("restock-rank", rankState); loadRank(); } },
+      [["14", "Last 2 weeks"], ["30", "Last 30 days"], ["60", "Last 60 days"], ["180", "Last 6 months"]].map(([v, t]) => h("option", { value: v, text: t, selected: rankState.days === v })));
+    const area = h("select", { id: "rank-area", "aria-label": "Area", onchange: (e) => { rankState.area = e.target.value; store.set("restock-rank", rankState); loadRank(); } },
+      h("option", { value: "", text: "All my areas" }));
+    setTimeout(loadRank);
+    return [
+      h("h1", { text: "Store rankings" }),
+      h("p", { class: "lede", text: "Which stores get the most stock, how often, and how fast it sells out, from every check the monitor makes. Use it to pick where to go first: stores that sell out fast need you there right when a restock lands; stores with big deliveries are worth the drive. It gets sharper the longer the monitor runs." }),
+      h("div", { class: "toolbar" }, days, area),
+      h("div", { id: "rank-body" }, h("div", { class: "panel empty", text: "Loading store rankings" })),
     ];
   },
 
@@ -1293,6 +1348,8 @@ const views = {
             field("Online restocks channel (optional)", secret(wh, "online", "Webhook URL"), "Things you can order online. Blank uses the restock channel."),
             field("In-store channel (optional)", secret(wh, "in_store", "Webhook URL"), "Shelf stock near you. Each area can also have its own channel under My areas."),
             field("Status channel (optional)", secret(wh, "status", "Webhook URL"), "Everything that is not stock goes here instead: a sign-in is needed, a store keeps blocking, a check needs you, a method was switched off. Stock alerts never post here. Blank means no status messages.", true),
+            field("eBay deals channel (optional)", secret(wh, "ebay", "Webhook URL"), "eBay listings under fair value from sellers that pass the risk check. Set up eBay under Products > eBay deals.", true),
+            field("Review channel (optional)", secret(wh, "review", "Webhook URL"), "Pokemon things the monitor skipped because they are not card product (t-shirts, model kits, plush), each with Accept and Mute links. Your choice is saved on this PC. Blank means they are only listed under Products > To review.", true),
             field("Ping a role", text(d, "mention_role_id", { placeholder: "Role ID, optional" }), "Developer Mode on, then right-click the role, Copy Role ID"),
             field("Ping me", text(d, "mention_user_id", { placeholder: "Your user ID, optional" })),
             field("Bot name", text(d, "username")))))),
@@ -1648,6 +1705,125 @@ function drawSetup(s) {
 }
 
 let lastHistoryTotal = -1;
+async function loadMarket() { try { drawMarket(await api("/api/market")); } catch (e) { toast(e.message, true); } }
+function drawMarket(d) {
+  const body = $("market-body"); if (!body) return;
+  const money2 = (v) => v === null || v === undefined ? "n/a" : "$" + Number(v).toFixed(2);
+  const prods = d.products || [];
+  const head = h("p", { class: "hint", text: (d.api ? "Using the eBay API. " : "No eBay key: reading eBay's public search page. ")
+    + (d.tcg_count ? "TCGplayer prices for " + d.tcg_count + " sealed products. " : "")
+    + (d.problem ? "Last problem: " + d.problem : "") + (d.webhook ? "" : " Add an eBay deals channel under Discord alerts to get deals posted.") });
+  if (!prods.length) { body.replaceChildren(head, h("div", { class: "panel empty", text: "Nothing checked yet. Switch on Check eBay, save, and press Check eBay now." })); return; }
+  body.replaceChildren(head, ...prods.slice(0, 30).map((p) => h("div", { class: "group" },
+    h("div", { class: "group-head" }, h("b", { text: p.product }),
+      h("span", { class: "hint", text: "Fair value " + money2(p.fair) + " (eBay " + money2(p.ebay) + " from " + p.ebay_n + " listings" + (p.tcg ? ", TCGplayer " + money2(p.tcg) : "") + ")" + (p.msrp ? ", MSRP " + money2(p.msrp) : "") })),
+    (p.listings || []).length ? h("div", { class: "table-wrap", style: "border:0;border-radius:0" }, h("table", { class: "matrix" },
+      h("thead", {}, h("tr", {}, ["Listing", "Total", "Of fair", "Seller", "Risk"].map((t) => h("th", { text: t })))),
+      h("tbody", {}, p.listings.slice(0, 12).map((x) => h("tr", {},
+        h("td", {}, extLink(x.url, x.title)),
+        h("td", { text: money2(x.total) + (x.shipping ? " (incl. " + money2(x.shipping) + " ship)" : x.shipping === 0 ? " (free ship)" : "") }),
+        h("td", { class: x.pct_fair !== null && x.pct_fair <= 90 && x.level === "low" ? "best" : "", style: "white-space:nowrap", text: x.pct_fair === null ? "n/a" : x.pct_fair + "%" }),
+        h("td", { text: (x.seller || "?") + " (" + (x.feedback ?? "?") + ", " + (x.positive ?? "?") + "%)" }),
+        h("td", { class: x.level === "high" ? "bad" : x.level === "low" ? "best" : "", text: x.level[0].toUpperCase() + x.level.slice(1) + " risk (" + x.risk + "/100)" + (x.why && x.why.length ? ": " + x.why.join("; ") : ": no red flags") }))))))
+      : h("div", { class: "panel empty", text: "No matching listings." }))));
+}
+
+const reviewState = Object.assign({ show: "pending" }, store.get("restock-review", {}));
+let reviewData = null;
+async function loadReview() { try { reviewData = await api("/api/review"); drawReview(); } catch (e) { toast(e.message, true); } }
+async function reviewDecide(id, choice) {
+  try { const r = await api("/api/action", { action: "review_decide", id, choice }); toast(r.message || "Saved"); loadReview(); } catch (e) { toast(e.message, true); }
+}
+function drawReview() {
+  const body = $("review-body"), bar = $("review-filter"); if (!body || !reviewData) return;
+  const c = reviewData.counts || {};
+  bar.replaceChildren(...[["pending", "To review"], ["accepted", "Accepted"], ["muted", "Muted"]].map(([k, t]) =>
+    h("button", { class: "btn" + (reviewState.show === k ? " primary" : ""), type: "button", text: t + " (" + (c[k] || 0) + ")",
+      onclick: () => { reviewState.show = k; store.set("restock-review", reviewState); drawReview(); } })),
+    reviewData.webhook ? null : h("span", { class: "hint", text: "Tip: add a Review channel webhook under Discord alerts to get these with Accept and Mute links." }));
+  const rows = (reviewData.rows || []).filter((r) => (r.status || "pending") === reviewState.show);
+  if (!rows.length) { body.replaceChildren(h("div", { class: "panel empty", text: reviewState.show === "pending" ? "Nothing to review right now." : "None yet." })); return; }
+  body.replaceChildren(h("div", { class: "panel" }, h("ul", { class: "feed" }, rows.slice(0, 300).map((r) => {
+    const st = Object.entries(r.stores || {});
+    const first = st[0] ? st[0][1] : {};
+    return h("li", { class: "review-row" },
+      h("div", { class: "rv-main" }, first.url ? extLink(first.url, r.title) : h("b", { text: r.title }),
+        h("div", { class: "hint", text: st.map(([k, v]) => (RETAILERS[k] || v.name) + (v.price ? " $" + Number(v.price).toFixed(2) : "")).join(", ") + " | skipped as " + r.reason })),
+      h("div", { class: "rv-btns" }, (r.status || "pending") === "pending" ? [
+        h("button", { class: "btn primary", type: "button", text: "Accept", onclick: () => reviewDecide(r.id, "accept") }),
+        h("button", { class: "btn", type: "button", text: "Mute", onclick: () => reviewDecide(r.id, "mute") })] :
+        h("button", { class: "btn quiet", type: "button", text: "Undo", onclick: () => reviewDecide(r.id, "undo") })));
+  }))));
+}
+
+const rankState = Object.assign({ days: "60", area: "" }, store.get("restock-rank", {}));
+async function loadRank() {
+  try {
+    const q = new URLSearchParams({ days: rankState.days, area: rankState.area });
+    drawRank(await api("/api/stockreport?" + q.toString()));
+  } catch (e) { toast(e.message, true); }
+}
+
+function fmtMin(m) {
+  if (m === null || m === undefined) return "not seen yet";
+  if (m < 1) return "under 1 min";
+  if (m < 90) return Math.round(m) + " min";
+  if (m < 2880) return (Math.round(m / 6) / 10) + " h";
+  return (Math.round(m / 144) / 10) + " days";
+}
+
+function drawRank(d) {
+  const body = $("rank-body"); if (!body) return;
+  const sel = $("rank-area");
+  if (sel && sel.options.length <= 1) (d.areas || []).forEach((a) => sel.append(h("option", { value: a, text: a, selected: rankState.area === a })));
+  const rows = d.rows || [];
+  if (!rows.length) {
+    body.replaceChildren(h("div", { class: "panel empty", text: "Nothing yet. Each time a check finds a product in stock, the monitor starts timing it at that store and notes how many units are there. Leave it running for a few days and this page fills in." }));
+    return;
+  }
+  const when = (t) => t ? new Date(t * 1000).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+  const name = (r) => { const chain = RETAILERS[r.retailer] || r.retailer_name;
+    return r.online ? chain + " online" : (r.place.toLowerCase().startsWith(chain.toLowerCase()) ? r.place : chain + ": " + r.place); };
+  const fast = rows.filter((r) => r.sellout_min !== null && r.timed >= 1 && !r.online).sort((a, b) => a.sellout_min - b.sellout_min)[0];
+  const big = rows.filter((r) => (r.units_per_restock || r.units_first)).sort((a, b) => (b.units_per_restock || b.units_first) - (a.units_per_restock || a.units_first))[0];
+  const often = rows.slice().sort((a, b) => b.per_week - a.per_week)[0];
+  const tile = (label, r, value) => h("div", { class: "rk-tile" }, h("span", { class: "k", text: label }),
+    h("b", { text: r ? name(r) : "Not enough seen yet" }), r ? h("span", { class: "hint", text: value(r) }) : null);
+  const units = (r) => r.units_per_restock !== null ? String(r.units_per_restock) : r.units_first !== null ? String(r.units_first) : "no counts";
+  const table = h("div", { class: "table-wrap" }, h("table", { class: "matrix rank" },
+    h("thead", {}, h("tr", {}, ["#", "Store", "Priority", "Restocks a week", "Units per delivery", "Sells out in", "Usually restocks", "Last restock", "What it gets"].map((t) => h("th", { text: t })))),
+    h("tbody", {}, rows.map((r, i) => h("tr", {},
+      h("td", { text: String(i + 1) }),
+      h("td", {}, h("b", { text: name(r) }), r.in_stock_now ? h("span", { class: "badge live", style: "display:inline-block;margin-left:6px", text: "In stock now" }) : null,
+        h("div", { class: "hint", text: [r.area, r.distance !== null && r.distance !== undefined ? r.distance.toFixed(1) + " mi" : "", r.advice].filter(Boolean).join(" | ") })),
+      h("td", {}, h("div", { class: "mc-bar", style: "width:90px" }, h("i", { style: "width:" + r.score + "%" })), h("span", { class: "hint", text: r.score + " of 100" })),
+      h("td", { text: r.per_week + " (" + r.restocks + " seen)" }),
+      h("td", { text: units(r) + (r.units_peak ? ", up to " + r.units_peak : "") }),
+      h("td", { class: r.sellout_min !== null && r.sellout_min <= 60 ? "bad" : "", text: fmtMin(r.sellout_min) + (r.timed ? " (" + r.timed + " timed" + (r.per_hour ? ", " + r.per_hour + " sold an hour" : "") + ")" : "") }),
+      h("td", { text: r.usual_day ? r.usual_day + " around " + r.usual_hour : "" }),
+      h("td", { text: when(r.last_restock) }),
+      h("td", { class: "hint", text: (r.types.length ? r.types.join(", ") : r.top_products.slice(0, 2).join(", ")) + " (" + r.products + " product" + (r.products === 1 ? ")" : "s)") }))))));
+  const live = (d.live || []).map((r) => h("li", {}, h("b", { text: (r.ch === "online" ? r.rn + " online" : r.place) + ": " }), r.title,
+    h("span", { class: "hint", text: "  in stock for " + fmtMin(r.minutes_so_far) + (r.start_known ? "" : " or more")
+      + (r.q0 !== null && r.q0 !== undefined ? ", " + r.q0 + " at first" + (r.qlast !== r.q0 ? ", " + r.qlast + " now" : "") : "") })));
+  const prods = (d.products || []).slice(0, 25).map((p) => h("tr", {}, h("td", { text: p.title }), h("td", { text: p.type }),
+    h("td", { text: p.places + ": " + p.top_places.join(", ") }), h("td", { text: p.units ? String(p.units) : "no counts" }), h("td", { text: fmtMin(p.sellout_min) })));
+  body.replaceChildren(
+    h("div", { class: "rk-tiles" },
+      tile("Go there first", fast, (r) => "sells out in about " + fmtMin(r.sellout_min)),
+      tile("Biggest deliveries", big, (r) => "about " + units(r) + " units each time"),
+      tile("Restocks most often", often, (r) => r.per_week + " restocks a week" + (r.usual_day ? ", usually " + r.usual_day + " around " + r.usual_hour : ""))),
+    h("h2", { text: "Ranked by priority" }),
+    h("p", { class: "hint", text: "Priority = restocks a week x units per delivery, counted 1.5x for stores that sell out within an hour (go there first) and 1.2x within 4 hours, and less the farther away the store is. Sell-out times only use restocks the monitor saw start and end, so each is accurate to about one check interval." }),
+    table,
+    h("h2", { text: "In stock right now" }),
+    live.length ? h("div", { class: "panel" }, h("ul", { class: "feed" }, live)) : h("div", { class: "panel empty", text: "Nothing in stock at the moment." }),
+    h("h2", { text: "Who gets what" }),
+    prods.length ? h("div", { class: "table-wrap" }, h("table", { class: "matrix" },
+      h("thead", {}, h("tr", {}, ["Product", "Type", "Stores that got it", "Units seen (all restocks)", "Sells out in"].map((t) => h("th", { text: t })))),
+      h("tbody", {}, prods))) : null);
+}
+
 async function loadPatterns() {
   try {
     const q = new URLSearchParams({ retailer: timesState.retailer, place: timesState.place });

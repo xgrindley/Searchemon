@@ -34,6 +34,24 @@ from .blocks import BlockInfo, classify, wants_person
 OFFSCREEN = -32000
 HUMAN_WAIT_REMIND_S = 1800
 SAME_SITE_GAP_S = 1.0   # never load two pages of one store closer together than this
+# Akamai keeps one opinion of a connection across all the sites it protects: a burst at Walgreens got CVS refused
+# in the same second. So loads on these sites, from every browser, keep a shared gap, and once one browser is refused
+# there the others are not sent straight after it.
+AKAMAI_SITES = {"cvs.com", "walgreens.com", "kohls.com", "macys.com"}
+AKAMAI_GAP_S = 15.0
+_akamai_lock = threading.Lock()
+_akamai_next = [0.0]
+
+
+def _akamai_wait(site: str) -> None:
+    if not any(site == s or site.endswith("." + s) for s in AKAMAI_SITES):
+        return
+    with _akamai_lock:
+        now = time.time()
+        slot = max(now, _akamai_next[0])
+        _akamai_next[0] = slot + AKAMAI_GAP_S
+    if slot > now:
+        time.sleep(slot - now)
 
 
 class BrowserUnavailable(Exception):
@@ -968,6 +986,8 @@ class BrowserPool:
             ready = steady[:1]
         waiting = [w for w in order if any(p["domain"] == domain for p in w.waiting_domains())]
         last: FetchResult | None = None
+        if any(isinstance(w, BrowserWorker) for w in ready):
+            _akamai_wait(site)
         for n, w in enumerate(ready):
             try:
                 w.single_tab = not use_tabs
@@ -999,6 +1019,11 @@ class BrowserPool:
             if res.block.hard:
                 rest = max(rest, 6 * 3600)
             self.rest[(w.name, domain)] = time.time() + rest
+            if res.block.vendor == "Akamai" or any(site == x or site.endswith("." + x) for x in AKAMAI_SITES):
+                # Asking the next browser straight away only adds refusals to this connection's record.
+                self.log.info("%s: profile '%s' was refused (%s); resting it for %d min. The other browsers wait for "
+                              "the next check instead of trying right away", site, w.name, res.block.message(site), rest // 60)
+                break
             self.log.info("%s: profile '%s' was blocked (%s); resting it for %d min and trying another",
                           site, w.name, res.block.message(site), rest // 60)
         need_own = self._uses_own_chrome(site) and not any(getattr(w, "cdp_url", "") for w in live)

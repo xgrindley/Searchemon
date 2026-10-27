@@ -201,8 +201,16 @@ class Kroger(Retailer):
         if locs:
             params["filter.locationId"] = locs[0]["id"]
         data = self._api("products", **params)
+        if not (data or {}).get("data") and "filter.locationId" in params:
+            # Your nearest Kroger-family store may not stock Pokemon cards at all; the chain-wide catalog still lists
+            # them, and stock is then checked at every store in your areas.
+            params.pop("filter.locationId")
+            data = self._api("products", **params)
+        if not (data or {}).get("data") and len(query.split()) > 2:
+            params["filter.term"] = " ".join(query.split()[:2])     # long phrases often match nothing
+            data = self._api("products", **params)
         out = []
-        for p in data.get("data") or []:
+        for p in (data or {}).get("data") or []:
             pid = str(p.get("productId"))
             _, info = self._parse(p)
             res = self._result(pid, info)

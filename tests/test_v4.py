@@ -135,8 +135,8 @@ class TrackerTests(unittest.TestCase):
 
 
 class FakeWorker:
-    def __init__(self, name, blocked=False, retry=0):
-        self.name, self.blocked, self.retry = name, blocked, retry
+    def __init__(self, name, blocked=False, retry=0, vendor="Cloudflare"):
+        self.name, self.blocked, self.retry, self.vendor = name, blocked, retry, vendor
         self.usable, self.calls, self.thread, self.failed = True, 0, None, ""
         self.on_reopen = None
 
@@ -145,7 +145,7 @@ class FakeWorker:
 
     def fetch(self, url, timeout=120, ask=True):
         self.calls += 1
-        block = BlockInfo("Akamai", "denied", False, retry_after=self.retry) if self.blocked else None
+        block = BlockInfo(self.vendor, "denied", False, retry_after=self.retry) if self.blocked else None
         return FetchResult(403 if block else 200, "x", url, block, via=self.name, profile=self.name)
 
     def stop(self):
@@ -169,20 +169,30 @@ class PoolTests(unittest.TestCase):
     def test_blocked_profile_rests_and_other_carries_on(self):
         a, b = FakeWorker("a", blocked=True, retry=3600), FakeWorker("b")
         p = self.pool(a, b)
-        res = p.fetch("https://www.cvs.com/x")
+        res = p.fetch("https://www.gamestop.com/x")
         self.assertIsNone(res.block)
         self.assertEqual(res.profile, "b")
-        p.fetch("https://www.cvs.com/x")
-        p.fetch("https://www.cvs.com/x")
+        p.fetch("https://www.gamestop.com/x")
+        p.fetch("https://www.gamestop.com/x")
         self.assertEqual(a.calls, 1)  # resting, not asked again
         self.assertTrue(p.resting())
 
     def test_all_blocked_reports_block(self):
         p = self.pool(FakeWorker("a", True), FakeWorker("b", True))
-        self.assertIsNotNone(p.fetch("https://www.cvs.com/x").block)
-        res = p.fetch("https://www.cvs.com/x")  # both resting
+        self.assertIsNotNone(p.fetch("https://www.gamestop.com/x").block)
+        res = p.fetch("https://www.gamestop.com/x")  # both resting
         self.assertEqual(res.via, "pool")
         self.assertGreaterEqual(res.block.retry_after, 60)
+
+
+    def test_an_akamai_refusal_is_not_followed_by_the_next_browser_at_once(self):
+        a, b = FakeWorker("a", blocked=True, retry=3600, vendor="Akamai"), FakeWorker("b")
+        p = self.pool(a, b)
+        res = p.fetch("https://www.cvs.com/x")
+        self.assertIsNotNone(res.block)                 # a was refused; b was not sent straight after it
+        self.assertEqual(b.calls, 0)
+        self.assertIsNone(p.fetch("https://www.cvs.com/x").block)     # the next check goes to b
+        self.assertEqual((a.calls, b.calls), (1, 1))
 
 
 class TargetSearchTests(unittest.TestCase):
@@ -265,9 +275,9 @@ class OwnChromeAndPacingTests(unittest.TestCase):
         mine.cdp_url = "http://127.0.0.1:9222"
         with tempfile.TemporaryDirectory() as d:
             p = BrowserPool({"browser": {"profiles": [{"name": "a"}], "own_chrome_port": 0,
-                                         "own_chrome_sites": ["cvs.com"]}}, d, LOG, tracker=BlockTracker(d))
+                                         "own_chrome_sites": ["gamestop.com"]}}, d, LOG, tracker=BlockTracker(d))
         p.workers = [a, mine]
-        res = p.fetch("https://www.cvs.com/x")
+        res = p.fetch("https://www.gamestop.com/x")
         self.assertEqual(res.profile, "a")
 
     def test_slowdown_survives_a_restart_and_eases_off(self):

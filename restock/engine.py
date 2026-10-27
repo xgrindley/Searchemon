@@ -34,15 +34,20 @@ from .sessions import BlockTracker
 from .scan import ZipScan
 from .sellers import SellerWatch
 from .community import Community
+from .stockwatch import StockWatch, fmt_minutes
+from .review import ReviewQueue
+from .market import Market, ebay_cfg
+from .catalog import reviewable
 from .accounts import AccountTracker
 from .history_store import StoreHistory
 from .trials import TrialPlan
 from .rules import allow_kind, decide
 from .state import StateStore
 from .tcg import classify, type_settings
-from .util import atomic_write_json, clean_url, normalize_upc, read_json
+from .util import atomic_write_json, clean_url, normalize_text, normalize_upc, read_json
 
 UPC_RESOLVERS = ("bestbuy", "target", "walmart", "kroger")
+DISCOVER_REST_S = 2 * 3600
 MAX_CONFIRMS_PER_CYCLE = 5
 CONFIRM_GAP_S = 4
 RESOLVE_RETRY_S = 6 * 3600
@@ -103,6 +108,8 @@ class Monitor:
         self._tl = threading.local()   # per-store-thread: confirm budget and ids found by UPC this cycle
         self._discover_gate = threading.Semaphore(2)
         self._type_turn: dict[str, int] = {}
+        self.panel_base = ""          # the control panel's address, set by the panel (for Accept / Mute links)
+        self._discover_rest: dict[str, float] = {}   # store -> no searches before this time (its search was refused)
         self.scan = ZipScan(self)      # the by-hand ZIP stock scan
         self.load()
 
@@ -148,9 +155,17 @@ class Monitor:
             self.history = History(self.cfg.data_dir)
             self.catalog = Catalog(self.cfg.data_dir)
             self.sellers = SellerWatch(self.cfg.data_dir)
+            self.stockwatch = StockWatch(self.cfg.data_dir)
+            self.review = ReviewQueue(self.cfg.data_dir)
+            self.catalog.review = self.review
         else:
             self._discovery_tried.clear()       # settings changed: let discovery try again with them
         self.log = make_logger(self.cfg.data_dir, self.console)
+        if fresh or not hasattr(self, "market"):
+            from .util import app_version as _v
+            self.market = Market(self.cfg.raw, self.cfg.data_dir, self.log, _v() or "5")
+        self.market.attach(self.cfg.raw)
+        self.market.log = self.log
         if fresh or not hasattr(self, "community"):
             from .util import app_version
             self.community = Community(self.cfg.data_dir, self.log, app_version() or "4")
@@ -406,6 +421,44 @@ class Monitor:
                 self.log.info("Community tips: %s", exc)
             stop.wait(60)
 
+    def _market_loop(self, stop: threading.Event) -> None:
+        if stop.wait(90):
+            return
+        last = 0.0
+        while not stop.is_set():
+            c = ebay_cfg(self.cfg.raw)
+            if c.get("enabled") and time.time() - last >= max(10, float(c.get("interval_minutes") or 30)) * 60:
+                last = time.time()
+                try:
+                    self.market_tick()
+                except Exception as exc:
+                    self.log.info("eBay check failed: %s", exc)
+            stop.wait(60)
+
+    def wanted_products(self, n: int = 30) -> list[dict]:
+        """The products worth pricing on eBay: what the stores list, most wanted types first, ignored ones left out."""
+        out, seen = [], set()
+        for g in self.catalog.groups():
+            if all(l.get("status") == "ignored" for l in g["listings"]) or g.get("priority", 9) > 6:
+                continue
+            key = normalize_text(g["title"])
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"title": g["title"], "msrp": g.get("msrp")})
+            if len(out) >= n:
+                break
+        return out
+
+    def market_tick(self) -> list[dict]:
+        self.market.refresh_tcg()
+        deals = self.market.check(self.wanted_products())
+        if deals:
+            self.info(f"eBay: {len(deals)} listing(s) under fair value from low-risk sellers (Products > eBay deals)")
+            if self.notifier.ebay_url:
+                threading.Thread(target=lambda: self.notifier.ebay(deals), daemon=True).start()
+        return deals
+
     def community_tick(self) -> list[dict]:
         c = self._community_cfg()
         if c.get("new_sets", True):
@@ -501,6 +554,7 @@ class Monitor:
             self._closed = True
         self.store_history.save()
         self.sellers.save()
+        self.stockwatch.save()
         if self.browser:
             self.browser.begin_stop()               # no new browsers join; every browser starts closing now
         self.stop(wait=3.0)                          # ...while the checking loops wind down alongside
@@ -539,6 +593,9 @@ class Monitor:
             t.start()
             self.threads.append(t)
             t = threading.Thread(target=self._community_loop, args=(stop,), daemon=True, name="community")
+            t.start()
+            self.threads.append(t)
+            t = threading.Thread(target=self._market_loop, args=(stop,), daemon=True, name="market")
             t.start()
             self.threads.append(t)
             self.info(f"Monitoring started: {', '.join(r.display for r in self.retailers.values()) or 'no retailers enabled'}")
@@ -734,6 +791,7 @@ class Monitor:
                 self._save_pacing()
                 self.store_history.save()
                 self.sellers.save()
+                self.stockwatch.save()
             except Exception as exc:   # a locked or full disk must never stop this store's checks
                 self.log.warning("%s: could not save progress: %s", name, exc)
             try:
@@ -858,6 +916,7 @@ class Monitor:
     def _check(self, r: Retailer, ids: list[str], in_store: bool) -> dict[str, StockResult]:
         results = r.check_ids(ids, in_store) if ids else {}
         for res in results.values():
+            res.stores_checked = bool(in_store and r.supports_in_store and r.in_store_enabled())
             self.localize(res)
         if results and getattr(self, "compare", None):
             sample = next((x.url for x in results.values() if x.url and x.url.startswith("http")), "")
@@ -891,6 +950,11 @@ class Monitor:
             # ...and one of the newest sets by name ("pokemon phantasmal flames"), also rotating.
             extra.append("pokemon " + sets[(turn // 2) % len(sets)].lower())
         queries = list(dict.fromkeys(list(d.get("queries") or ["pokemon trading card game"]) + extra))
+        budget = getattr(r, "search_budget", 0)
+        budget = budget if isinstance(budget, int) else 0
+        if budget and len(queries) > budget:
+            start = (turn // 2) % len(queries)
+            queries = (queries[start:] + queries[:start])[:budget]     # a few searches per refresh, rotating
         failures = 0
         for q in queries:
             try:
@@ -909,7 +973,9 @@ class Monitor:
             per = int(d.get("cross_per_refresh", 8))
             if getattr(r, "search_in_browser", False) or getattr(r, "_listing_needs_browser", False):
                 per = min(per, 3)               # each of these is a full page load in the browser
-            for q in self.catalog.cross_queries(r.name, per):
+            if budget:
+                per = min(per, 1)
+            for q in self.catalog.cross_queries(r.name, per, use_upc=getattr(r, "search_by_upc", True) is not False):
                 try:
                     found.extend(r.search(q, 6))
                 except Blocked:
@@ -937,11 +1003,15 @@ class Monitor:
         d = self.cfg.raw.get("discovery") or {}
         # A store that came back empty is searched again after 30 minutes, not 6 hours.
         hours = float(d.get("refresh_hours") or 6)
+        budget = getattr(r, "search_budget", 0)
+        budget = budget if isinstance(budget, int) else 0
         if not self.catalog.tracked(r.name, type_settings(self.cfg.raw)):
-            hours = min(hours, 0.5)
+            # ...except stores that punish bursts of searches (CVS, Walgreens): at most every 3 hours there.
+            hours = max(min(hours, 0.5), 3.0 if budget else 0)
         first_try = (self._discovery_on(r) and r.name not in self._discovery_tried
                      and not self.catalog.tracked(r.name, type_settings(self.cfg.raw)))
-        if self._discovery_on(r) and (self.catalog.due(r.name, hours) or first_try):
+        rested = time.time() >= self._discover_rest.get(r.name, 0)
+        if self._discovery_on(r) and rested and (self.catalog.due(r.name, hours) or first_try):
             self._discovery_tried.add(r.name)       # a store with nothing found is tried again after each restart
             try:
                 # At most two stores search at once: at startup every store wants to, and a burst of searches
@@ -949,8 +1019,12 @@ class Monitor:
                 with self._discover_gate:
                     if not self.stop_event.is_set():
                         self._discover(r, d)
-            except Blocked:
-                raise
+            except Blocked as exc:
+                # A refused search does not stop the product checks (at Walgreens plain product checks load while its
+                # searches get refused); searching waits 2 hours, so it stops adding to the store's suspicion.
+                self._discover_rest[r.name] = time.time() + DISCOVER_REST_S
+                self.info(f"{r.display}: its search was refused ({str(exc)[:90]}). Product checks carry on; "
+                          f"searching again in {DISCOVER_REST_S // 3600} hours.")
             except Exception as exc:
                 self.log.warning("%s discovery failed: %s", r.name, exc)
 
@@ -1024,7 +1098,59 @@ class Monitor:
         for sig in r.signals():
             self.handle_signal(sig)
         self.catalog.save()
+        self.flush_review()
         return count
+
+    # ---- products to review (review.py) ------------------------------------------------------------
+    def rediscover_soon(self) -> None:
+        """After you accept a product: search the stores again on their next cycle, so it is picked up."""
+        self.catalog.runs.clear()
+        self._discover_rest.clear()
+    def note_skipped(self, retailer: str, res: StockResult, reason: str) -> dict | None:
+        if self.review.status_of(res.title) in ("muted", "accepted"):
+            return None
+        name = self.retailers[retailer].display if retailer in self.retailers else (res.retailer_name or retailer)
+        return self.review.add(retailer, name, res.title, clean_url(res.url), reason, res.price)
+
+    def flush_review(self) -> int:
+        """Skipped Pokemon merchandise found since the last look: list it, and post the new ones to the review channel."""
+        new = []
+        for retailer, res, why in self.catalog.take_skipped():
+            entry = self.note_skipped(retailer, res, why)
+            if entry:
+                new.append(entry)
+        new += self.__dict__.pop("_review_new", [])
+        if new:
+            self.review.save()
+            base = self.panel_base or "http://127.0.0.1:8765/"
+            out = [{"title": e["title"], "reason": e["reason"],
+                    "store": ", ".join(st["name"] for st in e["stores"].values()),
+                    "url": next(iter(e["stores"].values())).get("url", ""),
+                    "price": next(iter(e["stores"].values())).get("price"),
+                    "accept": self.review.link(base, e["id"], "accept"), "mute": self.review.link(base, e["id"], "mute")}
+                   for e in new]
+            if self.notifier.review_url:
+                threading.Thread(target=lambda: self.notifier.review(out), daemon=True).start()
+            self.info(f"To review: {len(new)} Pokemon product(s) skipped as not card product (Products > To review)")
+        return len(new)
+
+    def _sellout_hints(self, res: StockResult) -> None:
+        """Put what past restocks say into the alert: how fast each store (and the website) sells out, and which
+        store to go to first."""
+        if not res.in_stock:
+            return
+        sw = self.stockwatch
+        res.online_hint = sw.hint(res.retailer, "online") if res.online else ""
+        timed = []
+        for st in res.stores:
+            st.hint = sw.hint(res.retailer, f"store:{st.store_id}")
+            m, n = sw.sellout_minutes(res.retailer, f"store:{st.store_id}")
+            if m is not None and n >= 2:
+                timed.append((m, st))
+        if len(timed) >= 2:
+            timed.sort(key=lambda x: x[0])
+            parts = [f"{st.name or 'Store ' + st.store_id} ({fmt_minutes(m)})" for m, st in timed[:3]]
+            res.visit_plan = "Go first to the store that sells out fastest: " + ", then ".join(parts) + "."
 
     def handle_signal(self, sig: dict) -> None:
         if sig.get("kind") != "queue":
@@ -1088,10 +1214,25 @@ class Monitor:
                r: Retailer | None = None, check_type: bool = True) -> None:
         s = self.cfg.settings
         annotate(res, self.cfg)
+        try:
+            self.stockwatch.observe(res)           # how much each place gets and how fast it goes (stockwatch.py)
+        except Exception as exc:
+            self.log.debug("stock timeline: %s", exc)
         if res.key in (s.get("ignored_items") or []):
             res.note = "muted"
             self.emit("result", res)
             return
+        if not str(res.source or "").startswith("watch") and res.title:
+            # Found by a search or automatically, but not card product (a t-shirt, a model kit): no alert, and it goes
+            # to To review unless you accepted it there.
+            c = classify(res.title, allow_non_english=True)
+            if not c.is_tcg and reviewable(c.reason) and not self.review.accepted(res.title):
+                entry = self.note_skipped(res.retailer, res, c.reason)
+                if entry:
+                    self.__dict__.setdefault("_review_new", []).append(entry)
+                res.note = f"ignored: {c.reason} (see To review)"
+                self.emit("result", res)
+                return
         ok, why = passes(res, self.cfg, kw, search_max, check_type=check_type)
         seller_blocked, seller_why = self._judge_seller(res)
         if ok and seller_blocked:
@@ -1109,6 +1250,7 @@ class Monitor:
         if res.in_stock:
             res = self._confirm(res, r)
         res.ref_msrp = display_msrp(res, self.cfg)
+        self._sellout_hints(res)
         self.catalog.note_stock(res)
         if res.in_stock and self.catalog.boost_siblings(res):
             self.log.debug("%s restocked: its listings at other stores are checked every cycle for 2 hours", res.title[:50])

@@ -146,6 +146,9 @@ DEFAULTS: dict[str, Any] = {
     "network": {"user_agents": [], "proxies": [], "vpn_reconnect_command": "", "vpn_after_blocks": 3, "vpn_min_minutes": 30},
     # CAPTCHA-solving service (captcha.py). Off until a service and key are set.
     "captcha": {"service": "", "api_key": "", "max_per_day": 30, "stores": []},
+    # eBay deals and fair market value (market.py). Off until you switch it on.
+    "ebay": {"enabled": False, "app_id": "", "cert_id": "", "interval_minutes": 30, "products_per_check": 4,
+             "queries": [], "deal_pct": 90, "alert_max_risk": "low", "us_only": True},
 }
 
 

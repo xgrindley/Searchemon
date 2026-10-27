@@ -73,6 +73,11 @@ HARD_EXCLUDE = (
     (re.compile(r"\bgraded\b|\bpsa\b|\bbgs\b|\bcgc\b|\bslab\b|\bsingle card\b"), "graded or single card"),
     (re.compile(r"\bproxy\b|\bcustom\b|\bfan made\b|\borica\b|\breplica\b|\bunofficial\b"), "unofficial product"),
     (re.compile(r"\bcase of\b|\bbundle of \d|\bset of \d|\b\d+ ?x\b|\bx ?\d+\b|\bpack of \d|\blot of\b"), "multi-unit reseller bundle"),
+    (re.compile(r"\bt ?shirts?\b|\btees?\b|\bgraphic tee\b|\bsweatshirts?\b|\bhoodies?\b|\bpajamas?\b|\bsocks\b|"
+                r"\bleggings\b|\bjoggers\b|\bshorts\b|\bbeanie\b|\bbaseball cap\b|\bsnapback\b|\bslippers\b|\bsneakers\b|"
+                r"\bjuniors\b|\bbig (and|&) tall\b|\bboys\b|\bgirls\b|\bmen s\b|\bwomen s\b|\btoddler\b|\bonesie\b"), "clothing"),
+    (re.compile(r"\bmodel kit\b|\b3d model\b|\b[34]d build\b|\bpuzzle\b|\bbuilding (set|kit|blocks?)\b|\bmega construx\b|"
+                r"\blego\b|\bnanoblock\b|\bpiece\b \d|\b\d+ ?(piece|pc|pcs)\b"), "model kit or puzzle"),
     (re.compile(r"\bmagic the gathering\b|\byu gi oh\b|\bone piece card\b|\blorcana\b|\bdragon ball\b|\bdigimon\b|\bflesh and blood\b|\bsports cards?\b"), "another card game"),
 )
 # Pokemon-branded things that are not card product. Only applied when the title

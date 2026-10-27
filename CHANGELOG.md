@@ -1,7 +1,47 @@
 # Changelog
 
 ## v5.1 (test build, in progress)
-- Continues from stable v5.0. Nothing new yet.
+- **Store rankings (Stock near me > Store rankings).** Every check that finds stock now times it: when a product appeared at a store
+  (or online), how many units were there at first and at most, and when it sold out. From that, each store gets restocks a week,
+  units per delivery, how fast it sells out, units sold an hour (where counts are shown), its usual restock day and hour, and a
+  priority score (restocks a week x units, worth more where it sells out fast, less the farther away). Tiles name where to go first,
+  the biggest deliveries and the most frequent restocks; "In stock right now" shows how long each current run has lasted, and
+  "Who gets what" shows which stores get each product. Sell-out times only use restocks whose start and end were both seen within
+  90 minutes, and a check that did not look at store shelves never ends a store's run.
+- **Alerts say where to go first.** Each store line in a restock alert adds "usually sold out in 25 min" once that store has two
+  timed restocks, the alert starts with "Go first to the store that sells out fastest: A (15 min), then B (2 h)", and online stock
+  says how fast it usually goes.
+- **Walgreens and CVS stop pausing each other.** Your logs showed Walgreens searches (four in a minute) followed in the same second by
+  every browser being refused at both Walgreens and CVS: Akamai, which protects both, keeps one opinion of your connection. Now:
+  loads on Akamai sites keep a shared 15 second gap across all browsers; after one browser is refused there the others are not sent
+  straight after it; CVS and Walgreens run at most 2 searches per refresh (rotating) and search at most every 3 hours while nothing
+  is found; and a refused search no longer pauses the store: product checks carry on and searching waits 2 hours. Walgreens searches
+  start with a plain request (plain requests loaded Walgreens 32 of 32 times in your numbers) and only use the browser if needed,
+  and a search page that says "no matches" is believed instead of reloaded in the browser.
+- **Finding products at the other stores.**
+  - Sam's Club: its menu links (/cp/...) were being read as products, so searches "found" links but never Pokemon; fixed, and it no
+    longer searches by barcode (its search finds nothing for one).
+  - Costco: the browser now waits for a Pokemon result, not the first product link (recommendations appear before the results).
+  - Kroger: when your nearest Kroger-family store lists no Pokemon, the chain-wide catalog is searched, and long phrases fall back
+    to shorter ones.
+  - Any store: links that are not Pokemon no longer count as search results, and a search that shows links but no Pokemon says so
+    in the log with examples and keeps a copy in data\debug.
+  - Barnes & Noble answers its own search page with a bare "Not Found" (a refusal); that now rests its searching for an hour
+    instead of trying every query.
+  - Target product names no longer carry listing text ("$24.99 New at ... 1.3 out of 5 stars ... Shipping arrives Tue"); saved
+    names are cleaned on start, and searches at other stores use the clean names.
+- **No more t-shirts and model kits.** Clothing (tees, hoodies, juniors, big and tall...) and model kits, 3D and 4D builds and
+  puzzles are never card product. Pokemon things skipped like this go to **Products > To review** (and, if you add a Review channel
+  webhook, to Discord) with Accept and Mute. Accept tracks it like card product; Mute hides it for good. Choices are saved on this PC
+  (data\review.json). The Discord links open this PC's control panel and are signed for that one product and that one choice, so
+  they need no PIN and cannot do anything else. Search hits that are merchandise no longer alert.
+- **eBay deals and fair market value (Products > eBay deals).** Fair value from what eBay sellers ask (price plus shipping, new and
+  sealed, US), leaving out listings far above or below the rest and ones whose shipping is egregious, combined with TCGplayer's
+  market price (read once a day from tcgcsv.com for the newest sets' sealed products). Each listing gets a risk score from its
+  seller's feedback count and positive share, a price far under fair value, a brand-new listing from a small seller, shipping from
+  abroad, no returns, or words like "box only" or "read description" (those are dropped). Deals (by default 10% or more under fair
+  value, low risk only) post to an eBay deals channel if you add one. Works with a free eBay developer key (exact data) or without
+  (eBay's public search page). Off until you switch it on. eBay links have their tracking codes removed.
 
 ## v5.0 (2026-10-26, stable release)
 - Declared stable by the owner. It is test build v4.1 (saved as build/v4.1), with the version number changed to 5.0.

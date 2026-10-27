@@ -1,5 +1,8 @@
 # Changelog
 
+## v5.1 (test build, in progress)
+- Continues from stable v5.0. Nothing new yet.
+
 ## v5.0 (2026-10-26, stable release)
 - Declared stable by the owner. It is test build v4.1 (saved as build/v4.1), with the version number changed to 5.0.
   Everything listed under v4.1 below is in it: price against MSRP, the adaptive check schedule, blocking price-gouging sellers,

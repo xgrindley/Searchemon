@@ -915,9 +915,27 @@ class CVS(WebPage):
             self.pause(self.link_delay())
         return sorted(found.values(), key=lambda x: x.distance if x.distance is not None else 999)
 
+    STORE_ONLY_RECHECK_S = 6 * 3600
+
     def check_ids(self, ids: list[str], in_store: bool) -> dict[str, StockResult]:
-        out = super().check_ids(ids, in_store)
-        if in_store and self.in_store_enabled():
+        """CVS sells most Pokemon "in store only", so the product page says the same thing every time while the shelf
+        counts change. For such items the page is read again only every 6 hours; in between, each check is just the
+        shelf lookup. That is about a fifth fewer requests to a store that refuses busy visitors."""
+        shelves = in_store and self.in_store_enabled()
+        now = time.time()
+        known = self.__dict__.setdefault("_store_only", {})
+        reuse = [i for i in ids if shelves and known.get(i, (0, None))[0] > now]
+        out = super().check_ids([i for i in ids if i not in reuse], in_store)
+        for ident, res in out.items():
+            if res.online_status == "In store only":
+                known[ident] = (now + self.STORE_ONLY_RECHECK_S, (res.title, res.url, res.price, res.image, res.upc))
+            else:
+                known.pop(ident, None)
+        for ident in reuse:
+            title, url, price, image, upc = known[ident][1]
+            out[ident] = StockResult(self.name, self.display, ident, title, url, price=price, upc=upc, online=False,
+                                     online_status="In store only", image=image)
+        if shelves:
             for ident, res in out.items():
                 pid = cvs_product_id(ident)
                 if pid:

@@ -1,6 +1,20 @@
 # Changelog
 
 ## v4.1 (test build, in progress)
+- **More trust at CVS and Walgreens (Akamai).** From a day of real numbers: CVS side-by-side tests loaded with your own Chrome
+  20 of 20 times, plain requests 0 of 30 and the app's own Chrome 0 of 13; Walgreens timed out 63 times without ever switching to
+  the browser. Akamai keeps a trust score per connection, and every refused request lowers it, so:
+  - A browser a store refuses nearly every time (15% or less in side-by-side tests) is no longer sent there at all; if only such
+    browsers are free, the check waits for a good one. Plain requests to such a store go straight to the browser.
+  - A plain request that gets no answer (a store stalling a suspected bot) now counts as a refusal: the store switches to the
+    browser, or with no browser, two stalls in a row pause it. Page requests give up after 20 seconds instead of 25.
+  - Side-by-side tests retry a method the store refuses at most once a day.
+  - While every browser keeps being refused, the pause grows with each block in a row (30 min, 1 h, 1.5 h ... up to 3 h)
+    instead of retrying every 30 minutes, which kept the connection flagged.
+  - CVS items sold in store only are read once every 6 hours; in between, a check is only the shelf lookup.
+- **My areas rows line up.** Each part of a row has a fixed column, so a long city name no longer pushes the radius slider and
+  the rest of that row out of line. On a phone each area stacks neatly.
+- The store chips on Home use their own style, so they no longer pick up the look of the day and store pickers.
 - **In-store alerts stopped after 8:25 PM on Oct 25: fixed.** "Only when pickup works" was on, and CVS sells its Pokemon "in store
   only", so no CVS store ever qualified: 32 shelf finds (up to 20 stores each) were logged as "Not sent". The setting now only
   chooses between stores when some of them offer pickup for that item; items no store offers for pickup still alert. A skipped

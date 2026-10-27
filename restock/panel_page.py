@@ -121,14 +121,14 @@ nav.rail .count.warn { color: var(--warn); font-weight: 600; }
 .calm .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--faint); flex: none; }
 /* Home: store health */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 13px; max-width: 100%; }
-.chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
-.chip.ok i { background: var(--ok-strong); }
-.chip.warn { border-color: var(--warn); } .chip.warn i { background: var(--warn); }
-.chip.bad { border-color: var(--bad); } .chip.bad i { background: var(--bad); }
-.chip.setup i { background: none; border: 1px dashed var(--muted); }
-.chip .btn { padding: 0 4px; font-size: 12px; line-height: 1.2; border: 0; min-height: 0; }
-.chip small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 13px; max-width: 100%; }
+.schip i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.schip.ok i { background: var(--ok-strong); }
+.schip.warn { border-color: var(--warn); } .schip.warn i { background: var(--warn); }
+.schip.bad { border-color: var(--bad); } .schip.bad i { background: var(--bad); }
+.schip.setup i { background: none; border: 1px dashed var(--muted); }
+.schip .btn { padding: 0 4px; font-size: 12px; line-height: 1.2; border: 0; min-height: 0; }
+.schip small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 details.more { margin-top: 10px; }
 details.more > summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0; width: fit-content; }
 details.more > summary:hover { color: var(--ink); }
@@ -257,6 +257,18 @@ input:focus, textarea:focus, select:focus { border-color: var(--act); outline: n
 .best li { padding: 10px 14px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-s); display: flex; justify-content: space-between; gap: 12px; }
 .best li b { font-weight: 600; }
 .win-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 16px; background: var(--raised); border-bottom: 1px solid var(--line-soft); }
+/* Areas: every row on the same columns, whatever the city name's length */
+.area-row { display: grid; grid-template-columns: minmax(90px, 140px) 84px minmax(110px, 170px) auto minmax(120px, 1fr) 52px minmax(200px, 1.3fr) auto; gap: 10px; flex-wrap: nowrap; }
+.area-row > * { min-width: 0; }
+.area-row input[type=text], .area-row input[type=range] { width: 100%; }
+.area-row .place { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.area-row .radius-val { text-align: right; white-space: nowrap; }
+@media (max-width: 1000px) {
+  .area-row { grid-template-columns: minmax(90px, 1fr) 84px minmax(100px, 1fr); }
+  .area-row > :nth-child(4) { display: none; }
+  .area-row > :nth-child(5) { grid-column: 1 / 3; }
+  .area-row > :nth-child(7) { grid-column: 1 / -1; }
+}
 .win-row input[type=time] { width: 120px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--raised); }
 
 /* ZIP + radius filter */
@@ -1476,16 +1488,16 @@ function ensureAreas() {
 }
 function areasEditor() {
   return cfg.areas.length ? h("div", { class: "panel", style: "overflow:hidden" }, cfg.areas.map((a, i) => {
-    const placeTag = h("span", { class: "hint", text: "" });
+    const placeTag = h("span", { class: "hint place", text: "" });
     const look = async () => {
       if (!/^\d{5}$/.test(a.zip || "")) { placeTag.textContent = a.zip ? "5 digits" : ""; return; }
       try { const g = await api("/api/geo?zip=" + a.zip); geoCache[a.zip] = g; placeTag.textContent = g.lat !== null ? g.place : (g.ready ? "Unknown ZIP" : "ZIP lookup not installed"); drawAreaMap(); } catch (e) {}
     };
     setTimeout(look);
     const radVal = h("span", { class: "radius-val", text: (a.radius_miles || 15) + " mi" });
-    return h("div", { class: "win-row" },
-      h("input", { type: "text", value: a.name || "", placeholder: "Name", "aria-label": "Area name", style: "width:120px", oninput: (e) => { a.name = e.target.value; touch(); } }),
-      h("input", { type: "text", value: a.zip || "", placeholder: "ZIP", inputmode: "numeric", maxlength: "5", "aria-label": "ZIP code", style: "width:90px",
+    return h("div", { class: "win-row area-row" },
+      h("input", { type: "text", value: a.name || "", placeholder: "Name", "aria-label": "Area name", oninput: (e) => { a.name = e.target.value; touch(); } }),
+      h("input", { type: "text", value: a.zip || "", placeholder: "ZIP", inputmode: "numeric", maxlength: "5", "aria-label": "ZIP code",
         oninput: (e) => { a.zip = e.target.value.replace(/\D/g, "").slice(0, 5); touch(); look(); } }), placeTag,
       h("span", { text: "radius" }),
       h("input", { type: "range", min: "1", max: "100", value: String(a.radius_miles || 15), "aria-label": "Radius in miles",
@@ -1537,7 +1549,7 @@ function drawDash() {
   rows.sort((a, b) => ["bad", "warn", "setup", "", "ok"].indexOf(a.st.cls) - ["bad", "warn", "setup", "", "ok"].indexOf(b.st.cls));
   health.replaceChildren(...(rows.length ? [
     h("p", { class: "summary-line" }, ...parts.flatMap(([k, t], i) => [i ? ", " : "", h("b", { text: String(k) }), " " + t]), "."),
-    h("div", { class: "chips" }, rows.map(({ r, st }) => h("span", { class: "chip " + st.cls, title: r.status || "" }, h("i"), r.display,
+    h("div", { class: "chips" }, rows.map(({ r, st }) => h("span", { class: "schip " + st.cls, title: r.status || "" }, h("i"), r.display,
       st.cls && st.cls !== "ok" ? h("small", { text: st.label }) : null,
       st.cls === "setup" ? h("button", { class: "btn quiet", type: "button", text: "Fix", onclick: () => go("retail") }) : null))),
     h("details", { class: "more" }, h("summary", { text: "Details for each store" }), h("div", { class: "tiles", style: "margin-top:8px" }, s.retailers.map((r) => {

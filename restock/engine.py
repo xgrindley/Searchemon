@@ -601,8 +601,11 @@ class Monitor:
                     h["block_streak"] = h.get("block_streak", 0) + 1
                     h["last_block"] = str(exc)
                     h["slow"] = min(MAX_SLOWDOWN, h["slow"] * 2)  # back off harder each time
-                    # Normal blocks back off up to 30 min; a hard ban asks for longer and gets it.
-                    backoff = max(exc.retry_after, min(backoff * 2 or 120, MAX_BACKOFF_S))
+                    # Normal blocks back off up to 30 min; a hard ban asks for longer and gets it. A store that keeps
+                    # refusing every browser has flagged this connection, and only a longer quiet spell clears that, so
+                    # the cap grows with the streak: 30 min, then 1 h, 1.5 h ... up to 3 h.
+                    cap = MAX_BACKOFF_S * min(6, max(1, h["block_streak"] - 1))
+                    backoff = max(exc.retry_after, min(backoff * 2 or 120, cap))
                     backoff *= random.uniform(0.8, 1.2)
                     self.info(f"{exc}. Pausing {r.display} for {int(backoff // 60)} min.")
                     mins = int(backoff // 60)

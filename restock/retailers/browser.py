@@ -98,6 +98,7 @@ def _force_foreground(hint: str) -> None:
 OWN_CHROME = "my-chrome"
 OWN_EDGE = "my-edge"
 # Stores that always try your own Chrome first (added to browser.own_chrome_sites).
+BAD_RATE = 0.15     # a browser that loaded a store this rarely in side-by-side tests is not sent there
 DEFAULT_OWN_SITES = ("cvs.com", "dickssportinggoods.com", "gamestop.com", "samsclub.com", "target.com", "walgreens.com")
 
 
@@ -863,7 +864,15 @@ class BrowserPool:
             # What the side-by-side tests found: methods that load this store reliably go first,
             # untested ones keep their turn, methods that are mostly refused go last.
             order.sort(key=lambda w: 0 if rates.get(w.name, 0.5) >= 0.9 else (2 if rates.get(w.name, 0.5) < 0.5 else 1))
-        mine = [w for w in live if getattr(w, "cdp_url", "")]
+        if not pick and self.prefer:
+            # What the side-by-side tests proved at this store. A browser that store has refused nearly every time is not
+            # sent there at all: each refusal also counts against this connection, so trying it "just in case" is what
+            # turns a flaky store into a blocked one. If only such browsers are free, the check waits for a good one.
+            known = self.prefer(site) or {}
+            bad = {n for n, r in known.items() if r <= BAD_RATE}
+            if bad and any(r >= 0.5 for n, r in known.items() if n not in bad):
+                order = [w for w in order if w.name not in bad]
+        mine = [w for w in order if getattr(w, "cdp_url", "")]
         sites = self._own_chrome_sites()
         if mine and any(site == x or site.endswith("." + x) for x in sites):
             order = mine + [w for w in order if w not in mine]

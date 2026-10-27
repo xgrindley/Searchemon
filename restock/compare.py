@@ -25,6 +25,7 @@ KEEP = 40          # recent runs kept per store and method
 
 
 MIN_EVERY_MIN = 60
+RETEST_BAD_S = 24 * 3600
 
 
 class SideBySide:
@@ -105,6 +106,16 @@ class SideBySide:
             if any(p["domain"] == domain for p in w.waiting_domains()):
                 continue
             jobs[w.name] = (lambda w=w: self._browser(w, url))
+        # A method this store refuses nearly every time is retried at most once a day: each refusal counts against
+        # this connection, and the test only needs to notice if the store starts accepting it again.
+        from .retailers.browser import BAD_RATE
+        known = self.rates(domain.removeprefix("www."))
+        with self.lock:
+            last = {m: (runs[-1]["t"] if runs else 0) for m, runs in (self.data.get(store) or {}).items()}
+        for m in [m for m in jobs if known.get(m, 1.0) <= BAD_RATE and now - last.get(m, 0) < RETEST_BAD_S]:
+            jobs.pop(m)
+        if not jobs:
+            return {}
         out: dict[str, dict] = {}
 
         def timed(name, fn):

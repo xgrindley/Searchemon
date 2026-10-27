@@ -1,6 +1,25 @@
 # Changelog
 
-## v4.1 (test build, in progress)
+## v4.1 (2026-10-26, test build, follows stable v4.0)
+- **Other identities and addresses, scored like every other method.** The rule against them is lifted:
+  - Plain requests that go out as a different current desktop browser each time (Chrome, Edge, Firefox, Safari), each with its
+    own cookies (`direct-ua`).
+  - Plain requests through your proxies, a different one each check (`direct-proxy`), and a separate browser profile that goes
+    through your proxies and moves to the next after a block (`browser-proxy`; never signed in to anything, so your accounts
+    never go through a proxy). A proxy a store blocks, or one that does not answer, sits out at that store for 2 hours. Proxies
+    can be written as host:port, host:port:user:pass, http://user:pass@host:port or socks5://host:port; most VPN apps give you a
+    SOCKS5 address to use here. Passwords are never shown in logs or the panel's counts.
+  - A VPN reconnect command (config.yaml only: `network: vpn_reconnect_command`) runs after a store is blocked 3 times in a row,
+    at most every 30 minutes, and that store tries again 3 minutes later. It reconnects the whole PC. It cannot be set from the
+    control panel, because it runs a program.
+  - A CAPTCHA-solving service (2Captcha, Anti-Captcha or CapSolver) answers reCAPTCHA, hCaptcha, Cloudflare Turnstile and picture
+    codes in the checking browsers instead of waiting for you, up to a daily budget (30 by default) and optionally only on chosen
+    sites. It is sent the page address and the CAPTCHA's public key (or the picture), never your cookies. If it fails or is out
+    of budget, the window comes forward as before. Walmart and Target's Press & hold is not something these services answer.
+    Each attempt is counted per store as "CAPTCHA service" in the methods tables.
+  - All of it is set up under Advanced > Connection methods > Proxies, User-Agents, VPN and CAPTCHA service, which also shows
+    each proxy's checks and blocks, the CAPTCHA budget, and VPN reconnects. The three new methods switch on once by themselves
+    after updating; the proxy ones wait quietly until you add proxies.
 - **Community restock tips.** The app reads new posts on r/PokemonTCGDeals every 5 minutes (a public page: no account, nothing
   about you is sent, an honest User-Agent naming the app). A post that names one of your stores ("[Target] Phantasmal Flames ETB")
   gets the matching products there checked at once and every cycle for an hour, and a post that links straight to a product at

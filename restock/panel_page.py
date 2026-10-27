@@ -732,6 +732,38 @@ function methodControl(tri, rows) {
   ];
 }
 
+/* Proxies, User-Agents, VPN and the CAPTCHA service (network.py, captcha.py). */
+function networkPanel(net) {
+  const n = cfg.network = cfg.network || {}, c = cfg.captcha = cfg.captcha || {};
+  const px = (net && net.proxies) || [], vpn = (net && net.vpn) || {}, cap = (net && net.captcha) || {};
+  const when = (t) => t ? new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "never";
+  const capSites = Object.entries(cap.sites || {});
+  return [
+    h("h2", { text: "Proxies, User-Agents, VPN and CAPTCHA service" }),
+    h("p", { class: "lede", text: "Used by the trial methods under \"Other identities and addresses\" and by the checking browsers. Each is scored per store like every other method, so the tables above show whether it pays off. Proxies and the CAPTCHA service see which store pages are checked; your sign-ins never go through them." }),
+    h("div", { class: "settings-list" },
+      setting("Proxies", "One per line: host:port, host:port:user:pass, http://user:pass@host:port or socks5://host:port. Most VPN apps also offer a SOCKS5 proxy address. Each check uses the next one; one a store blocks sits out there for 2 hours.",
+        lines(n, "proxies", { rows: 4, placeholder: "203.0.113.10:8080:user:pass", "aria-label": "Proxies", style: "min-width:260px" })),
+      setting("User-Agents", "Browsers the \"different browser each time\" method goes out as. Leave empty for a built-in list of current Chrome, Edge, Firefox and Safari.",
+        lines(n, "user_agents", { rows: 3, placeholder: "Leave empty for the built-in list", "aria-label": "User-Agents", style: "min-width:260px" })),
+      setting("CAPTCHA service", "Answers CAPTCHAs (reCAPTCHA, hCaptcha, Turnstile, picture codes) in the checking browsers instead of waiting for you. Walmart and Target's Press & hold cannot be answered by these services.",
+        h("select", { "aria-label": "CAPTCHA service", onchange: (e) => { c.service = e.target.value; touch(); } },
+          [["", "Off"], ["2captcha", "2Captcha"], ["anticaptcha", "Anti-Captcha"], ["capsolver", "CapSolver"]]
+            .map(([v, t]) => h("option", { value: v, text: t, selected: (c.service || "") === v })))),
+      setting("CAPTCHA service key", "Your API key from that service's account page.", secret(c, "api_key", "API key")),
+      setting("Most CAPTCHAs a day", "Never sends more than this many in a day (each costs a fraction of a cent).",
+        h("input", { type: "number", min: "1", max: "1000", value: String(c.max_per_day || 30), "aria-label": "Most CAPTCHAs a day",
+          oninput: (e) => { c.max_per_day = Math.max(1, Number(e.target.value) || 30); touch(); } })),
+      setting("Only on these sites", "For example cvs.com or amazon.com, one per line. Empty = any site.",
+        lines(c, "stores", { rows: 2, placeholder: "Empty = any site", "aria-label": "CAPTCHA sites", style: "min-width:260px" }))),
+    h("div", { class: "panel", style: "margin-top:10px" }, h("ul", { class: "feed" },
+      h("li", {}, h("b", { text: "Proxies: " }), px.length ? px.map((p) => p.proxy + " " + p.checks + " checks, " + p.blocks + " blocked" + (p.resting_at.length ? " (resting at " + p.resting_at.map((x) => RETAILERS[x] || x).join(", ") + ")" : "")).join("  |  ") : "none added"),
+      h("li", {}, h("b", { text: "CAPTCHA service: " }), cap.service ? (cap.name + ", " + cap.used_today + " of " + cap.max_per_day + " used today" + (capSites.length ? ". " + capSites.map(([k, v]) => k + " " + v.solved + " of " + v.tried + " got through").join(", ") : "")) : "off"),
+      h("li", {}, h("b", { text: "VPN reconnect: " }), vpn.set ? ("runs after " + vpn.after_blocks + " blocks in a row, at most every " + vpn.min_minutes + " min. Ran " + vpn.runs + " times, last " + when(vpn.last) + (vpn.last_result ? " (" + vpn.last_result + ")" : "")) :
+        "not set. Add your VPN app's reconnect command to config.yaml under network: vpn_reconnect_command (it runs a program, so it cannot be set from this page). It reconnects the whole PC."))),
+  ];
+}
+
 function trialPanel(tri) {
   cfg.trials = cfg.trials || {};
   cfg.trials.active = cfg.trials.active || [];
@@ -1154,7 +1186,7 @@ const views = {
     const tri = (status && status.trials) || { arms: [], current: {}, resting: [], enabled: false, slice_checks: 20 };
     const armName = {};
     (tri.arms || []).forEach((a) => { armName[a.key] = a.label; });
-    const label = (m) => armName[m] || (m === "direct" ? "Plain requests" : m === "pool" ? "Browser pool" : m.endsWith("+page") ? "Page fetch: " + m.slice(0, -5) : "Browser: " + m);
+    const label = (m) => armName[m] || (m.startsWith("captcha-") ? "CAPTCHA service: " + m.slice(8) : m === "direct" ? "Plain requests" : m === "pool" ? "Browser pool" : m.endsWith("+page") ? "Page fetch: " + m.slice(0, -5) : "Browser: " + m);
     const totalChecks = methods.reduce((t, m) => t + m.checks, 0), totalBlocks = methods.reduce((t, m) => t + m.blocks, 0);
     const top = methods.find((m) => m.checks >= 5) || methods[0];
     const maxPer = Math.max(1, ...methods.map((m) => m.per === null ? m.checks : m.per));
@@ -1219,6 +1251,7 @@ const views = {
           h("div", { class: "top" }, h("b", { text: c.name }), h("span", { text: state })),
           h("div", { class: "sub2", text: c.text }), h("div", { class: "sub2", text: "Idea from: " + c.idea }));
       })),
+      networkPanel((status && status.network) || null),
       h("h2", { text: "About the trial methods" }),
       h("p", { class: "lede", text: "Extra ways of loading pages, tried one at a time so each can be traced. For every store only one method runs at once: each gets a slice of " + tri.slice_checks + " checks, the normal method takes its turns too for a fair comparison, and a method a store blocks sits out for a while. Results land in the tables above." }),
       trialPanel(tri),

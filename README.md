@@ -135,9 +135,12 @@ Big retailers run bot protection, and a monitor that ignores it gets blocked for
 method, trial methods that switch themselves off when they fail, and an A/B test of the app's own features so you can see whether
 they help. The trust report rates each store Reliable, Flaky or Blocked from the app's own recent checks.
 
-**What it deliberately does not do:** fake its browser fingerprint, hide that it is automated, solve or pay for CAPTCHA solving, or
-rotate proxies to dodge bans. Those break the stores' terms, get accounts flagged, and are exactly what scalper bots do. Polite
-pacing plus a real browser plus you, once in a while, holds up better over time.
+**Other identities and addresses, when you want them.** Rotating User-Agents, your own proxies (a VPN's SOCKS5 proxy works
+too), a separate proxy browser profile, a VPN reconnect command, stealth builds, and a CAPTCHA-solving service (2Captcha,
+Anti-Captcha or CapSolver) are all built in. Each one is a scored method: it takes turns with the others at every store, the
+ones that work get most of the turns, and the ones that keep failing stop themselves. Set them up under Advanced > Connection
+methods. They can break a store's terms of use, so keep your signed-in browsers off proxies (the proxy profile is its own,
+never signed in) and keep an eye on the tables.
 
 ## Know when your stores restock
 

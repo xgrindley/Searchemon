@@ -58,8 +58,20 @@ def set_trials(plan) -> None:
     TRIALS = plan
 
 
+PROXIES = None  # set by the engine: a network.ProxyPool (your proxies, shared by every store)
+
+
+def set_proxies(pool) -> None:
+    global PROXIES
+    PROXIES = pool
+
+
 class _ArmUnavailable(Exception):
     """A trial method cannot run on this PC (for example a package is missing)."""
+
+
+class _ArmResting(Exception):
+    """A trial method can run, just not at this store right now (every proxy is resting there)."""
 
 
 class Blocked(Exception):
@@ -220,14 +232,24 @@ class Retailer:
         method rests for this store, so the fallback is a single extra request."""
         if arm.family == "browser":
             return self._browser_arm(arm, url)
+        used_proxy = ""
         try:
-            resp = {"direct-h2": self._h2_get, "direct-impersonate": self._impersonate_get,
-                    "direct-fresh": self._fresh_get}.get(arm.key, self._warm_get)(url)
+            if arm.key == "direct-proxy":
+                used_proxy = self._next_proxy()
+                resp = self._proxy_get(url, used_proxy)
+            else:
+                resp = {"direct-h2": self._h2_get, "direct-impersonate": self._impersonate_get,
+                        "direct-fresh": self._fresh_get, "direct-ua": self._ua_get}.get(arm.key, self._warm_get)(url)
         except _ArmUnavailable as exc:
             TRIALS.mark_unavailable(arm.key, str(exc))
             TRIALS.skip(self.name, arm, str(exc))
             return None
+        except _ArmResting as exc:
+            TRIALS.skip(self.name, arm, str(exc), minutes=15)
+            return None
         except Exception as exc:  # network trouble on the trial path: not a block, so not counted
+            if used_proxy and PROXIES is not None:
+                PROXIES.note(used_proxy, self.name, False)      # a proxy that does not answer rests too
             self.log.debug("%s: trial '%s' failed to load (%s)", self.display, arm.key, exc.__class__.__name__)
             TRIALS.fail(self.name, arm, exc.__class__.__name__)
             return None
@@ -237,6 +259,8 @@ class Retailer:
             TRIALS.skip(self.name, arm, f"server error {status}", minutes=1)
             return None
         ok = info is None or info.kind == "queue"
+        if used_proxy and PROXIES is not None:
+            PROXIES.note(used_proxy, self.name, ok)
         TRIALS.note(self.name, arm, ok, info.kind if info else "")
         if not ok:
             self.log.info("%s: trial method '%s' was blocked (%s); using the normal method this time",
@@ -267,6 +291,8 @@ class Retailer:
                 return None
             TRIALS.note(self.name, arm, True)
             return res
+        if arm.key == "browser-proxy":
+            return self._proxy_browser_arm(arm, url)
         pick = {"browser-own": "own", "browser-stealth": "stealth"}.get(arm.key, "solo")
         if pick == "stealth":
             from .browser import patchright_installed
@@ -291,6 +317,71 @@ class Retailer:
             self.log.info("%s: trial method '%s' was blocked; using the normal method this time", self.display, arm.key)
             time.sleep(random.uniform(3, 8))
             return None
+        TRIALS.note(self.name, arm, True)
+        return res
+
+    # ---- other identities and addresses (network.py) ----------------------------------------------
+    def _next_proxy(self) -> str:
+        from ..network import socks_ready
+        if PROXIES is None or not PROXIES.all():
+            raise _ArmUnavailable("add proxies first (Advanced > Connection methods > Proxies)")
+        proxy = PROXIES.pick(self.name)
+        if not proxy:
+            raise _ArmResting("every proxy is resting at this store after a block")
+        if proxy.startswith("socks") and not socks_ready():
+            raise _ArmUnavailable("SOCKS proxies need a package: run  .\\.venv\\Scripts\\python.exe -m pip install \"requests[socks]\"")
+        return proxy
+
+    def _identity_session(self, key: str, ua: str) -> requests.Session:
+        """A session per identity (User-Agent or proxy), each with its own cookies."""
+        pool = self.__dict__.setdefault("_identities", {})
+        sess = pool.get(key)
+        if sess is None:
+            sess = requests.Session()
+            sess.headers.update({**self._page_headers(), "User-Agent": ua})
+            pool[key] = sess
+        return sess
+
+    def _ua_get(self, url: str) -> tuple:
+        from ..network import user_agents
+        ua = random.choice(user_agents(self.cfg.raw))
+        r = self._identity_session("ua:" + ua, ua).get(url, timeout=PAGE_TIMEOUT_S)
+        return r.status_code, r.text, dict(r.headers), r.url
+
+    def _proxy_get(self, url: str, proxy: str) -> tuple:
+        from ..network import user_agents
+        agents = user_agents(self.cfg.raw)
+        ua = agents[sum(map(ord, proxy)) % len(agents)]          # one steady browser per proxy
+        sess = self._identity_session("proxy:" + proxy, ua)
+        r = sess.get(url, timeout=PAGE_TIMEOUT_S + 10, proxies={"http": proxy, "https": proxy})
+        return r.status_code, r.text, dict(r.headers), r.url
+
+    def _proxy_browser_arm(self, arm, url: str) -> FetchResult | None:
+        try:
+            proxy = self._next_proxy()
+        except _ArmUnavailable as exc:
+            TRIALS.mark_unavailable(arm.key, str(exc))
+            TRIALS.skip(self.name, arm, str(exc), minutes=30)
+            return None
+        except _ArmResting as exc:
+            TRIALS.skip(self.name, arm, str(exc), minutes=15)
+            return None
+        try:
+            self.browser.proxy_worker(proxy)
+            res = self._via_browser(url, pick="proxy", label=arm.key)
+        except Blocked as exc:
+            if PROXIES is not None:
+                PROXIES.note(proxy, self.name, False)
+            if exc.waiting_for_human:
+                raise
+            TRIALS.note(self.name, arm, False, "blocked")
+            self.log.info("%s: the proxy browser was blocked; the next check moves to another proxy", self.display)
+            return None
+        except Exception as exc:
+            TRIALS.fail(self.name, arm, exc.__class__.__name__)
+            return None
+        if PROXIES is not None:
+            PROXIES.note(proxy, self.name, True)
         TRIALS.note(self.name, arm, True)
         return res
 

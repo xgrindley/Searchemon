@@ -7,9 +7,9 @@ checks (default 20), then the next one takes over, and the plain existing method
 (the "control") takes its turn too so the comparison is fair. A method a store
 blocks rests for a while and sits out of the rotation.
 
-Every method here is an ordinary, honest way to load a page: the same visible
-browser or plain client, the same headers, no disguised fingerprints, no
-CAPTCHA solving, no proxy rotation. See RESOURCES.md for where each idea came from.
+Methods range from the plain ways of loading a page to other identities and
+addresses (stealth builds, rotating User-Agents, proxies); each is scored at every
+store and the best ones get most of the turns. See RESOURCES.md for where each idea came from.
 
 Results go into the block tracker under the method's key (shown in the Methods
 lab), and each switch or block is appended to data/trial-log.jsonl so a run can
@@ -27,6 +27,7 @@ from .util import atomic_write_json, read_json
 
 TRACE_FILE = "trial-log.jsonl"
 OTHERS = "From other restock monitors"
+IDENTITY = "Other identities and addresses"
 STATE_FILE = "trial-state.json"
 KEEP_EVENTS = 30
 MIN_FOR_BEST = 10          # checks a method needs before it can be called one of the best
@@ -96,17 +97,33 @@ CATALOG: list[Arm] = [
         "like someone browsing rather than a script that only ever opens product pages.",
         "jef/streetmerchant (captcha deterrent: ordinary page visits between product checks); "
         "HarperCT/pokemonAvaliabilityBrisbane (front page first for cookies)", group=OTHERS),
+    # Other identities and addresses (v5.0, see network.py).
+    Arm("direct-ua", "Plain requests, a different browser each time", "direct",
+        "Each check goes out as a different current desktop browser (Chrome, Edge, Firefox, Safari on Windows or Mac), "
+        "each with its own cookies, so no single identity asks for everything.",
+        "nearyou/pokemon-stock-monitor (User-Agent rotation)", group=IDENTITY),
+    Arm("direct-proxy", "Plain requests through your proxies", "direct",
+        "Each check goes through the next of your proxies (Advanced > Connection methods > Proxies; a VPN's SOCKS5 "
+        "proxy works too). A proxy a store blocks sits out at that store for 2 hours.",
+        "nearyou/pokemon-stock-monitor (proxies and VPNs)", group=IDENTITY),
+    Arm("browser-proxy", "Browser through your proxies", "browser",
+        "A separate browser profile, never signed in to anything, that goes through your proxies and moves to the "
+        "next proxy after a block.",
+        "nearyou/pokemon-stock-monitor (proxies and VPNs)", group=IDENTITY),
 ]
+NEEDS_PROXIES = ("direct-proxy", "browser-proxy")
 BY_KEY = {a.key: a for a in CATALOG}
 
 # The stealth methods (direct-impersonate, browser-stealth) are off until you switch them on.
 # Only a few are on by default, so each can be traced on its own. Turn others on in the
 # Methods lab, or in config.yaml under trials: active.
-DEFAULT_ACTIVE = ["direct-h2", "browser-solo", "browser-own", "direct-fresh", "browser-light", "browser-warm"]
+DEFAULT_ACTIVE = ["direct-h2", "browser-solo", "browser-own", "direct-fresh", "browser-light", "browser-warm",
+                  "direct-ua", "direct-proxy", "browser-proxy"]
 # Methods added in a later version are switched on once, by themselves, so they get checked and scored next to the
 # others. After that the usual rules decide: auto-balance gives the best one at each store most of the turns, a
 # method that keeps failing is stopped, and your own on/off choice is never overridden again.
-INTRODUCED = {"direct-fresh": "4.1", "browser-light": "4.1", "browser-warm": "4.1"}
+INTRODUCED = {"direct-fresh": "4.1", "browser-light": "4.1", "browser-warm": "4.1",
+              "direct-ua": "5.0", "direct-proxy": "5.0", "browser-proxy": "5.0"}
 SETTLED_TOP = 4.0          # turn length for the best method at a store once every method there has been scored
 SETTLED_N = 8              # recent checks (older ones count a little less) each method needs before that
 DEFAULTS = {
@@ -150,6 +167,8 @@ class TrialPlan:
         """Use these settings, but keep the saved on/off choices: after the first change made with the
         buttons, the saved list wins over config.yaml, so a restart brings back what you had."""
         self.raw = raw_cfg
+        for key in NEEDS_PROXIES:            # settings were saved: proxies may have been added since
+            self.unavailable.pop(key, None)
         self._introduce()
         if "active" in self.saved:
             raw_cfg.setdefault("trials", {})["active"] = list(self.saved["active"])

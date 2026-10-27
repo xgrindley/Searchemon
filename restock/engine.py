@@ -26,7 +26,9 @@ from .retailers.base import Blocked, Retailer
 from .retailers.blocks import BlockInfo
 from .compare import SideBySide
 from .features import FeatureTrial
-from .retailers.base import set_tracker, set_trials
+from .retailers.base import set_proxies, set_tracker, set_trials
+from . import captcha as captcha_mod
+from .network import ProxyPool, VpnSwitch
 from .retailers.browser import BrowserPool
 from .sessions import BlockTracker
 from .scan import ZipScan
@@ -184,6 +186,17 @@ class Monitor:
         else:
             self.compare.browser = self.browser
         self.browser.prefer = self.compare.rates
+        # Other identities and addresses, and the CAPTCHA service (network.py, captcha.py).
+        if getattr(self, "proxies", None) is None:
+            self.proxies = ProxyPool(self.cfg.raw)
+            self.vpn = VpnSwitch(self.cfg.raw, self.log)
+            self.solver = captcha_mod.Solver(self.cfg.raw, self.cfg.data_dir, self.log, self.tracker)
+        else:
+            self.proxies.attach(self.cfg.raw)
+            self.vpn.raw, self.vpn.log = self.cfg.raw, self.log
+            self.solver.attach(self.cfg.raw)
+        set_proxies(self.proxies)
+        captcha_mod.SOLVER = self.solver
         if getattr(self, "trial", None) is None:
             self.trial = FeatureTrial(self.cfg.data_dir, lambda: self.cfg.raw)
         self.browser.trial = self.trial
@@ -242,6 +255,9 @@ class Monitor:
         raw["settings"]["ignored_items"] = list(self.cfg.settings.get("ignored_items") or [])
         raw["settings"]["alerts_paused"] = bool(self.cfg.settings.get("alerts_paused"))
         raw["settings"]["excluded_stores"] = list(self.cfg.settings.get("excluded_stores") or [])
+        # The VPN reconnect command runs a program, so it is only ever set in config.yaml, never from the panel.
+        raw["network"] = dict(raw.get("network") or {}) if isinstance(raw.get("network"), dict) else {}
+        raw["network"]["vpn_reconnect_command"] = str((self.cfg.raw.get("network") or {}).get("vpn_reconnect_command") or "")
         save_config(self.config_path, raw, backup_dir=self.cfg.data_dir)
         self.info("Settings saved")
         self.request_reload()
@@ -686,6 +702,9 @@ class Monitor:
                     cap = MAX_BACKOFF_S * min(6, max(1, h["block_streak"] - 1))
                     backoff = max(exc.retry_after, min(backoff * 2 or 120, cap))
                     backoff *= random.uniform(0.8, 1.2)
+                    if self.vpn.maybe(r.display, h["block_streak"]):
+                        backoff = min(backoff, 180)      # a new address from your VPN: try again soon
+                        self.info(f"{r.display}: your VPN reconnected after {h['block_streak']} blocks in a row")
                     self.info(f"{exc}. Pausing {r.display} for {int(backoff // 60)} min.")
                     mins = int(backoff // 60)
                     if h["block_streak"] >= int((self.cfg.raw.get("discord") or {}).get("status_block_after") or 3):

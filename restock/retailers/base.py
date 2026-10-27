@@ -24,6 +24,7 @@ UA = (
 BROWSER_STICKY_S = 6 * 3600          # after a block, keep using the browser this long
 PAUSE_FOR = {"rate_limit": 300, "challenge": 900, "denied": 1800, "queue": 60}
 HARD_DENY_PAUSE = 6 * 3600          # Imperva "Error 15" style bans
+PAGE_TIMEOUT_S = 20                 # a page that has not answered by then is being stalled, not slow
 
 
 TRACKER = None  # set by the engine: a sessions.BlockTracker
@@ -72,6 +73,7 @@ class Retailer:
         self.browser = browser
         self.browser_until = 0.0
         self.last_via = "direct"
+        self._timeouts = 0              # plain page requests in a row that got no answer
         self._imp = None                # curl_cffi session for the direct-impersonate trial
         self._h2 = None                 # HTTP/2 client for the direct-h2 trial method
         self._warm_session = None       # its own cookies, so the trial never changes the normal session
@@ -134,7 +136,23 @@ class Retailer:
     def using_browser(self) -> bool:
         if not (self.browser and self.browser.usable):
             return False
-        return self.fetch_mode == "browser" or (self.fetch_mode == "auto" and time.time() < self.browser_until)
+        return (self.fetch_mode == "browser"
+                or (self.fetch_mode == "auto" and (time.time() < self.browser_until or self._direct_refused())))
+
+    def _direct_refused(self) -> bool:
+        """True when side-by-side tests showed this store refuses plain requests nearly every time (CVS: 0 of 30).
+        Then pages go straight to the browser: each refused plain request also counts against this connection,
+        so retrying them every few hours only keeps the store suspicious."""
+        prefer = getattr(self.browser, "prefer", None)
+        domains = getattr(self, "domains", ()) or ()
+        if not (prefer and domains):
+            return False
+        try:
+            rate = (prefer(domains[0]) or {}).get("direct")
+        except Exception:
+            return False
+        from .browser import BAD_RATE
+        return rate is not None and rate <= BAD_RATE
 
     def _raise(self, info: BlockInfo, retry_after: float | None = None) -> None:
         pause = HARD_DENY_PAUSE if info.hard else (info.retry_after or retry_after or PAUSE_FOR[info.kind])
@@ -304,11 +322,27 @@ class Retailer:
 
         try:
             # no-cache: ask for a fresh page so a cached "in stock" or "sold out" is not reported.
-            resp = self.session.get(url, timeout=25, headers={
+            resp = self.session.get(url, timeout=PAGE_TIMEOUT_S, headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Cache-Control": "no-cache", "Pragma": "no-cache"})
+        except requests.Timeout as exc:
+            # A store that stops answering a plain request is usually stalling a suspected bot (Walgreens does this:
+            # 63 timeouts in a day, never once switching to the browser). Treat it like a refusal.
+            self._timeouts += 1
+            if TRACKER:
+                TRACKER.record("direct", self.name, False, "timeout")
+            if self.fetch_mode == "auto" and self.browser and self.browser.usable:
+                self.browser_until = time.time() + BROWSER_STICKY_S
+                self.log.info("%s stopped answering plain requests (timed out); switching to browser checks for %d hours",
+                              self.display, BROWSER_STICKY_S // 3600)
+                return self._via_browser(url)
+            if self._timeouts >= 2:
+                self._timeouts = 0
+                raise Blocked(f"{self.display} stopped answering (timed out twice in a row)", 900) from exc
+            raise ConnectionError(f"{self.display}: network error {exc.__class__.__name__}") from exc
         except requests.RequestException as exc:
             raise ConnectionError(f"{self.display}: network error {exc.__class__.__name__}") from exc
+        self._timeouts = 0
         info = classify(resp.status_code, resp.text, resp.headers)
         if TRACKER and not (info is None and resp.status_code >= 500):
             TRACKER.record("direct", self.name, info is None or info.kind == "queue", info.kind if info else "")

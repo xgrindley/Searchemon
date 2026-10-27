@@ -1,5 +1,23 @@
 # Changelog
 
+## v5.0 (2026-10-26, stable release)
+- Declared stable by the owner. It is test build v4.1 (saved as build/v4.1), with the version number changed to 5.0.
+  Everything listed under v4.1 below is in it: price against MSRP, the adaptive check schedule, blocking price-gouging sellers,
+  Macy's and Kohl's, more trust at CVS and Walgreens, community restock tips, the newest set names in searches, the methods from
+  other restock monitors, and the new identities and addresses with the CAPTCHA service.
+- Install it with `.\update.ps1` (no channel name), then `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`
+  (adds PySocks for SOCKS proxies). Test builds continue from v5.1.
+
+To test:
+```powershell
+cd "$HOME\Documents\poke-restock"
+.\update.ps1
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Get-Content .\VERSION
+.\start-my-chrome.ps1
+.\run.ps1
+```
+
 ## v4.1 (2026-10-26, test build, follows stable v4.0)
 - **Other identities and addresses, scored like every other method.** The rule against them is lifted:
   - Plain requests that go out as a different current desktop browser each time (Chrome, Edge, Firefox, Safari), each with its

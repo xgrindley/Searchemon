@@ -2,16 +2,23 @@
 
 Read this first when picking the project back up. Newest entries at the top of each section.
 
-## State (v4.0 stable; working on test build v4.1)
-- Repo: github.com/xgrindley/Searchemon (public). main = the latest stable release only (v4.0, declared 2026-10-26, saved as release/v4.0), test = current work (continues from v4.1; frozen copies build/v3.1 to build/v3.6 are on GitHub). See RELEASING.md.
-- Version scheme: stable v1.0, v2.0, v3.0...; tests count up from the release (v2.1, v2.2, v2.3, v2.4, v2.5...). v1.0 was v0.6 promoted, v2.0 is v1.2 promoted.
+## State (v5.0 stable; working on test build v5.1)
+- See CLAUDE.md for the full handoff (where things stand, rules, code map, how to start).
+- Repo: github.com/xgrindley/Searchemon (public). main = v5.0 (release/v5.0), test = v5.1. See RELEASING.md.
+- Version scheme: stable v1.0, v2.0 ... v5.0; tests count up from the release (v5.1, v5.2 ...).
 - Windows app, Python 3.13 venv, tkinter window + local control panel at 127.0.0.1:8765.
-- Retailers: Target, Best Buy, Walmart, Kroger family, Pokemon Center, GameStop, Costco, Sam's,
-  B&N, BAM, Amazon, Dick's, Safeway, Raley's, Walgreens, CVS.
-- Alerts go to Discord: default, online, in_store, per-store keys, and per-area webhooks.
-- Project folder on the PC: Documents\poke-restock. Back up with `.\versions.ps1 save`.
+- Retailers: Target, Best Buy, Walmart, Kroger family, Pokemon Center, GameStop, Costco, Sam's, B&N, BAM, Amazon, Dick's,
+  Safeway, Raley's, Walgreens, CVS, Macy's, Kohl's, any link. Plus eBay (deals, fair value) and TCGplayer prices.
+- Discord webhooks: default, online, in_store, status, review, ebay, per-store keys, per-area.
+- Project folder on the PC: Documents\poke-restock (not a git clone; update.ps1 downloads zips). Back up with `.\versions.ps1 save`.
 
 ## Decisions
+- 2026-10-27: no "Claude-Session" lines in commit messages; history rewritten and force-pushed to drop the old ones.
+- v5.1: Akamai (Walgreens, CVS) judges the connection, not the browser, so loads there share one 15 s gap and a refused
+  search rests searching (2 h) without pausing product checks.
+- v5.1: merchandise (clothing, model kits, puzzles) is never card product; it goes to the To review queue instead.
+- v5.1: eBay fair value = median of eBay price+shipping inside Tukey fences (egregious shipping dropped), averaged with
+  TCGplayer market price; deals must also pass the seller risk check.
 - GitHub pushes only after the user tests and approves a build (2026-10-25). Until then work stays local and is synced to the PC folder only. Stable (main) is a separate, later word from the user.
 - UI direction chosen: B, Glass Aurora (2026-10-25). Control panel (panel_page.py) carries the rich visuals; the tkinter window stays lightweight and only gets what is needed. No external fonts (privacy).
 - Stealth trials (direct-impersonate, browser-stealth) added in v2.6 on request, off by default.

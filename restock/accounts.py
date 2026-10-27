@@ -28,6 +28,7 @@ SIGN_IN = {
     "samsclub": "https://www.samsclub.com/", "gamestop": "https://www.gamestop.com/",
     "barnesandnoble": "https://www.barnesandnoble.com/", "booksamillion": "https://www.booksamillion.com/",
     "raleys": "https://www.raleys.com/", "walgreens": "https://www.walgreens.com/", "cvs": "https://www.cvs.com/",
+    "macys": "https://www.macys.com/", "kohls": "https://www.kohls.com/",
 }
 
 # Cookies that mean "this browser is logged in", as opposed to ordinary session or tracking cookies.

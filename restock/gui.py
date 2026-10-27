@@ -32,7 +32,7 @@ STORE_NAMES = {
     "pokemoncenter": "Pokemon Center", "gamestop": "GameStop", "costco": "Costco", "samsclub": "Sam's Club",
     "barnesandnoble": "Barnes & Noble", "booksamillion": "Books-A-Million", "amazon": "Amazon",
     "dicks": "Dick's Sporting Goods", "safeway": "Safeway / Albertsons", "raleys": "Raley's",
-    "walgreens": "Walgreens", "cvs": "CVS", "web": "Other sites (your links)",
+    "walgreens": "Walgreens", "cvs": "CVS", "macys": "Macy's", "kohls": "Kohl's", "web": "Other sites (your links)",
 }
 # Stores checked through web pages, where a signed-in browser helps. Target,
 # Best Buy and Kroger are checked through data feeds that ignore sign-in.

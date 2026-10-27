@@ -30,6 +30,7 @@ from .retailers.base import set_tracker, set_trials
 from .retailers.browser import BrowserPool
 from .sessions import BlockTracker
 from .scan import ZipScan
+from .sellers import SellerWatch
 from .accounts import AccountTracker
 from .history_store import StoreHistory
 from .trials import TrialPlan
@@ -45,7 +46,9 @@ RESOLVE_RETRY_S = 6 * 3600
 MAX_BACKOFF_S = 1800
 MAX_SLOWDOWN = 8.0
 TYPE_QUERIES = ("pokemon elite trainer box", "pokemon booster bundle", "pokemon booster box", "pokemon collection box",
-                "pokemon tin", "pokemon blister", "pokemon premium collection", "pokemon booster pack")
+                "pokemon tin", "pokemon blister", "pokemon premium collection", "pokemon booster pack",
+                "pokemon ex box", "pokemon mini tin", "pokemon build and battle", "pokemon binder collection",
+                "pokemon illustration collection", "pokemon poster collection")
 
 
 def make_logger(data_dir: str, console: bool = False) -> logging.Logger:
@@ -141,6 +144,7 @@ class Monitor:
             self.resolved: dict = read_json(self.resolved_path, {})
             self.history = History(self.cfg.data_dir)
             self.catalog = Catalog(self.cfg.data_dir)
+            self.sellers = SellerWatch(self.cfg.data_dir)
         else:
             self._discovery_tried.clear()       # settings changed: let discovery try again with them
         self.log = make_logger(self.cfg.data_dir, self.console)
@@ -409,6 +413,7 @@ class Monitor:
                 return
             self._closed = True
         self.store_history.save()
+        self.sellers.save()
         if self.browser:
             self.browser.begin_stop()               # no new browsers join; every browser starts closing now
         self.stop(wait=3.0)                          # ...while the checking loops wind down alongside
@@ -635,6 +640,7 @@ class Monitor:
                 self.state.save()
                 self._save_pacing()
                 self.store_history.save()
+                self.sellers.save()
             except Exception as exc:   # a locked or full disk must never stop this store's checks
                 self.log.warning("%s: could not save progress: %s", name, exc)
             try:
@@ -965,6 +971,18 @@ class Monitor:
             self.info(f"{res.retailer_name}: {res.title[:60]} showed stock once, but not on a second look; no alert")
         return again
 
+    def _judge_seller(self, res: StockResult) -> tuple[bool, str]:
+        """Record a marketplace seller's price against MSRP and say whether that seller is blocked (see sellers.py)."""
+        if not (res.seller and res.third_party and res.price):
+            return False, ""
+        from .filters import tolerance_pct
+        msrp = display_msrp(res, self.cfg)
+        if msrp:
+            limit = msrp * (1 + tolerance_pct(self.cfg, res.retailer) / 100)
+            self.sellers.record(res.retailer, res.seller, res.price, msrp, limit, res.title)
+        blocked, why = self.sellers.blocked(res.retailer, res.seller)
+        return blocked, why
+
     @staticmethod
     def pause_between_checks() -> None:
         time.sleep(CONFIRM_GAP_S)
@@ -978,11 +996,16 @@ class Monitor:
             self.emit("result", res)
             return
         ok, why = passes(res, self.cfg, kw, search_max, check_type=check_type)
+        seller_blocked, seller_why = self._judge_seller(res)
+        if ok and seller_blocked:
+            ok, why = False, f"seller {res.seller} is blocked ({seller_why})"
         if res.in_stock and not ok:
             # Track as not-available so it alerts later if it becomes eligible (price drop, etc).
             self.state.evaluate(dataclasses.replace(res, online=False, stores=[]),
                                 float(s.get("alert_cooldown_minutes") or 0) * 60, bool(s.get("alert_on_startup")))
             res.note = f"ignored: {why}"
+            # Priced past your limit (or by a blocked seller) counts as a miss, so it is checked less often.
+            self.catalog.note_stock(res, over_cap=True)
             self.emit("result", res)
             return
 

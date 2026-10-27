@@ -44,6 +44,7 @@ KNOWN_SITES = {
     "cvs.com": "CVS",
     "meijer.com": "Meijer",
     "kohls.com": "Kohl's",
+    "macys.com": "Macy's",
     "fivebelow.com": "Five Below",
     "dickssportinggoods.com": "Dick's Sporting Goods",
     "safeway.com": "Safeway",
@@ -159,7 +160,7 @@ def parse_amazon(html: str) -> dict:
     return info
 
 
-SLUG_NOISE = re.compile(r"(?:^|-)(?:prodid|prod|id|ean|sku)-?\d+$|[-.]?\d{5,}$|\.html?$", re.I)
+SLUG_NOISE = re.compile(r"(?:^|-)(?:prodid|prod|id|ean|sku)-?\d+$|[-.]?\d{5,}$|\.(?:html?|jsp|aspx?|php)$", re.I)
 
 
 def slug_title(path: str) -> str:
@@ -405,6 +406,7 @@ class WebPage(Retailer):
                                {"in": "In stock", "out": "Out of stock"}.get(status, "Unknown (no stock data on page)")),
                 image=info["image"],
                 third_party=self.third_party(info.get("seller")),
+                seller=str(info.get("seller") or "")[:80],
                 preorder=bool(info.get("preorder")),
             )
             self.pause(self.link_delay())
@@ -943,5 +945,30 @@ class CVS(WebPage):
         return out
 
 
+class Macys(WebPage):
+    """Macy's carries Pokemon TCG in its toys section. Product links look like /shop/product/<name>?ID=12345678.
+    Its results are built by script and it uses Akamai, so it is searched in the browser."""
+    name = "macys"
+    display = "Macy's"
+    domains = ("macys.com",)
+    supports_search = True
+    search_url = "https://www.macys.com/shop/search?keyword={q}"
+    product_re = re.compile(r"/shop/product/[a-z0-9-]+", re.I)
+    own_seller_names = ("macy s", "macys")
+    search_in_browser = True
+
+
+class Kohls(WebPage):
+    """Kohl's sells Pokemon TCG online and in stores. Product links look like /product/prd-1234567/<name>.jsp."""
+    name = "kohls"
+    display = "Kohl's"
+    domains = ("kohls.com",)
+    supports_search = True
+    search_url = "https://www.kohls.com/search.jsp?search={q}"
+    product_re = re.compile(r"/product/prd-\d+(?:/[a-z0-9-]+\.jsp)?", re.I)
+    own_seller_names = ("kohl s", "kohls")
+    search_in_browser = True
+
+
 SITE_CLASSES = (PokemonCenter, GameStop, Costco, SamsClub, BarnesAndNoble, BooksAMillion, Amazon, DicksSportingGoods,
-                Safeway, Raleys, Walgreens, CVS)
+                Safeway, Raleys, Walgreens, CVS, Macys, Kohls)

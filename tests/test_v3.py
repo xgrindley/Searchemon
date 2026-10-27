@@ -286,8 +286,12 @@ class CatalogTests(Base):
         self.assertEqual(sorted(l["retailer"] for l in etb["listings"]), ["bestbuy", "target"])   # same UPC, one group
         from restock.tcg import type_settings
         types = type_settings(cfg.raw)
-        picks = [cat.rotation("target", 1, types)[0]["id"] for _ in range(3)]
-        self.assertEqual(picks, ["3", "1", "4"])           # top-priority types first (bundle, ETB), then round-robin
+        picks = []
+        for _ in range(3):                                  # each pick is checked (recorded) before the next round
+            pick = cat.rotation("target", 1, types)[0]
+            picks.append(pick["id"])
+            cat.note_stock(StockResult("target", "Target", pick["id"], pick["title"], "u", price=49.99))
+        self.assertEqual(picks, ["3", "1", "4"])           # top-priority types first (bundle, ETB), then the rest
         cat.set_status("target:3", "ignored")
         self.assertNotIn("3", [i["id"] for i in cat.rotation("target", 5, types)])
 

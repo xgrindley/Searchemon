@@ -1,6 +1,22 @@
 # Changelog
 
 ## v4.1 (test build, in progress)
+- **Found for you shows price against MSRP.** Each store's listing shows the store's price, the MSRP, and how far apart they are
+  ("85% over MSRP", "At MSRP"), colored by your limit for that store: within it, over it, or far over it.
+- **Checks adapt to what each store actually does with a product.** Every check that finds a listing unavailable, or priced past
+  your limit, is a miss. The first 5 misses cost nothing; after that the wait before the next check doubles every 5 misses (30 min,
+  1 h, 2 h ... up to a day). It never stops: the slowest listing is still checked daily. Anything that suggests movement puts it
+  straight back to the normal pace: stock at that store, the same product restocking at another store, its price changing, or the
+  store's search showing it at a new price. Each round checks the listing that has waited longest, with wanted types (Elite Trainer
+  Boxes, bundles) given a head start, so nothing is starved. Found for you says when a listing is being checked less often and why.
+- **Price-gouging marketplace sellers are blocked by what they charge.** Every offer from a seller other than the store (Walmart,
+  Amazon and similar) is recorded against MSRP. A seller whose last offers (at least 3, within 30 days) are 80% or more past your limit,
+  typically 25% or more over MSRP, is blocked by itself; it is let through again if it starts pricing fairly. Prices & filters lists
+  every seller with its status and why, with Block, Allow and "Decide by prices" buttons. Blocked sellers' listings are checked
+  less often too.
+- **Macy's and Kohl's added**, both finding Pokemon products by themselves (searched in the browser, your own Chrome first).
+  Discovery also rotates through more product-type searches (ex boxes, mini tins, Build & Battle, binder, illustration and poster
+  collections). Keyword searches and the Found for you store filter now offer every store that can be searched (was 5).
 - **More trust at CVS and Walgreens (Akamai).** From a day of real numbers: CVS side-by-side tests loaded with your own Chrome
   20 of 20 times, plain requests 0 of 30 and the app's own Chrome 0 of 13; Walgreens timed out 63 times without ever switching to
   the browser. Akamai keeps a trust score per connection, and every refused request lowers it, so:

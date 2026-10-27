@@ -38,6 +38,10 @@ def _third_party(p: dict) -> bool | None:
     return None   # unknown: not treated as third party, but not confirmed either
 
 
+def _seller_name(p: dict) -> str:
+    return str(p.get("sellerDisplayName") or p.get("sellerName") or "").strip()[:80]
+
+
 def _pickup_stores(p: dict) -> list[StoreStock]:
     out = []
     for opt in p.get("fulfillmentOptions") or []:
@@ -204,6 +208,7 @@ class Walmart(Retailer):
             online=status == "IN_STOCK",
             online_status=("Pre-order" if preorder and status == "IN_STOCK" else status.replace("_", " ").title()) or "Unknown",
             third_party=_third_party(p),
+            seller=_seller_name(p),
             image=dig(p, "imageInfo", "thumbnailUrl"),
             stores=_pickup_stores(p),
             preorder=preorder,
@@ -256,6 +261,7 @@ class Walmart(Retailer):
                 online=status == "IN_STOCK",
                 online_status=status.replace("_", " ").title() or "Unknown",
                 third_party=_third_party(it),
+                seller=_seller_name(it),
                 image=it.get("image"),
             ))
         return out

@@ -299,7 +299,14 @@ input[type=range] { accent-color: var(--act); width: 160px; }
 .group { background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-m); margin-bottom: 10px; overflow: hidden; }
 .group-head { padding: 10px 14px; display: flex; gap: 10px; align-items: baseline; justify-content: space-between; flex-wrap: wrap; border-bottom: 1px solid var(--line-soft); }
 .group-head b { font-weight: 600; }
-.listing { display: grid; grid-template-columns: 130px minmax(0, 1fr) 90px auto; gap: 12px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line-soft); font-size: 13.5px; }
+.listing { display: grid; grid-template-columns: 130px minmax(0, 1fr) minmax(170px, auto) auto; gap: 12px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line-soft); font-size: 13.5px; }
+.listing .pricing { display: grid; grid-template-columns: auto auto; gap: 0 10px; justify-content: end; text-align: right; font-variant-numeric: tabular-nums; }
+.listing .pricing span { color: var(--muted); font-size: 12px; }
+.listing .pricing b { font-weight: 600; }
+.listing .diff { grid-column: 1 / -1; font-size: 12px; font-weight: 600; }
+.listing .diff.fair { color: var(--ok); } .listing .diff.high { color: var(--warn); } .listing .diff.gouge { color: var(--bad); }
+.listing .sched { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+@media (max-width: 760px) { .listing { grid-template-columns: 1fr auto; } .listing .pricing { justify-content: start; text-align: left; } }
 .listing:last-child { border-bottom: 0; }
 .listing.off { opacity: .5; }
 .listing.in { background: var(--ok-bg); }
@@ -465,8 +472,9 @@ table.matrix td.none { color: var(--faint); }
 "use strict";
 const RETAILERS = { target: "Target", bestbuy: "Best Buy", kroger: "Kroger family", walmart: "Walmart", pokemoncenter: "Pokemon Center",
   gamestop: "GameStop", costco: "Costco", samsclub: "Sam's Club", barnesandnoble: "Barnes & Noble", booksamillion: "Books-A-Million",
-  amazon: "Amazon", dicks: "Dick's Sporting Goods", safeway: "Safeway", raleys: "Raley's", walgreens: "Walgreens", cvs: "CVS", web: "Other sites" };
-const SEARCHABLE = ["target", "bestbuy", "walmart", "kroger", "dicks"];
+  amazon: "Amazon", dicks: "Dick's Sporting Goods", safeway: "Safeway", raleys: "Raley's", walgreens: "Walgreens", cvs: "CVS", macys: "Macy's", kohls: "Kohl's", web: "Other sites" };
+const SEARCHABLE = ["target", "bestbuy", "walmart", "kroger", "gamestop", "costco", "samsclub", "barnesandnoble", "booksamillion",
+  "dicks", "safeway", "walgreens", "cvs", "macys", "kohls"];
 const COVERAGE = { live: "Shelf stock checked", online: "Website checked", listed: "Listed only" };
 let TYPES_LIST = [];
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -864,7 +872,7 @@ const views = {
     const q = h("input", { type: "search", placeholder: "Filter by name", value: foundState.q, "aria-label": "Filter products", oninput: (e) => { foundState.q = e.target.value; drawFound(); } });
     const typeSel = h("select", { id: "found-type", "aria-label": "Product type", onchange: (e) => { foundState.type = e.target.value; saveFound(); drawFound(); } }, h("option", { value: "", text: "All product types" }));
     const rSel = h("select", { "aria-label": "Store", onchange: (e) => { foundState.retailer = e.target.value; saveFound(); drawFound(); } },
-      h("option", { value: "", text: "All stores" }), SEARCHABLE.map((k) => h("option", { value: k, text: RETAILERS[k], selected: foundState.retailer === k })));
+      h("option", { value: "", text: "All stores" }), SEARCHABLE.map((k) => h("option", { value: k, text: RETAILERS[k] || k, selected: foundState.retailer === k })));
     const ign = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: foundState.showIgnored, onchange: (e) => { foundState.showIgnored = e.target.checked; saveFound(); drawFound(); } }), "Show ignored");
     setTimeout(loadFound);
     return [
@@ -914,7 +922,7 @@ const views = {
           h("button", { class: "btn quiet danger", type: "button", text: "Remove", onclick: () => { if (confirm("Remove this search?")) { cfg.searches.splice(i, 1); touch(); render(); } } })),
         h("div", { class: "card-body" },
           field("Search for", text(s, "query", { placeholder: "pokemon trading card game" }), "What you would type in the store's search box", true),
-          field("Search at", picks(s, "retailers", SEARCHABLE), "Walgreens and CVS don't support search; add their links under Products", true),
+          field("Search at", picks(s, "retailers", SEARCHABLE), "Stores whose results are built by script are searched in the browser, so they take a little longer", true),
           field("Must include one of", lines(s.keywords, "include_any", { placeholder: "elite trainer box\nbooster bundle" }), "Added to your global keywords"),
           field("Never alert on", lines(s.keywords, "exclude", { placeholder: "sleeves\nbinder" }), "Added to your global excludes"),
           field("Max price", num(s, "max_price", { placeholder: "Optional" }), "Overrides the MSRP rules for this search"),
@@ -929,6 +937,7 @@ const views = {
   },
 
   filters() {
+    setTimeout(loadSellers);
     const typesTable = () => {
       cfg.product_types = cfg.product_types || {};
       if (!TYPES_LIST.length) return h("p", { class: "hint", text: "Loading product types" });
@@ -995,6 +1004,9 @@ const views = {
         setting("Double-check before alerting", "When stock appears, look once more a few seconds later and only alert if it is still there. Cuts false alarms from glitchy pages.", sw(st, "confirm_restocks", "")),
         setting("Smallest store quantity", "Ignore a store showing fewer units than this. 1 alerts on everything; 2 skips single units, which are often already sold or misplaced.", num(st, "min_store_qty")),
         setting("Include non-English products", "Japanese and other-language products, when a US store lists them.", sw(st, "allow_non_english", ""))),
+      h("h2", { text: "Marketplace sellers" }),
+      h("p", { class: "hint", text: "Other sellers on Walmart, Amazon and similar stores are judged by what they charge. A seller is blocked by itself when at least 80% of its last offers (3 or more, within 30 days) are past your limit and it typically asks 25% or more over MSRP. It is let through again by itself if it starts pricing fairly. Block or allow by hand to decide yourself." }),
+      h("div", { id: "sellers" }, h("p", { class: "hint", text: "Loading sellers" })),
       h("h2", { text: "Muted items" }),
       muted.length ? h("div", { class: "settings-list" }, muted.map((key) => setting(key, "", h("button", { class: "btn", type: "button", text: "Unmute", onclick: () => mute(key, false) })))) :
         h("p", { class: "hint", text: "Nothing muted. Use Mute on the dashboard to silence a single listing." }),
@@ -1377,6 +1389,8 @@ const views = {
         field("API key (optional)", secret(r, "api_key", "From developer.walgreens.com"), "Adds exact Walgreens stores to Stores with stock. Walgreens' API has no stock data, so stock still comes from product pages.")],
         "Online. Finds Pokemon products by itself (through the browser); store locations with a key"),
       block("cvs", modeField, "Online, plus shelf counts at stores around your areas. Finds Pokemon products by itself (your own Chrome)"),
+      block("macys", modeField, "Online. Finds Pokemon products by itself (through the browser)"),
+      block("kohls", modeField, "Online. Finds Pokemon products by itself (through the browser)"),
       block("web", (r) => [modeField(r),
         field("Page says in stock when it shows", lines(r, "in_stock_text", { placeholder: "add to cart" }), "Only used on pages without built-in stock data"),
         field("Page says sold out when it shows", lines(r, "out_of_stock_text", { placeholder: "out of stock\nsold out" }))], "Any other product link"),
@@ -1885,6 +1899,40 @@ function drawPlaces() {
 }
 function stockSignature() { return JSON.stringify(((status && status.items) || []).filter((i) => i.in_stock && !i.note).map((i) => [i.key, (i.store_points || []).map((s) => s.id || s.name)])); }
 
+async function loadSellers() {
+  const el = $("sellers"); if (!el) return;
+  let rows = [];
+  try { rows = (await api("/api/sellers")).rows || []; } catch (e) { el.replaceChildren(h("p", { class: "hint", text: e.message })); return; }
+  if (!rows.length) { el.replaceChildren(h("div", { class: "panel empty", text: "No marketplace sellers seen yet. They show up here once a check finds an item sold by someone other than the store." })); return; }
+  const set = async (key, mode) => { try { const r = await api("/api/action", { action: "seller_mode", key, mode }); toast(r.message || "Saved"); loadSellers(); } catch (e) { toast(e.message, true); } };
+  el.replaceChildren(h("div", { class: "table-wrap" }, h("table", { class: "rules" },
+    h("thead", {}, h("tr", {}, ["Seller", "Store", "Status", "Why", ""].map((t) => h("th", { text: t })))),
+    h("tbody", {}, rows.map((r) => h("tr", {},
+      h("td", { text: r.name }), h("td", { text: RETAILERS[r.retailer] || r.retailer }),
+      h("td", {}, h("b", { style: "color:" + (r.blocked ? "var(--bad)" : "var(--ok)"), text: r.blocked ? "Blocked" : "Allowed" }), r.mode !== "auto" ? h("span", { class: "hint", text: " (by you)" }) : null),
+      h("td", { class: "hint", text: r.why }),
+      h("td", { style: "white-space:nowrap;text-align:right" },
+        r.mode !== "block" ? h("button", { class: "btn quiet", type: "button", text: "Block", onclick: () => set(r.key, "block") }) : null,
+        r.mode !== "allow" ? h("button", { class: "btn quiet", type: "button", text: "Allow", onclick: () => set(r.key, "allow") }) : null,
+        r.mode !== "auto" ? h("button", { class: "btn quiet", type: "button", text: "Decide by prices", onclick: () => set(r.key, "auto") }) : null)))))));
+}
+/* Store price next to MSRP, and how far apart they are, colored by your price limit for that store. */
+function priceVsMsrp(price, msrp, retailer) {
+  const cells = [h("span", { text: "Store" }), h("b", { text: price ? money(price) : "-" }), h("span", { text: "MSRP" }), h("b", { text: msrp ? money(msrp) : "-" })];
+  if (price && msrp) {
+    const pct = (price - msrp) / msrp * 100;
+    const allow = storeAllowance(retailer);
+    const cls = pct <= allow + 0.05 ? "fair" : pct <= Math.max(allow * 2, 25) ? "high" : "gouge";
+    const text = Math.abs(pct) < 0.5 ? "At MSRP" : Math.round(Math.abs(pct)) + "% " + (pct > 0 ? "over" : "under") + " MSRP";
+    cells.push(h("span", { class: "diff " + cls, title: "Your limit at this store: " + allow + "% over MSRP", text }));
+  }
+  return h("div", { class: "pricing" }, cells);
+}
+function storeAllowance(retailer) {
+  const own = ((cfg.retailers || {})[retailer] || {}).msrp_tolerance_pct;
+  const v = own !== undefined && own !== null && own !== "" ? Number(own) : Number((cfg.settings || {}).msrp_tolerance_pct || 0);
+  return isFinite(v) ? v : 0;
+}
 function drawFound() {
   const body = $("found-body"); if (!body || !catalogData) return;
   const ts = $("found-type");
@@ -1909,10 +1957,12 @@ function drawFound() {
       h("div", { class: "group-head" }, h("b", { text: g.title }), h("span", { class: "hint", text: (g.type_label || "") + (g.msrp ? ", MSRP " + money(g.msrp) : "") })),
       g.listings.map((l) => {
         const inNow = Date.now() / 1000 - (l.last_in_stock || 0) < 3600;
+        const sched = l.schedule && l.schedule.text;
         return h("div", { class: "listing" + (l.status === "ignored" ? " off" : "") + (inNow ? " in" : "") },
-          h("b", { text: l.retailer_name }),
-          h("span", {}, extLink(l.url, l.status_text || "Not checked yet"), l.type_alert ? null : h("span", { class: "hint", text: "  (alerts off for this type)" })),
-          h("span", { class: "hint hide-s", text: money(l.price) }),
+          h("b", { text: RETAILERS[l.retailer] || l.retailer_name }),
+          h("span", {}, extLink(l.url, l.status_text || "Not checked yet"), l.type_alert ? null : h("span", { class: "hint", text: "  (alerts off for this type)" }),
+            sched ? h("span", { class: "sched", text: sched }) : null),
+          priceVsMsrp(l.price, l.msrp || g.msrp, l.retailer),
           h("button", { class: "btn quiet", type: "button", text: l.status === "ignored" ? "Track" : "Ignore", onclick: async () => {
             try { const r = await api("/api/action", { action: "product_status", key: l.key, status: l.status === "ignored" ? "tracking" : "ignored" }); toast(r.message || "Saved"); loadFound(); } catch (e) { toast(e.message, true); } } }));
       }))));

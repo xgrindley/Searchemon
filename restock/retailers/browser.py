@@ -99,7 +99,8 @@ OWN_CHROME = "my-chrome"
 OWN_EDGE = "my-edge"
 # Stores that always try your own Chrome first (added to browser.own_chrome_sites).
 BAD_RATE = 0.15     # a browser that loaded a store this rarely in side-by-side tests is not sent there
-DEFAULT_OWN_SITES = ("cvs.com", "dickssportinggoods.com", "gamestop.com", "samsclub.com", "target.com", "walgreens.com")
+DEFAULT_OWN_SITES = ("cvs.com", "dickssportinggoods.com", "gamestop.com", "samsclub.com", "target.com", "walgreens.com",
+                     "macys.com", "kohls.com")
 
 
 def _port_open(port: int) -> bool:

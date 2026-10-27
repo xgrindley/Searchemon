@@ -32,7 +32,7 @@ FONT_FILES = {"sora.woff2": "sora-latin-wght-normal.woff2", "inter.woff2": "inte
 SIGN_IN_NAMES = {"walmart": "Walmart", "pokemoncenter": "Pokemon Center", "amazon": "Amazon", "dicks": "Dick's Sporting Goods",
                  "safeway": "Safeway", "costco": "Costco", "samsclub": "Sam's Club", "gamestop": "GameStop",
                  "barnesandnoble": "Barnes & Noble", "booksamillion": "Books-A-Million", "raleys": "Raley's",
-                 "walgreens": "Walgreens", "cvs": "CVS"}
+                 "walgreens": "Walgreens", "cvs": "CVS", "macys": "Macy's", "kohls": "Kohl's"}
 
 MAX_BODY = 1_000_000
 
@@ -464,6 +464,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json(200, self.panel.catalog())
         if path == "/api/places":
             return self._json(200, self.panel.places())
+        if path == "/api/sellers":
+            return self._json(200, {"rows": self.panel.monitor.sellers.rows()})
         if path == "/api/types":
             return self._json(200, self.panel.types())
         if path == "/api/patterns":
@@ -542,6 +544,10 @@ class _Handler(BaseHTTPRequestHandler):
                     return self._json(200, {"ok": True, "changed": n, "message":
                                             ("Ignored at every store. It stays ignored after restarts." if ignored
                                              else "Tracking it again at every store.")})
+                elif action == "seller_mode":
+                    ok = m.sellers.set_mode(str(body.get("key")), str(body.get("mode")))
+                    return self._json(200, {"ok": ok, "message": {"block": "Seller blocked.", "allow": "Seller allowed.",
+                                                                  "auto": "Seller is judged by its prices again."}.get(str(body.get("mode")), "")})
                 elif action == "pause":
                     m.set_paused(bool(body.get("paused")))
                 elif action == "mute":

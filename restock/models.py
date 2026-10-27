@@ -59,6 +59,7 @@ class StockResult:
     online_status: str = ""
     stores: list[StoreStock] = field(default_factory=list)
     third_party: bool | None = None   # True when sold by a marketplace seller
+    seller: str = ""                  # the seller's name when the store shows one
     image: str | None = None
     source: str = "watch"             # "watch", "search: <name>" or "auto"
     type_key: str | None = None       # product type from the classifier (etb, booster_bundle, ...)
